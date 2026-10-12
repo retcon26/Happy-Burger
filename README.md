@@ -299,3 +299,15 @@ Ideas for what's next:
 - [ ] **Face and finger posing:** Face Poser expressions and Finger Poser hands for ragdolls
 - [ ] **Effects:** sparks on metal, smoke, fire after explosions, muzzle smoke and tracer impacts
 - [ ] **Lua gamemodes:** a bigger Lua API and small gamemodes built on it, like Prop Hunt and a zombie survival mode
+- [ ] **More maps:** Half-Life 2: Episode One and Two, Portal and Black Mesa maps, from games whose props are
+      already in the spawn menu
+- [ ] **Breakable props:** wooden crates, glass and pottery that smash into gibs as they do in HL2, with item
+      drops from crates
+- [ ] **Player customization:** player colour, model skins and bodygroups, and a weapon colour for the physics gun
+- [ ] **Host settings:** prop limits per player, PvP, noclip and NPC spawning on or off for everyone in a
+      multiplayer game
+- [ ] **Quick chat:** a radial menu of short messages and gestures for multiplayer, since the consoles have no
+      keyboard
+- [ ] **Share builds:** send a saved build to the other players in the game over ad-hoc or LAN
+- [ ] **Day, night and weather:** a time-of-day option with fog and rain, built on gm_construct_13's fog
+- [ ] **Screenshots:** a pause menu button that saves the screen to the memory stick or memory card
