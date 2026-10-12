@@ -284,11 +284,8 @@ PS2's: low detail but with the ragdoll-only characters).
 - [x] Camera tool; Poser tools (Inflator, Deflator); unlimited ammo and HEV suit options
 - [ ] PS2 speed: props and NPCs on VU1 too
 - [ ] Animated first-person weapons; PvP damage; synced ragdolls
-
-Ideas for what's next:
-
 - [ ] **Team Fortress 2 content (coming soon):** TF2's maps, props and characters through the converter, like the
-      other Source games
+        other Source games
 - [ ] **Drivable vehicles:** HL2's Jeep and Airboat, with GMod's seat for sitting on your own contraptions
 - [ ] **Save and load:** builds saved to the memory stick or memory card and loaded back on any map, and Options
       saved on the PS2 too
@@ -299,12 +296,8 @@ Ideas for what's next:
 - [ ] **Face and finger posing:** Face Poser expressions and Finger Poser hands for ragdolls
 - [ ] **Effects:** sparks on metal, smoke, fire after explosions, muzzle smoke and tracer impacts
 - [ ] **Lua gamemodes:** a bigger Lua API and small gamemodes built on it, like Prop Hunt and a zombie survival mode
-- [ ] **More maps:** Half-Life 2: Episode One and Two, Portal and Black Mesa maps, from games whose props are
-      already in the spawn menu
 - [ ] **More player customization:** on top of picking a player model, a player colour, model skins and
       bodygroups, and a weapon colour for the physics gun
-- [ ] **Host settings:** prop limits per player, PvP, noclip and NPC spawning on or off for everyone in a
-      multiplayer game
 - [ ] **Quick chat:** a radial menu of short messages and gestures for multiplayer, since the consoles have no
       keyboard
 - [ ] **Share builds:** send a saved build to the other players in the game over ad-hoc or LAN
