@@ -15,9 +15,9 @@ owners. You make the game data yourself from the games you own (see [Building](#
 contain it are for your own use. Don't share them.
 
 <p align="center">
-  <img src="docs/multiplayer.jpg" width="450" alt="Two PSPs playing gm_flatgrass together over ad-hoc multiplayer, each showing the other player's character holding the physics gun">
+  <img src="docs/multiplayer.jpg" width="450" alt="Two PSPs playing gm_flatgrass together over ad-hoc multiplayer, each screen showing the other player's character, with the physics gun in first person">
   <br>
-  <em>Two real PSPs in ad-hoc multiplayer on gm_flatgrass: each sees the other player, physics gun in hand.</em>
+  <em>Two real PSPs in ad-hoc multiplayer on gm_flatgrass: each screen shows the other player, with your own physics gun in first person.</em>
 </p>
 
 ## What's in it
