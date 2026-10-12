@@ -1,0 +1,96 @@
+# NPCs for the spawn menu:  model path | display name | options
+#   ai=zombie|antlion|citizen   behaviour: zombies and antlions chase and hit you, citizens wander and flee
+#   headcrabs                   show the model's headcrab bodygroups (zombies)
+#   releasecrab                 a live Headcrab jumps off when it dies (its own is hidden on the ragdoll)
+#   health=N                    hit points
+#   ai=combine|rebel            soldiers: Combine shoot at you, rebels and monsters; rebels follow you and fight them
+#   weapon=pistol|smg1|ar2|shotgun|357|stunstick|crowbar   what it holds (and shoots)
+#   ai=ragdoll                  only in the Ragdolls list (no animations are baked, so it's cheap)
+#   player                      can be picked as your player model (Options > Player model)
+#   halves                      a thrown Sawblade cuts it in two: legs ragdoll + a live Zombie Torso
+#   decimate                    simplify the mesh to the triangle budget (models without low LODs)
+# Every entry is also in the Ragdolls list.
+# Run: tools/bspconv.sh npcs
+models/zombie/classic.mdl                | Zombie       | ai=zombie health=60 headcrabs releasecrab voice=zombie halves
+models/antlion.mdl                       | Antlion      | ai=antlion health=40 voice=antlion
+models/humans/group01/male_07.mdl        | Citizen      | ai=citizen health=40 player voice=male
+models/humans/group01/female_01.mdl      | Citizen (F)  | ai=citizen health=40 player voice=female
+models/combine_soldier.mdl               | Combine      | ai=combine health=60 weapon=smg1 player voice=combine
+models/zombie/fast.mdl                   | Fast Zombie  | ai=zombie health=50 headcrabs releasecrab voice=fastzombie
+models/zombie/poison.mdl                 | Poison Zombie | ai=zombie health=150 headcrabs voice=poison
+models/headcrabclassic.mdl               | Headcrab     | ai=antlion health=10 voice=headcrab
+models/antlion_guard.mdl                 | Antlion Guard | ai=antlion health=300 voice=guard
+models/police.mdl                        | Metrocop     | ai=combine health=50 weapon=pistol player voice=metro
+models/combine_super_soldier.mdl         | Combine Elite | ai=combine health=100 weapon=ar2 player voice=combine
+models/combine_soldier_prisonguard.mdl   | Prison Guard | ai=combine health=70 weapon=shotgun player voice=combine
+models/humans/group03/male_02.mdl        | Rebel        | ai=rebel health=60 weapon=smg1 player voice=male
+models/humans/group03/female_03.mdl      | Rebel (F)    | ai=rebel health=60 weapon=smg1 player voice=female
+models/humans/group03m/male_05.mdl       | Medic        | ai=rebel health=60 weapon=pistol player voice=male
+models/alyx.mdl                          | Alyx         | ai=rebel health=100 weapon=pistol player voice=alyx
+models/barney.mdl                        | Barney       | ai=rebel health=100 weapon=smg1 player voice=barney
+models/kleiner.mdl                       | Dr. Kleiner  | ai=citizen health=40 player voice=male
+models/eli.mdl                           | Eli          | ai=citizen health=40 player voice=male
+models/gman.mdl                          | G-Man        | ai=citizen health=100 player voice=male
+models/breen.mdl                         | Dr. Breen    | ai=citizen health=40 player voice=male
+models/monk.mdl                          | Father Grigori | ai=citizen health=60 player voice=male
+models/odessa.mdl                        | Odessa       | ai=citizen health=50 player voice=male
+models/vortigaunt.mdl                    | Vortigaunt   | ai=citizen health=80 voice=vort
+models/humans/group03/male_07.mdl        | Rebel (AR2)  | ai=rebel health=60 weapon=ar2 voice=male
+models/humans/group03/male_04.mdl        | Rebel Shotgunner | ai=rebel health=60 weapon=shotgun voice=male
+models/police.mdl                        | Metrocop (Stunstick) | ai=combine health=50 weapon=stunstick voice=metro
+models/zombie/zombie_soldier.mdl         | Zombine      | ai=zombie health=100 headcrabs releasecrab voice=zombine
+models/zombie/classic_torso.mdl          | Zombie Torso | ai=zombie health=30 headcrabs releasecrab voice=zombie decimate
+
+# Ragdolls only
+models/humans/group01/male_04.mdl        | Citizen 2    | ai=ragdoll
+models/humans/group01/male_09.mdl        | Citizen 3    | ai=ragdoll
+models/humans/group01/female_04.mdl      | Citizen (F) 2 | ai=ragdoll
+models/humans/group02/male_08.mdl        | Refugee      | ai=ragdoll
+models/humans/group02/female_03.mdl      | Refugee (F)  | ai=ragdoll
+models/humans/group03/male_01.mdl        | Rebel 2      | ai=ragdoll
+models/humans/group03m/female_02.mdl     | Medic (F)    | ai=ragdoll
+models/mossman.mdl                       | Mossman      | ai=ragdoll
+models/magnusson.mdl                     | Magnusson    | ai=ragdoll
+models/humans/charple01.mdl              | Charple      | ai=ragdoll
+models/humans/corpse1.mdl                | Corpse       | ai=ragdoll
+models/player/skeleton.mdl               | Skeleton     | ai=ragdoll
+models/vortigaunt_slave.mdl              | Vortigaunt Slave | ai=ragdoll
+models/antlion_worker.mdl                | Antlion Worker | ai=ragdoll
+models/hunter.mdl                        | Hunter       | ai=ragdoll
+models/stalker.mdl                       | Stalker      | ai=ragdoll
+models/dog.mdl                           | Dog          | ai=ragdoll
+models/crow.mdl                          | Crow         | ai=ragdoll
+models/pigeon.mdl                        | Pigeon       | ai=ragdoll
+models/seagull.mdl                       | Seagull      | ai=ragdoll
+models/player/swat.mdl                   | SWAT         | ai=ragdoll
+models/player/phoenix.mdl                | Phoenix      | ai=ragdoll
+models/player/dod_german.mdl             | German Soldier | ai=ragdoll
+models/player/dod_american.mdl           | US Soldier   | ai=ragdoll
+models/player/p2_chell.mdl               | Chell        | ai=ragdoll
+# Counter-Strike: Source
+models/player/ct_gign.mdl                | GIGN         | ai=ragdoll game=css
+models/player/ct_gsg9.mdl                | GSG-9        | ai=ragdoll game=css
+models/player/ct_sas.mdl                 | SAS          | ai=ragdoll game=css
+models/player/ct_urban.mdl               | SEAL Team 6  | ai=ragdoll game=css
+models/player/t_arctic.mdl               | Arctic Avenger | ai=ragdoll game=css
+models/player/t_guerilla.mdl             | Guerilla     | ai=ragdoll game=css
+models/player/t_leet.mdl                 | Elite Crew   | ai=ragdoll game=css
+models/player/t_phoenix.mdl              | Phoenix Connexion | ai=ragdoll game=css
+models/characters/hostage_01.mdl         | Hostage      | ai=ragdoll game=css
+models/characters/hostage_02.mdl         | Hostage 2    | ai=ragdoll game=css
+models/characters/hostage_03.mdl         | Hostage 3    | ai=ragdoll game=css
+models/characters/hostage_04.mdl         | Hostage 4    | ai=ragdoll game=css
+# Half-Life: Source
+models/scientist.mdl                     | HL Scientist | ai=ragdoll game=hls
+models/barney.mdl                        | HL Barney    | ai=ragdoll game=hls
+models/hgrunt.mdl                        | HECU Grunt   | ai=ragdoll game=hls
+models/zombie.mdl                        | HL Zombie    | ai=ragdoll game=hls
+models/hassassin.mdl                     | Black Ops Assassin | ai=ragdoll game=hls
+models/islave.mdl                        | Alien Slave  | ai=ragdoll game=hls
+models/agrunt.mdl                        | Alien Grunt  | ai=ragdoll game=hls
+models/controller.mdl                    | Alien Controller | ai=ragdoll game=hls
+models/houndeye.mdl                      | Houndeye     | ai=ragdoll game=hls
+models/bullsquid.mdl                     | Bullsquid    | ai=ragdoll game=hls
+models/headcrab.mdl                      | HL Headcrab  | ai=ragdoll game=hls
+models/player/mp/gordon/gordon.mdl       | Gordon Freeman | ai=ragdoll game=hls
+models/player/mp/gman/gman.mdl           | HL G-Man     | ai=ragdoll game=hls

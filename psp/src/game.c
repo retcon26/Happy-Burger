@@ -1,0 +1,4622 @@
+#include "game.h"
+
+#include <pspgu.h>
+#include <pspgum.h>
+#include <pspkernel.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "audio.h"
+#include "camera.h"
+#include "pak.h"
+#include "ents.h"
+#include "gfx.h"
+#include "mem.h"
+#include "menu.h"
+#include "net.h"
+#include "npc.h"
+#include "physics.h"
+#include "proplib.h"
+#include "propx.h"
+#include "script.h"
+#include "settings.h"
+#include "sky.h"
+#include "ui.h"
+
+#define DEG2RAD (3.14159265f / 180.0f)
+#define PI 3.14159265f
+
+#ifdef PS2
+// Frame timings for the debug overlay: map, props, npcs (game_render) and update (main.c), in ms
+float g_ps2_prof[4];
+void gu_profile_text(char *buf, int len);
+#endif
+static int g_flashlight; // Square toggles it on the PS2, holding D-pad Right on the PSP
+
+// The PSP plays over ad-hoc wifi, the PS2 over the network adapter
+#ifdef PS2
+#define NET_HOSTING_HINT "Hosting - others can join over the LAN"
+#define NET_LOST_MSG "Lost the network connection"
+#define NET_STARTING_MSG "Starting the network..."
+#define NET_HOSTING_TAG "HOSTING (LAN)"
+#define RAGDOLL_LOCAL_MSG "Ragdoll (only on this console)"
+#else
+#define NET_HOSTING_HINT "Hosting - others can join over ad-hoc"
+#define NET_LOST_MSG "Lost the ad-hoc connection"
+#define NET_STARTING_MSG "Starting ad-hoc..."
+#define NET_HOSTING_TAG "HOSTING (AD-HOC)"
+#define RAGDOLL_LOCAL_MSG "Ragdoll (only on this PSP)"
+#endif
+#ifndef PS2
+static float g_flash_hold; // how long D-pad Right has been held
+static int g_flash_fired;
+#endif
+
+#define LOOK_YAW_SPEED 150.0f  // deg/s at full speed
+#define LOOK_PITCH_SPEED 110.0f
+#define LOOK_RAMP_TIME 0.30f   // seconds to reach full look speed (fine aiming on a tap)
+#define LOOK_MIN_FRACTION 0.30f
+
+#define USE_RANGE 4096.0f
+#define SPAWN_RANGE 400.0f
+#define MAX_SPAWNABLE 4096 // spawn menu entries per spawnlist
+// Spawn menu grid entries past the prop model numbers: NPCs and ragdolls by NPC type
+#define GRID_NPC 100000
+#define GRID_RAG 200000
+#define PHYSGUN_MIN_DIST 32.0f
+#define PHYSGUN_MAX_DIST 2000.0f
+#define PHYSGUN_PULL 14.0f
+#define PHYSGUN_TURN 10.0f
+#define BALLOON_FORCE 30000.0f // mass * acceleration: lifts about 50kg against 600 gravity
+#define MAX_BALLOONS 4
+#define UNDO_MAX 64
+#define PLAYER_PROP_LIMIT 40
+#define STEP_STRIDE 72.0f
+#define IMPACT_MIN_SPEED 140.0f
+#define PROP_DRAW_DIST_HIGH 2400.0f
+#define PROP_DRAW_DIST_LOW 1500.0f
+
+typedef enum {
+    WEAPON_HANDS,
+    WEAPON_PHYSGUN,
+    WEAPON_GRAVGUN,
+    WEAPON_TOOLGUN,
+    WEAPON_CROWBAR, // the guns from here on (is_gun)
+    WEAPON_PISTOL,
+    WEAPON_357,
+    WEAPON_SMG,
+    WEAPON_SHOTGUN,
+    WEAPON_COUNT
+} Weapon;
+typedef enum {
+    TOOL_REMOVER,
+    TOOL_COLOUR,
+    TOOL_BALLOON,
+    TOOL_DUPLICATOR,
+    TOOL_WELD,
+    TOOL_ROPE,
+    TOOL_BALLSOCKET,
+    TOOL_ELASTIC,
+    TOOL_NOCOLLIDE,
+    TOOL_WEIGHT,
+    TOOL_THRUSTER,
+    TOOL_HOVERBALL,
+    TOOL_EXPLOSIVE,
+    TOOL_SLIDER,
+    TOOL_INFLATOR,
+    TOOL_DEFLATOR,
+    TOOL_CAMERA,
+    TOOL_COUNT
+} Tool;
+
+static const char *k_weapon_names[WEAPON_COUNT] = {"Hands", "Physics Gun", "Gravity Gun", "Tool Gun", "Crowbar",
+                                                   "Pistol", ".357 Magnum", "SMG", "Shotgun"};
+// World models (the old way of showing a weapon), then first-person models with arms (c_ models)
+static const char *k_weapon_models[WEAPON_COUNT] = {NULL, "_physgun", "_physgun", "_toolgun", "_crowbar",
+                                                    "_pistol", "_357", "_smg1", "_shotgun"};
+static const char *k_weapon_vms[WEAPON_COUNT] = {NULL, "_vm_physgun", "_vm_gravgun", "_vm_toolgun", "_vm_crowbar",
+                                                 "_vm_pistol", "_vm_357", "_vm_smg1", "_vm_shotgun"};
+// Source draws first-person models with their own field of view (viewmodel_fov 54, horizontal at 4:3)
+#define VM_FOV_Y 41.4f
+
+// Gravity gun (HL2's): L pulls in and holds a prop, R punts. Hands: R picks up something light, L throws it.
+#define GRAVGUN_MAX_MASS 250.0f
+#define GRAVGUN_PULL_RANGE 1000.0f
+#define GRAVGUN_PUNT_RANGE 250.0f
+#define GRAVGUN_PUNT_SPEED 1400.0f // for a 50 kg prop; lighter ones fly faster
+#define HANDS_MAX_MASS 35.0f
+#define HANDS_RANGE 96.0f
+#define HANDS_THROW_SPEED 500.0f
+
+// HL2's weapons, roughly as they handle in GMod
+typedef struct {
+    int clip, ammo;       // magazine size and starting spare ammo (0, 0: melee)
+    float delay;          // seconds between shots
+    int automatic;        // keeps firing while R is held
+    int pellets;          // bullets per shot
+    float damage, spread; // per bullet; spread is the cone's tangent
+    float range;
+    float force;          // how hard a bullet shoves what it hits (u/s for a 50 kg prop)
+    float reload;         // seconds
+    float kick;           // view punch, degrees
+    const char *fire_snd;
+} WeaponStats;
+static const WeaponStats k_ws[WEAPON_COUNT] = {
+    [WEAPON_CROWBAR] = {0, 0, 0.45f, 1, 1, 25.0f, 0.0f, 72.0f, 300.0f, 0.0f, 1.5f, "crowbar_swing"},
+    [WEAPON_PISTOL] = {18, 150, 0.14f, 0, 1, 12.0f, 0.012f, 4096.0f, 220.0f, 1.4f, 1.2f, "pistol_fire"},
+    [WEAPON_357] = {6, 36, 0.75f, 0, 1, 75.0f, 0.004f, 4096.0f, 900.0f, 3.0f, 5.0f, "357_fire"},
+    [WEAPON_SMG] = {45, 270, 0.075f, 1, 1, 8.0f, 0.035f, 4096.0f, 160.0f, 1.6f, 0.7f, "smg1_fire"},
+    [WEAPON_SHOTGUN] = {6, 34, 0.85f, 0, 7, 9.0f, 0.07f, 2048.0f, 180.0f, 2.6f, 4.0f, "shotgun_fire"},
+};
+static int is_gun(int w) {
+    return w >= WEAPON_CROWBAR && w < WEAPON_COUNT;
+}
+static const char *k_tool_names[TOOL_COUNT] = {"Remover",     "Colour",  "Balloon",  "Duplicator", "Weld",
+                                               "Rope",        "Ball Socket", "Elastic", "No-Collide", "Weight",
+                                               "Thruster",    "Hoverball", "Explosive", "Slider",  "Inflator",   "Deflator", "Camera"};
+// GMod-style tool descriptions: what it does, then what the trigger does
+static const char *k_tool_desc[TOOL_COUNT] = {
+    "Removes props", "Changes the colour of props", "Ties balloons to props", "Copies and pastes props",
+    "Welds two props together", "Ties two points together with a rope",
+    "Joins two props at a point they can swivel round", "Ties two points together with a stretchy band",
+    "Makes a prop pass through other props", "Changes how heavy a prop is",
+    "Puts a thruster on a prop (Use switches it)", "Holds a prop at its height (Use switches it)",
+    "Blows a prop up", "Lets a prop slide along the line between two points",
+    "Makes a part of a ragdoll bigger", "Makes a part of a ragdoll smaller",
+    "Places cameras you can look through",
+};
+static const char *k_tool_help[TOOL_COUNT] = {
+    "R: Remove an object", "R: Apply the selected colour", "R: Add a balloon", "R: Copy a prop / paste it",
+    "R: Pick a prop, then a second prop", "R: Pick a point, then a second point",
+    "R: Pick a prop, then a second prop", "R: Pick a point, then a second point",
+    "R: Switch a prop's collisions", "R: Next weight (1 to 1000 kg)",
+    "R: Add a thruster that pushes into the surface", "R: Add a hoverball",
+    "R: Explode a prop", "R: Pick a point, then a second point",
+    "R: Inflate the ragdoll part you aim at", "R: Deflate the ragdoll part you aim at",
+    "R: Place a camera    L: Switch view",
+};
+// The tools panel, grouped like GMod's
+static const struct {
+    const char *heading;
+    Tool tools[5];
+    int count;
+} k_tool_groups[] = {
+    {"Construction", {TOOL_BALLOON, TOOL_DUPLICATOR, TOOL_NOCOLLIDE, TOOL_REMOVER, TOOL_WEIGHT}, 5},
+    {"Constraints", {TOOL_BALLSOCKET, TOOL_ELASTIC, TOOL_ROPE, TOOL_SLIDER, TOOL_WELD}, 5},
+    {"Mechanics", {TOOL_EXPLOSIVE, TOOL_HOVERBALL, TOOL_THRUSTER}, 3},
+    {"Poser", {TOOL_INFLATOR, TOOL_DEFLATOR}, 2},
+    {"Render", {TOOL_CAMERA, TOOL_COLOUR}, 2},
+};
+#define NUM_TOOL_GROUPS (int)(sizeof(k_tool_groups) / sizeof(k_tool_groups[0]))
+static const char *k_pause_items[] = {"Resume Game", "Options",    "Toggle Noclip", "Freeze All Props",
+                                      "Clean Up Props", "Disconnect"};
+#define SELECT_HOLD_TIME 0.4f // holding Select this long toggles noclip instead of opening the spawn menu
+#define NUM_PAUSE_ITEMS (int)(sizeof(k_pause_items) / sizeof(k_pause_items[0]))
+enum { NOTE_GENERIC, NOTE_UNDO, NOTE_HINT, NOTE_ERROR, NOTE_CLEANUP };
+#define MAX_NOTES 4
+static const unsigned int k_palette[] = {
+    0xFFFFFFFF, 0xFF4040FF, 0xFF40C040, 0xFFFF6040, 0xFF40E0FF, 0xFFFF60FF, 0xFF40A0FF, 0xFF606060,
+};
+#define PALETTE_SIZE (int)(sizeof(k_palette) / sizeof(k_palette[0]))
+static const char *k_impact_sounds[] = {"impact_concrete", "impact_wood", "impact_metal", "impact_plastic",
+                                        "impact_concrete", "impact_glass", "impact_cardboard", "impact_flesh",
+                                        "impact_rubber"};
+#define NUM_SURF (int)(sizeof(k_impact_sounds) / sizeof(k_impact_sounds[0]))
+
+// How a world model is held as a view model. GMod's guns point their barrel along -Y with the grip
+// at the origin; HL2's w_ models point along +X, so they're turned -90 degrees first.
+typedef struct {
+    float fwd, right, down; // grip position relative to the eye
+    float length;           // grip to muzzle
+    float turn;             // degrees about the model's up axis before holding it
+    int centre;             // hold it by the middle of its bounds (HL2's models have their origin elsewhere)
+    float pitch, roll;      // degrees: tip it up, and twist it about its length (the crowbar is held upright)
+} ViewModel;
+static const ViewModel k_vm[WEAPON_COUNT] = {
+    [WEAPON_HANDS] = {20.0f, 0.0f, 10.0f, 10.0f, 0.0f, 0, 0.0f, 0.0f},
+    [WEAPON_PHYSGUN] = {6.0f, 7.5f, 9.0f, 26.0f, 0.0f, 0, 0.0f, 0.0f},
+    [WEAPON_GRAVGUN] = {6.0f, 7.5f, 9.0f, 26.0f, 0.0f, 0, 0.0f, 0.0f},
+    [WEAPON_TOOLGUN] = {7.0f, 6.0f, 7.5f, 14.0f, 0.0f, 0, 0.0f, 0.0f},
+    [WEAPON_CROWBAR] = {20.0f, 10.0f, 13.0f, 17.0f, 180.0f, 1, 60.0f, 90.0f},
+    [WEAPON_PISTOL] = {15.0f, 4.5f, 6.5f, 6.0f, 180.0f, 1, 0.0f, 0.0f},
+    [WEAPON_357] = {15.0f, 4.5f, 6.5f, 7.0f, 0.0f, 1, 0.0f, 0.0f},
+    [WEAPON_SMG] = {16.0f, 5.0f, 7.0f, 9.0f, 180.0f, 1, 0.0f, 0.0f},
+    [WEAPON_SHOTGUN] = {19.0f, 5.0f, 7.0f, 15.0f, 180.0f, 1, 0.0f, 0.0f},
+};
+
+// Weapons that carry a prop the way the physics gun does
+static int carries_props(int w) {
+    return w == WEAPON_PHYSGUN || w == WEAPON_GRAVGUN || w == WEAPON_HANDS;
+}
+
+// --- Multiplayer types ---------------------------------------------------------------------------
+
+enum { ROLE_OFFLINE, ROLE_HOST, ROLE_CLIENT };
+enum { PF_NOCLIP = 1, PF_DUCKED = 2, PF_DEAD = 4, PF_GOD = 8 }; // PF_GOD: the host has God mode on
+// Actions clients ask the host to do
+enum {
+    CMD_SPAWN = 1,  // i0 model, f: pos[3] normal[3] rot[4], u tint
+    CMD_SPAWN_NPC,  // i0 type, f: pos[3] yaw
+    CMD_REMOVE,     // i0 body
+    CMD_REMOVE_NPC, // i0 npc
+    CMD_COLOUR,     // i0 body, u tint
+    CMD_BALLOON,    // i0 body
+    CMD_WELD,       // i0 a, i1 b, f: point[3]
+    CMD_ROPE,       // i0 a, i1 b, f: pa[3] pb[3] length
+    CMD_FREEZE,     // i0 body
+    CMD_UNDO,
+    CMD_USE,        // f: eye[3] dir[3]
+    CMD_RESPAWN,
+    CMD_DAMAGE,     // f0 amount (fall damage)
+    CMD_SHOOT,      // i0 weapon, i1 spread seed, f: eye[3] dir[3]
+    CMD_PUNT,       // i0 body, f: vel[3] (gravity gun punt, or a throw)
+    CMD_BALLSOCKET, // i0 a, i1 b, f: point[3]
+    CMD_ELASTIC,    // i0 a, i1 b, f: pa[3] pb[3] rest length
+    CMD_NOCOLLIDE,  // i0 body
+    CMD_WEIGHT,     // i0 body, f0 mass
+    CMD_THRUSTER,   // i0 body, f: point[3] dir[3]
+    CMD_HOVER,      // i0 body, f: point[3]
+    CMD_EXPLODE,    // i0 body
+    CMD_TOGGLE,     // i0 body: switch its thrusters and hoverballs
+    CMD_SLIDER,     // i0 a, i1 b, f: pa[3] pb[3]
+};
+#define MAX_OUTQ 8
+
+typedef struct {
+    uint16_t id;
+    uint8_t kind, pad;
+    int32_t i0, i1;
+    uint32_t u;
+    float f[10];
+} NetCmd;
+
+typedef struct {
+    int active;
+    uint8_t mac[6];
+    char name[16];
+    vec3 pos; // feet
+    float yaw, pitch;
+    int weapon, flags;
+    int held, held_prev; // physics gun target body, or -1
+    vec3 hold_pos;
+    quat hold_rot;
+    float health;
+    int model;       // NPC type of their player model, or -1
+    float prop_hurt; // host: until a flying prop can hurt them again
+    float heard; // seconds since the last packet
+    uint32_t nonce;
+    uint16_t last_cmd;
+    int undo[UNDO_MAX];
+    int undo_count;
+} Peer;
+
+static struct {
+    Map map;
+    char map_name[32];
+    PropLib props;   // spawnable props + weapon models
+    int props_loaded;
+    PropLib maplib;  // this map's static and physics prop models
+    int maplib_loaded;
+    unsigned int *sprop_ambient;
+    unsigned char *sprop_sunlit;
+    int spawnable[MAX_SPAWNABLE];
+    int num_spawnable;
+    int vm_model[WEAPON_COUNT];
+    int vm_c[WEAPON_COUNT];      // first-person model with arms, or -1
+    int gibs[8][8], num_gibs[8]; // broken-piece models per break group (props named _gib<group>)
+    vec3 vm_muzzle[WEAPON_COUNT]; // its muzzle in view space (x forward, y left, z up)
+    PhysWorld phys;
+    Player player;
+    float yaw, pitch;
+    float look_hold[4];
+    Camera cam;
+    MapDrawStats ds;
+    int sprops_drawn;
+    int bodies_drawn;
+
+    Weapon weapon;
+    Tool tool;
+    // Guns
+    int clip[WEAPON_COUNT], ammo[WEAPON_COUNT];
+    float fire_cd;      // until the next shot
+    float reload_left;  // > 0 while reloading
+    float muzzle_time;  // muzzle flash
+    struct {
+        vec3 a, b;
+        float time;
+    } tracers[8];
+    int next_tracer;
+    // Physics gun (held is a body; held_rag a ragdoll, by one of its bones)
+    int held_rag, held_bone;
+    int held;
+    float hold_dist;
+    vec3 grab_local;
+    quat hold_rel;
+    int hold_sound;
+    // Tool gun
+    float beam_time;
+    int use_carry; // G.held is being carried with the use key, not a weapon
+    vec3 blast_pos; // last explosion, for its flash
+    float blast_time;
+    int tool_scroll; // first row shown in the spawn menu's tools list
+    vec3 beam_end;
+    int dupe_model;
+    quat dupe_rot;
+    unsigned int dupe_tint;
+    int stage;        // weld/rope: 1 once the first point is picked
+    int stage_body;
+    vec3 stage_point;
+    // View model animation
+    float bob_phase;
+    float switch_time;
+    float kick;
+
+    int undo[UNDO_MAX]; // body index, or NPC_ID_BASE + NPC index
+    int undo_count;
+    float impact_cooldown[MAX_BODIES];
+
+    // Health
+    int npcs_loaded;
+    float health;
+    float suit; // HEV suit power (Options > HEV suit): soaks up 80% of damage, as in HL2
+    int cam_view; // Camera tool: the camera prop (body) the view is from, -1 = your own eyes
+    float hurt_flash;
+    float dead_time; // > 0 while dead
+
+    // Footsteps and landing
+    float step_dist;
+    int was_on_ground;
+    float fall_speed;
+    int last_water;
+
+    // Spawn menu (GMod's Q menu)
+    int qmenu;
+    int focus;       // 0 categories, 1 prop grid, 2 tools
+    int cat;         // spawnlist row (row_name)
+    int cat_scroll;  // first row shown
+    int grid_sel;
+    int grid_scroll;
+    int tool_row;    // row in the tools panel
+    int colour_sel;  // Colour tool's chosen colour
+    // Pause menu
+    int paused;
+    int pause_sel;
+    int pause_options;
+    float select_time; // how long Select has been held
+    int select_fired;  // the hold already toggled noclip
+    // Notifications, newest first
+    struct {
+        char text[48];
+        int kind;
+        float time;
+    } notes[MAX_NOTES];
+    float wsel_time; // weapon selector display time
+
+    struct {
+        int punt, pickup_grav, hold_grav, explode, break_glass, break_flesh, break_hard;
+        int pickup, drop, hold, dryfire, freeze, tool, spawn, undo, menu_move, menu_select, step_concrete, step_water,
+            land, splash, remove, weld, impact[NUM_SURF];
+        int fire[WEAPON_COUNT], crowbar_hit, reload, pump, empty, bullet_impact, bullet_flesh;
+    } snd;
+
+    // Multiplayer (see the Multiplayer section). Slot 0 is the host.
+    int role;
+    int my_slot;
+    int acting; // host: the slot whose command is running (0 = this PSP's player)
+    uint8_t host_mac[6];
+    Peer peers[NET_MAX_PLAYERS];
+    int body_owner[MAX_BODIES];
+    unsigned char body_dirty[MAX_BODIES];
+    vec3 net_tpos[MAX_BODIES];
+    quat net_trot[MAX_BODIES];
+    float snap_timer, ents_timer, ropes_timer, beacon_timer, send_timer;
+    int body_rr;
+    uint32_t tick;
+    uint32_t last_body_tick;
+    float host_heard;
+    NetCmd outq[MAX_OUTQ];
+    int outq_n;
+    uint16_t next_cmd;
+    uint16_t acked;
+    uint16_t respawn_cmd;
+    int respawn_pending;
+    vec3 net_hold_pos;
+    quat net_hold_rot;
+    int net_was_ready;
+    int server_god; // client: the host has God mode on
+    float prop_hurt; // until a flying prop can hurt this player again
+    float left_hold; // PSP: how long D-pad Left has been held (tap: next weapon, hold: reload)
+    int left_fired;
+    char exit_msg[64];
+} G;
+
+// Options > Player model: which NPC types are offered (settings.c shows their names)
+#define MAX_PLAYER_MODELS 32
+static int g_pm_types[MAX_PLAYER_MODELS];
+static int g_pm_count;
+
+static const char *player_model_name(int i) {
+    return i >= 0 && i < g_pm_count ? npc_type_name(g_pm_types[i]) : "";
+}
+
+// The NPC type this player looks like, or -1 for the default
+static int player_model(void) {
+    return g_pm_count > 0 ? g_pm_types[g_settings.player_model % g_pm_count] : -1;
+}
+static int third_person(void);
+
+static int is_client(void) {
+    return G.role == ROLE_CLIENT;
+}
+
+// God mode: the option covers single player and, when hosting, everyone in the game. A client goes
+// by the host's option, not its own.
+static int god_mode(void) {
+    return is_client() ? G.server_god : g_settings.god_mode;
+}
+static void send_cmd(int kind, int i0, int i1, uint32_t u, const float *f, int nf);
+static void net_leave(void);
+static void damage_player(float amount);
+static vec3 view_forward(void);
+static void blood_clear(void);
+static void blood_spray(vec3 hit, vec3 dir, int amount);
+
+// GMod-style notification in the bottom right
+static void notify(const char *msg, int kind) {
+    if (G.acting) return; // a remote player's action: not for this screen
+    memmove(&G.notes[1], &G.notes[0], sizeof(G.notes[0]) * (MAX_NOTES - 1));
+    snprintf(G.notes[0].text, sizeof(G.notes[0].text), "%s", msg);
+    G.notes[0].kind = kind;
+    G.notes[0].time = 0.0f;
+}
+
+static void toast(const char *msg) {
+    notify(msg, NOTE_GENERIC);
+}
+
+static void play(int id, float vol) {
+    if (g_settings.sound && !G.acting) snd_play(id, vol, 0.0f);
+}
+
+static void play_at(int id, vec3 pos, float vol) {
+    if (g_settings.sound) snd_play_at(id, pos, vol);
+}
+
+// Spawnable model numbers: the core pack's models, then the extra props (propx.c) after them.
+// An extra prop's record is filled into *tmp; NULL for a number that's neither.
+static const PpakModel *model_info(int model, PpakModel *tmp) {
+    if (model < 0) return NULL;
+    if (model < G.props.num_models) return &G.props.models[model];
+    if (model - G.props.num_models >= propx_count()) return NULL;
+    propx_info(model - G.props.num_models, tmp);
+    return tmp;
+}
+
+static const char *model_name(int model) {
+    return model < G.props.num_models ? G.props.models[model].name : propx_name(model - G.props.num_models);
+}
+
+// Its spawn menu category: the core pack's, then the extras' own after them
+static int model_cat(int model) {
+    if (model < G.props.num_models) return (int)((G.props.models[model].flags >> 16) & 0xFF);
+    return G.props.num_categories + propx_category_of(model - G.props.num_models);
+}
+
+// The pack a spawnable model is drawn from, and its index in that pack. An extra prop is read
+// from disc the first time; NULL when it can't be (no memory).
+static const PropLib *model_lib(int model, int *local) {
+    *local = 0;
+    if (model < 0) return NULL;
+    if (model < G.props.num_models) {
+        *local = model;
+        return &G.props;
+    }
+    return propx_lib(model - G.props.num_models);
+}
+
+static const PropLib *body_lib(const Body *b, int *local) {
+    if (b->lib == 1) {
+        *local = b->model;
+        return &G.maplib;
+    }
+    return model_lib(b->model, local);
+}
+
+// Frees the extra props no body uses any more, making room for others
+static void release_unused_extras(void) {
+    for (int x = 0; x < propx_count(); x++) {
+        if (!propx_loaded(x)) continue;
+        int used = 0;
+        for (int i = 0; i < MAX_BODIES && !used; i++) {
+            const Body *b = &G.phys.bodies[i];
+            used = b->active && b->lib == 0 && b->model == G.props.num_models + x;
+        }
+        if (!used) propx_unload(x);
+    }
+    propx_retry_all();
+}
+
+
+// Props spawned by the player who is acting (clients don't know owners: they count everything)
+static int player_prop_count(void) {
+    int n = 0;
+    for (int i = 0; i < MAX_BODIES; i++) {
+        n += G.phys.bodies[i].active && G.phys.bodies[i].lib == 0 && G.phys.bodies[i].life <= 0.0f &&
+             (is_client() || G.body_owner[i] == G.acting); // broken pieces don't count
+    }
+    return n;
+}
+
+// --- Lifecycle ---------------------------------------------------------------------------------
+
+static void npc_shot(const char *weapon, vec3 from, vec3 to);
+
+static void load_shared(void) {
+    if (G.props_loaded) return;
+    char perr[96];
+    if (proplib_load(&G.props, "data/props", perr, sizeof(perr)) == 0) {
+        G.props_loaded = 1;
+        G.num_spawnable = 0;
+        for (int w = 0; w < WEAPON_COUNT; w++) G.vm_model[w] = G.vm_c[w] = -1;
+        for (int i = 0; i < G.props.num_models; i++) {
+            const PpakModel *md = &G.props.models[i];
+            for (int w = 0; w < WEAPON_COUNT; w++) {
+                if (k_weapon_models[w] && strcmp(md->name, k_weapon_models[w]) == 0) G.vm_model[w] = i;
+                if (k_weapon_vms[w] && strcmp(md->name, k_weapon_vms[w]) == 0) G.vm_c[w] = i;
+            }
+            if (!(md->flags & PPAK_HIDDEN) && G.num_spawnable < MAX_SPAWNABLE) G.spawnable[G.num_spawnable++] = i;
+        }
+        // The extra props, on disc until spawned; their categories come after the core pack's
+        if (propx_init() == 0) {
+            for (int i = 0; i < propx_count() && G.num_spawnable < MAX_SPAWNABLE; i++) {
+                G.spawnable[G.num_spawnable++] = G.props.num_models + i;
+            }
+        }
+        // Broken-piece models, by break group
+        memset(G.num_gibs, 0, sizeof(G.num_gibs));
+        for (int i = 0; i < G.props.num_models; i++) {
+            int g;
+            if (sscanf(G.props.models[i].name, "_gib%d", &g) == 1 && g > 0 && g < 8 && G.num_gibs[g] < 8) {
+                G.gibs[g][G.num_gibs[g]++] = i;
+            }
+        }
+        // Muzzle of each first-person model: its furthest-forward point, roughly level with the barrel
+        for (int w = 0; w < WEAPON_COUNT; w++) {
+            if (G.vm_c[w] < 0) continue;
+            const PpakModel *md = &G.props.models[G.vm_c[w]];
+            vec3 best = v3(md->maxs[0], 0, 0);
+            float bx = -1e9f;
+            for (uint32_t k = 0; k < md->num_meshes; k++) {
+                const PpakMesh *ms = &G.props.meshes[md->first_mesh + k];
+                for (uint32_t j = 0; j < ms->num_vertices; j++) {
+                    const PpakVertex *v = &G.props.verts[ms->first_vertex + j];
+                    if (v->x > bx) {
+                        bx = v->x;
+                        best = v3(v->x, v->y, v->z);
+                    }
+                }
+            }
+            G.vm_muzzle[w] = best;
+        }
+    }
+    G.snd.pickup = snd_find("physgun_pickup");
+    G.snd.drop = snd_find("physgun_drop");
+    G.snd.punt = snd_find("gravgun_punt");
+    G.snd.explode = snd_find("explode");
+    G.snd.break_glass = snd_find("break_glass");
+    G.snd.break_flesh = snd_find("break_flesh");
+    G.snd.break_hard = snd_find("break_hard");
+    G.snd.pickup_grav = snd_find("gravgun_pickup");
+    G.snd.hold_grav = snd_find("gravgun_hold");
+    if (G.snd.pickup_grav < 0) G.snd.pickup_grav = G.snd.pickup;
+    if (G.snd.hold_grav < 0) G.snd.hold_grav = G.snd.hold;
+    if (G.snd.punt < 0) G.snd.punt = G.snd.drop;
+    G.snd.hold = snd_find("physgun_hold");
+    G.snd.dryfire = snd_find("physgun_dryfire");
+    G.snd.freeze = snd_find("physgun_freeze");
+    G.snd.tool = snd_find("toolgun_shoot");
+    G.snd.spawn = snd_find("spawn");
+    G.snd.undo = snd_find("undo");
+    G.snd.menu_move = snd_find("menu_move");
+    G.snd.menu_select = snd_find("menu_select");
+    G.snd.step_concrete = snd_find("step_concrete");
+    G.snd.step_water = snd_find("step_water");
+    G.snd.land = snd_find("jump_land");
+    G.snd.splash = snd_find("splash");
+    G.snd.remove = snd_find("remove");
+    G.snd.weld = snd_find("weld");
+    for (int i = 0; i < NUM_SURF; i++) G.snd.impact[i] = snd_find(k_impact_sounds[i]);
+    for (int w = 0; w < WEAPON_COUNT; w++) G.snd.fire[w] = k_ws[w].fire_snd ? snd_find(k_ws[w].fire_snd) : -1;
+    G.snd.crowbar_hit = snd_find("crowbar_hit");
+    G.snd.reload = snd_find("reload");
+    G.snd.pump = snd_find("shotgun_pump");
+    G.snd.empty = snd_find("empty");
+    G.snd.bullet_impact = snd_find("bullet_impact");
+    G.snd.bullet_flesh = snd_find("bullet_flesh");
+    G.hold_sound = -1;
+    G.npcs_loaded = npcs_load() == 0 && npc_type_count() > 0;
+    npc_set_shot_handler(npc_shot);
+    // Options > Player model: the NPC pack's characters marked as player models
+    g_pm_count = 0;
+    for (int t = 0; t < npc_type_count() && g_pm_count < MAX_PLAYER_MODELS; t++) {
+        if (npc_type_player_model(t)) g_pm_types[g_pm_count++] = t;
+    }
+    settings_set_player_models(g_pm_count, player_model_name);
+}
+
+static void refill_ammo(void) {
+    for (int w = 0; w < WEAPON_COUNT; w++) {
+        G.clip[w] = k_ws[w].clip;
+        G.ammo[w] = k_ws[w].ammo;
+    }
+    G.reload_left = 0.0f;
+    G.fire_cd = 0.0f;
+}
+
+static void light_static_props(void) {
+    int n = G.map.num_sprops;
+    G.sprop_ambient = calloc(n > 0 ? n : 1, sizeof(unsigned int));
+    G.sprop_sunlit = calloc(n > 0 ? n : 1, 1);
+    const float *sd = G.map.info->sun_dir;
+    for (int i = 0; i < n; i++) {
+        const PmapStaticProp *sp = &G.map.sprops[i];
+        vec3 o = v3(sp->origin[0], sp->origin[1], sp->origin[2] + 16.0f);
+        int leaf = map_point_leaf(&G.map, &o);
+        G.sprop_ambient[i] = (leaf >= 0 && leaf < G.map.num_leafs) ? G.map.leafs[leaf].ambient_abgr : G.map.info->ambient_abgr;
+        Trace tr;
+        cm_trace_line(&G.map, o, v3_mad(o, v3(sd[0], sd[1], sd[2]), 3000.0f), MASK_PROPSOLID, NULL, 0, &tr);
+        G.sprop_sunlit[i] = tr.fraction >= 1.0f;
+    }
+}
+
+// Gives a body its .phy convex hull when the model has one.
+static void attach_hull(Body *b, const PropLib *lib, int model) {
+    if (b->shape != SHAPE_HULL) return;
+    if (!lib->hulls || !lib->hulls[model].num_pieces) {
+        b->shape = SHAPE_BOX; // pack without hull data: fall back to the bounding box
+        return;
+    }
+    const PpakHull *h = &lib->hulls[model];
+    b->hull.pieces = lib->hull_pieces + h->first_piece;
+    b->hull.num_pieces = (int)h->num_pieces;
+    b->hull.planes = lib->hull_planes;
+    b->hull.points = lib->hull_points + h->first_point;
+    b->hull.num_points = (int)h->num_points;
+}
+
+static void spawn_map_physics(void) {
+    for (int i = 0; i < G.map.num_phys_props && G.maplib_loaded; i++) {
+        const PmapPhysProp *pp = &G.map.phys_props[i];
+        if ((int)pp->model >= G.maplib.num_models) continue;
+        const PpakModel *md = &G.maplib.models[pp->model];
+        vec3 mins = v3(md->mins[0], md->mins[1], md->mins[2]), maxs = v3(md->maxs[0], md->maxs[1], md->maxs[2]);
+        quat q = q_norm((quat){pp->rot[0], pp->rot[1], pp->rot[2], pp->rot[3]});
+        // The map gives the model origin; physics wants the shape centre
+        vec3 centre_local = v3_scale(v3_add(mins, maxs), 0.5f);
+        vec3 pos = v3_add(v3(pp->origin[0], pp->origin[1], pp->origin[2]), q_rotate(q, centre_local));
+        int b = phys_spawn(&G.phys, (int)pp->model, (int)(md->flags & PPAK_SHAPE_MASK), mins, maxs, md->mass, pos, q);
+        if (b < 0) break;
+        attach_hull(&G.phys.bodies[b], &G.maplib, (int)pp->model);
+        G.phys.bodies[b].lib = 1;
+        G.phys.bodies[b].surface = (int)md->surface;
+        G.phys.bodies[b].asleep = 1; // map props wait until something disturbs them
+    }
+}
+
+// --- gm_construct_13 ---------------------------------------------------------------------------
+// A darkened copy of gm_construct where a black figure turns up in the distance now and then,
+// usually at the edge of your view. Look straight at it, or walk up to it, and it's gone.
+
+#define HAUNT_MAP "gm_construct_13"
+
+static struct {
+    int on, visible;
+    vec3 pos;    // feet
+    float yaw;   // degrees, faces where the player was when it appeared
+    float timer; // until it next appears, or how long it stays
+    float stare; // seconds the player has looked right at it
+} g_haunt;
+
+static unsigned int dim_abgr(unsigned int c, float k) {
+    unsigned int out = c & 0xFF000000u;
+    for (int s = 0; s < 24; s += 8) out |= (unsigned int)((float)((c >> s) & 0xFF) * k) << s;
+    return out;
+}
+
+// Night-time version of the map: dim the baked lighting, dark sky, thick dark fog.
+static void haunt_setup(void) {
+    PmapInfo *info = (PmapInfo *)G.map.info;
+    info->fog_abgr = 0xFF0E0D0C;
+    info->sky_abgr = 0xFF0A0909;
+    info->sky_top_abgr = 0xFF060505;
+    info->sky_bottom_abgr = 0xFF181615;
+    info->fog_start = 150.0f;
+    info->fog_end = 3200.0f;
+    info->sun_abgr = dim_abgr(info->sun_abgr, 0.25f);
+    info->ambient_abgr = dim_abgr(info->ambient_abgr, 0.45f);
+    G.map.sky_first_tex = -1; // painted (dark) dome instead of the daytime skybox
+    const PmapSection *s = pak_find(G.map.file, PMAP_SECTION_ID('V', 'E', 'R', 'T'));
+    if (s) {
+        PmapVertex *v = (PmapVertex *)((char *)G.map.file + s->offset);
+        int n = (int)(s->size / sizeof(PmapVertex));
+        for (int i = 0; i < n; i++) v[i].color = dim_abgr(v[i].color, 0.42f);
+    }
+    PmapLeaf *leafs = (PmapLeaf *)G.map.leafs;
+    for (int i = 0; i < G.map.num_leafs; i++) leafs[i].ambient_abgr = dim_abgr(leafs[i].ambient_abgr, 0.45f);
+    PmapLightStyle *ls = (PmapLightStyle *)G.map.lstyles;
+    for (int i = 0; i < G.map.num_lstyles; i++) ls[i].base = dim_abgr(ls[i].base, 0.42f);
+    memset(&g_haunt, 0, sizeof(g_haunt));
+    g_haunt.on = 1;
+    g_haunt.timer = 15.0f + (float)(rand() % 20);
+    sceKernelDcacheWritebackAll(); // the GE reads the dimmed vertex colours straight from RAM
+}
+
+// Somewhere on the ground 1100-2700 units away, off to one side of the view, in line of sight.
+static int haunt_place(void) {
+    vec3 eye = player_eye(&G.player);
+    for (int tries = 0; tries < 16; tries++) {
+        float side = (rand() & 1) ? 1.0f : -1.0f;
+        float ang = (G.yaw + side * (22.0f + (float)(rand() % 38))) * DEG2RAD;
+        float dist = 1100.0f + (float)(rand() % 1600);
+        vec3 top = v3(eye.x + cosf(ang) * dist, eye.y + sinf(ang) * dist, eye.z + 300.0f);
+        Trace tr;
+        cm_trace_line(&G.map, top, v3(top.x, top.y, top.z - 3000.0f), MASK_PLAYERSOLID, NULL, 0, &tr);
+        if (tr.startsolid || tr.fraction >= 1.0f || tr.normal.z < 0.7f) continue;
+        vec3 feet = tr.endpos;
+        cm_trace_line(&G.map, eye, v3(feet.x, feet.y, feet.z + 70.0f), MASK_PROPSOLID, NULL, 0, &tr);
+        if (tr.fraction < 0.98f) continue;
+        g_haunt.pos = feet;
+        g_haunt.yaw = atan2f(eye.y - feet.y, eye.x - feet.x) / DEG2RAD;
+        return 1;
+    }
+    return 0;
+}
+
+static void haunt_update(float dt) {
+    if (G.dead_time > 0.0f || G.player.noclip) {
+        g_haunt.visible = 0;
+        return;
+    }
+    if (!g_haunt.visible) {
+        g_haunt.timer -= dt;
+        if (g_haunt.timer <= 0.0f) {
+            if (haunt_place()) {
+                g_haunt.visible = 1;
+                g_haunt.timer = 6.0f + (float)(rand() % 10);
+                g_haunt.stare = 0.0f;
+            } else {
+                g_haunt.timer = 3.0f; // nowhere good from here; try again soon
+            }
+        }
+        return;
+    }
+    vec3 d = v3_sub(v3(g_haunt.pos.x, g_haunt.pos.y, g_haunt.pos.z + 60.0f), player_eye(&G.player));
+    float dist = v3_len(d);
+    if (v3_dot(d, view_forward()) / (dist + 0.001f) > 0.985f) g_haunt.stare += dt;
+    g_haunt.timer -= dt;
+    if (dist < 700.0f || g_haunt.stare > 0.6f || g_haunt.timer <= 0.0f) {
+        g_haunt.visible = 0;
+        g_haunt.timer = 20.0f + (float)(rand() % 40);
+    }
+}
+
+void game_preload(void) {
+    load_shared();
+}
+
+int game_start(const char *map_name, char *err, int err_len) {
+    load_shared();
+    if (map_load(&G.map, map_name, err, err_len) != 0) {
+        return -1;
+    }
+    snprintf(G.map_name, sizeof(G.map_name), "%s", map_name);
+    g_haunt.on = 0;
+    if (strncmp(map_name, HAUNT_MAP, strlen(HAUNT_MAP)) == 0) haunt_setup();
+    char base[64], perr[96];
+    snprintf(base, sizeof(base), "data/maps/%s", map_file_name(map_name));
+    char *dot = strstr(base, ".low");
+    if (dot) *dot = 0;
+    G.maplib_loaded = (G.map.num_sprops || G.map.num_phys_props) && proplib_load(&G.maplib, base, perr, sizeof(perr)) == 0;
+
+    ents_init(&G.map);
+    phys_init(&G.phys);
+    memset(G.impact_cooldown, 0, sizeof(G.impact_cooldown));
+    blood_clear();
+    const PmapSpawn *sp = &G.map.spawns[0];
+    player_spawn(&G.player, v3(sp->x, sp->y, sp->z));
+    G.yaw = sp->yaw;
+    G.pitch = 0.0f;
+    camera_init(&G.cam);
+    G.cam.fov_y = 62.0f;
+    G.cam.zfar = G.map.info->fog_end + 512.0f;
+    sky_build(&G.map);
+    light_static_props();
+    spawn_map_physics();
+    G.weapon = WEAPON_PHYSGUN;
+    G.held = -1;
+    G.undo_count = 0;
+    G.qmenu = 0;
+    G.paused = 0;
+    G.dupe_model = -1;
+    G.stage = 0;
+    memset(G.notes, 0, sizeof(G.notes));
+    G.was_on_ground = 1;
+    G.switch_time = 0.0f;
+    G.health = 100.0f;
+    G.suit = 100.0f;
+    G.dead_time = 0.0f;
+    G.hurt_flash = 0.0f;
+    G.held_rag = -1;
+    G.cam_view = -1;
+    refill_ammo();
+    npcs_clear();
+    // Single player until game_host / game_join say otherwise
+    G.role = ROLE_OFFLINE;
+    G.my_slot = 0;
+    G.acting = 0;
+    G.exit_msg[0] = 0;
+    memset(G.peers, 0, sizeof(G.peers));
+    memset(G.body_owner, 0, sizeof(G.body_owner));
+    memset(G.body_dirty, 0, sizeof(G.body_dirty));
+    G.outq_n = 0;
+    G.snap_timer = G.ents_timer = G.ropes_timer = G.beacon_timer = G.send_timer = 0.0f;
+    if (!G.props_loaded) toast("No props: run the converter's props step");
+    script_start(G.map_name);
+    return 0;
+}
+
+void game_set_view(float x, float y, float z, float yaw, float pitch) {
+    G.player.origin = v3(x, y, z);
+    G.yaw = yaw;
+    G.pitch = pitch;
+}
+
+void game_end(void) {
+    net_leave();
+    script_stop();
+    if (G.hold_sound >= 0) snd_stop(G.hold_sound);
+    G.hold_sound = -1;
+    if (G.maplib_loaded) proplib_free(&G.maplib);
+    G.maplib_loaded = 0;
+    propx_unload_all();
+    free(G.sprop_ambient);
+    free(G.sprop_sunlit);
+    G.sprop_ambient = NULL;
+    G.sprop_sunlit = NULL;
+    npcs_clear();
+    map_free(&G.map);
+}
+
+static int spawn_prop(int model, vec3 at, vec3 normal, quat rot, unsigned int tint);
+static quat yaw_quat(float yaw_deg);
+
+void game_command(const char *line) {
+    int i;
+    float x, y, z, yaw;
+    if (sscanf(line, "prop %d %f %f %f %f", &i, &x, &y, &z, &yaw) == 5) {
+        spawn_prop(i, v3(x, y, z), v3(0, 0, 1), yaw_quat(yaw), 0xFFFFFFFF);
+    } else if (sscanf(line, "npc %d %f %f %f %f", &i, &x, &y, &z, &yaw) == 5) {
+        npc_spawn(i, v3(x, y, z), yaw);
+    } else if (sscanf(line, "npc %d %f", &i, &x) == 2) { // npc TYPE DISTANCE: in front of the player
+        vec3 f = view_forward();
+        f.z = 0.0f;
+        f = v3_norm(f);
+        npc_spawn(i, v3_add(G.player.origin, v3_scale(f, x)), G.yaw + 180.0f);
+    } else if (sscanf(line, "balloon %d", &i) == 1 && i >= 0 && i < MAX_BODIES && G.phys.bodies[i].active) {
+        Body *b = &G.phys.bodies[i];
+        b->balloons++;
+        b->lift = b->balloons * BALLOON_FORCE / b->mass;
+    } else if (sscanf(line, "menu %d", &i) == 1) {
+        G.qmenu = 1;
+        G.focus = i % 3;
+    } else if (strncmp(line, "pause", 5) == 0) {
+        G.paused = 1;
+    } else if (sscanf(line, "tool %d", &i) == 1) {
+        G.tool = (Tool)(i % TOOL_COUNT);
+        G.weapon = WEAPON_TOOLGUN;
+    } else if (strncmp(line, "notify", 6) == 0) {
+        notify(line + 7, NOTE_UNDO);
+    } else if (strncmp(line, "debug", 5) == 0) {
+        g_settings.debug = 1;
+    } else if (strncmp(line, "flashlight", 10) == 0) {
+        g_flashlight = 1;
+    } else if (strncmp(line, "noclip", 6) == 0) {
+        G.player.noclip = 1;
+    } else if (strncmp(line, "mute", 4) == 0) {
+        g_settings.sound = 0;
+    } else if (strncmp(line, "host", 4) == 0) {
+        game_host();
+    } else if (strncmp(line, "hurt", 4) == 0) {
+        damage_player(30.0f);
+    } else if (sscanf(line, "rag %d %f", &i, &x) == 2) { // rag TYPE DISTANCE: a ragdoll in front of the player
+        vec3 f = view_forward();
+        f.z = 0.0f;
+        npc_ragdoll_spawn(i, v3_add(G.player.origin, v3_scale(v3_norm(f), x)), G.yaw + 180.0f);
+    } else if (sscanf(line, "weapon %d", &i) == 1 && i >= 0 && i < WEAPON_COUNT) {
+        G.weapon = (Weapon)i;
+    } else if (strncmp(line, "killall", 7) == 0) { // every NPC dies, knocked away from the player
+        for (int n = 0; n < MAX_NPCS; n++) npc_damage_dir(n, 10000.0f, v3_scale(view_forward(), 400.0f));
+    }
+}
+
+// --- Helpers ---------------------------------------------------------------------------------
+
+static vec3 view_forward(void) {
+    float cp = cosf(G.pitch * DEG2RAD), sp = sinf(G.pitch * DEG2RAD);
+    float cy = cosf(G.yaw * DEG2RAD), sy = sinf(G.yaw * DEG2RAD);
+    return v3(cp * cy, cp * sy, sp);
+}
+
+static vec3 view_right(void) {
+    float cy = cosf(G.yaw * DEG2RAD), sy = sinf(G.yaw * DEG2RAD);
+    return v3(sy, -cy, 0.0f);
+}
+
+// Grip position of the view model, with walking bob, switch-lowering and recoil applied.
+static vec3 vm_grip(void) {
+    const ViewModel *vm = &k_vm[G.weapon];
+    vec3 f = view_forward(), r = view_right();
+    vec3 u = v3_cross(r, f);
+    vec3 eye = player_eye(&G.player);
+    float bob_x = sinf(G.bob_phase) * 0.5f, bob_y = fabsf(cosf(G.bob_phase)) * 0.5f;
+    float lower = G.switch_time > 0.0f ? G.switch_time * 40.0f : 0.0f;
+    vec3 p = v3_mad(eye, f, vm->fwd - G.kick);
+    p = v3_mad(p, r, vm->right + bob_x);
+    p = v3_mad(p, u, -(vm->down + bob_y + lower));
+    return p;
+}
+
+// Where the first-person model's origin sits: the eye, with walking bob, switch-lowering and recoil
+static vec3 vm_origin(void) {
+    vec3 f = view_forward(), r = view_right();
+    vec3 u = v3_cross(r, f);
+    float bob_x = sinf(G.bob_phase) * 0.5f, bob_y = fabsf(cosf(G.bob_phase)) * 0.5f;
+    float lower = G.switch_time > 0.0f ? G.switch_time * 40.0f : 0.0f;
+    vec3 p = v3_mad(player_eye(&G.player), f, -G.kick);
+    p = v3_mad(p, r, bob_x);
+    return v3_mad(p, u, -(bob_y + lower));
+}
+
+// The first-person model is drawn with its own narrower field of view; this is how much bigger
+// sideways offsets look than in the world's projection.
+static float vm_fov_scale(void) {
+    return tanf(G.cam.fov_y * 0.5f * DEG2RAD) / tanf(VM_FOV_Y * 0.5f * DEG2RAD);
+}
+
+static vec3 gun_muzzle(void) {
+    if (G.vm_c[G.weapon] >= 0) {
+        vec3 f = view_forward(), r = view_right();
+        vec3 u = v3_cross(r, f), m = G.vm_muzzle[G.weapon];
+        float k = vm_fov_scale();
+        vec3 p = v3_mad(vm_origin(), f, m.x);
+        p = v3_mad(p, r, -m.y * k);
+        return v3_mad(p, u, m.z * k);
+    }
+    return v3_mad(vm_grip(), view_forward(), k_vm[G.weapon].length);
+}
+
+static int build_prop_boxes(CmBox *boxes, int skip) {
+    int n = 0;
+    vec3 eye = player_eye(&G.player);
+    for (int i = 0; i < MAX_BODIES; i++) {
+        const Body *b = &G.phys.bodies[i];
+        if (!b->active || i == skip || b->life > 0.0f) continue; // broken pieces are too small to block anyone
+        // Only nearby props matter for the player's movement
+        if (fabsf(b->pos.x - eye.x) > 400.0f || fabsf(b->pos.y - eye.y) > 400.0f || fabsf(b->pos.z - eye.z) > 400.0f) continue;
+        phys_body_cmbox(b, &boxes[n], i);
+        n++;
+    }
+    return n + npc_boxes(boxes + n, MAX_NPCS + NET_MAX_PLAYERS);
+}
+
+typedef struct {
+    int rag, bone; // ragdoll (and which bone) hit first, or -1
+    int npc;     // NPC hit first, or -1
+    int body;    // -1 if the world was hit first (or nothing)
+    float dist;
+    vec3 point;
+    vec3 normal; // world normal (when body < 0)
+    int hit_world;
+} Aim;
+
+static Aim aim_trace(float range) {
+    Aim a;
+    vec3 eye = player_eye(&G.player), f = view_forward();
+    Trace tr;
+    cm_trace_line(&G.map, eye, v3_mad(eye, f, range), MASK_PROPSOLID, NULL, 0, &tr);
+    float world_t = tr.fraction * range;
+    float t;
+    a.body = phys_raycast(&G.phys, eye, f, world_t, &t);
+    if (a.body >= 0) {
+        a.dist = t;
+        a.hit_world = 0;
+        a.normal = v3_scale(f, -1.0f);
+    } else {
+        a.dist = world_t;
+        a.hit_world = tr.fraction < 1.0f;
+        a.normal = tr.normal;
+    }
+    a.npc = npc_raycast(eye, f, a.dist, &t);
+    if (a.npc >= 0) {
+        a.body = -1;
+        a.dist = t;
+        a.hit_world = 0;
+        a.normal = v3_scale(f, -1.0f);
+    }
+    a.bone = 0;
+    a.rag = npc_ragdoll_raycast(eye, f, a.dist, &t, &a.bone);
+    if (a.rag >= 0) {
+        a.body = a.npc = -1;
+        a.dist = t;
+        a.hit_world = 0;
+        a.normal = v3_scale(f, -1.0f);
+    }
+    a.point = v3_mad(eye, f, a.dist);
+    return a;
+}
+
+// Each player has their own undo list; the host keeps remote players' lists in their Peer
+static void undo_list(int slot, int **list, int **count) {
+    if (slot == 0) {
+        *list = G.undo;
+        *count = &G.undo_count;
+    } else {
+        *list = G.peers[slot].undo;
+        *count = &G.peers[slot].undo_count;
+    }
+}
+
+static void undo_push(int body) {
+    int *list, *count;
+    undo_list(G.acting, &list, &count);
+    if (*count == UNDO_MAX) {
+        memmove(list, list + 1, sizeof(int) * (UNDO_MAX - 1));
+        (*count)--;
+    }
+    list[(*count)++] = body;
+}
+
+static void remove_body(int i) {
+    if (G.held == i) {
+        G.held = -1;
+        if (G.hold_sound >= 0) snd_stop(G.hold_sound);
+        G.hold_sound = -1;
+    }
+    if (G.stage && G.stage_body == i) G.stage = 0;
+    phys_remove(&G.phys, i);
+}
+
+// --- Tool actions (single player and host; clients send a command for these) ------------------------
+
+#define THRUSTER_FORCE 40000.0f // kg u/s^2: lifts about 65 kg against gravity
+#define EXPLOSION_RADIUS 320.0f
+#define EXPLOSION_SPEED 1100.0f // what a 50 kg prop right next to it flies off at
+#define EXPLOSION_DAMAGE 120.0f
+static const float k_weights[] = {1.0f, 10.0f, 50.0f, 250.0f, 1000.0f};
+#define NUM_WEIGHTS (int)(sizeof(k_weights) / sizeof(k_weights[0]))
+
+// The next weight up from a prop's mass (wrapping round to the lightest)
+static float next_weight(float mass) {
+    for (int k = 0; k < NUM_WEIGHTS; k++) {
+        if (k_weights[k] > mass + 0.5f) return k_weights[k];
+    }
+    return k_weights[0];
+}
+
+static void show_explosion(vec3 c) {
+    G.blast_pos = c;
+    G.blast_time = 0.35f;
+    play_at(G.snd.explode, c, 1.0f);
+}
+
+static int break_group(const Body *b);
+static void break_body(int i);
+
+static void do_explode(int i) {
+    Body *b = &G.phys.bodies[i];
+    vec3 c = b->pos;
+    remove_body(i);
+    // Breakables close by shatter, then everything gets thrown
+    for (int k = 0; k < MAX_BODIES; k++) {
+        const Body *o = &G.phys.bodies[k];
+        if (o->active && break_group(o) && v3_len(v3_sub(o->pos, c)) < EXPLOSION_RADIUS * 0.8f) break_body(k);
+    }
+    phys_blast(&G.phys, c, EXPLOSION_RADIUS, EXPLOSION_SPEED);
+    show_explosion(c);
+    for (int n = 0; n < MAX_NPCS; n++) {
+        if (!npc_active(n)) continue;
+        NpcNet nn;
+        npc_net_get(n, &nn);
+        vec3 d = v3_sub(v3(nn.pos[0], nn.pos[1], nn.pos[2] + 36.0f), c);
+        float dist = v3_len(d);
+        if (dist < EXPLOSION_RADIUS) {
+            float k = 1.0f - dist / EXPLOSION_RADIUS;
+            npc_damage_dir(n, EXPLOSION_DAMAGE * k, v3_scale(v3_norm(v3(d.x, d.y, d.z + 40.0f)), 600.0f * k));
+            blood_spray(v3(nn.pos[0], nn.pos[1], nn.pos[2] + 36.0f), v3_norm(d), 10);
+        }
+    }
+    vec3 d = v3_sub(v3_add(G.player.origin, v3(0, 0, 36)), c);
+    float dist = v3_len(d);
+    if (dist < EXPLOSION_RADIUS && !G.player.noclip) {
+        float k = 1.0f - dist / EXPLOSION_RADIUS;
+        damage_player(EXPLOSION_DAMAGE * 0.6f * k);
+        G.player.velocity = v3_mad(G.player.velocity, v3_norm(v3(d.x, d.y, d.z + 60.0f)), 500.0f * k);
+        G.player.on_ground = 0;
+    }
+}
+
+static int toggle_forces(int i) {
+    return phys_toggle_forces(&G.phys, i);
+}
+
+static quat yaw_quat(float yaw_deg) {
+    return q_axis_angle(v3(0, 0, 1), yaw_deg * DEG2RAD);
+}
+
+static int prop_named(const char *name);
+
+// The Camera tool's prop, -1 in packs made before it
+static int camera_model(void) {
+    return G.props_loaded ? prop_named("_camera") : -1;
+}
+
+static int is_camera(int body) {
+    if (body < 0 || body >= MAX_BODIES) return 0;
+    const Body *b = &G.phys.bodies[body];
+    return b->active && b->lib == 0 && b->model >= 0 && b->model == camera_model();
+}
+
+static int spawn_prop(int model, vec3 at, vec3 normal, quat rot, unsigned int tint) {
+    PpakModel tmp;
+    const PpakModel *md = G.props_loaded ? model_info(model, &tmp) : NULL;
+    if (!md) return -1;
+    if (is_client()) {
+        float f[10] = {at.x, at.y, at.z, normal.x, normal.y, normal.z, rot.x, rot.y, rot.z, rot.w};
+        send_cmd(CMD_SPAWN, model, 0, tint, f, 10);
+        play(G.snd.spawn, 0.6f);
+        return -1;
+    }
+    if (player_prop_count() >= PLAYER_PROP_LIMIT) {
+        toast("Prop limit reached - remove some first");
+        return -1;
+    }
+    int local;
+    const PropLib *lib = model_lib(model, &local);
+    if (!lib) {
+        release_unused_extras();
+        lib = model_lib(model, &local);
+    }
+    if (!lib) {
+        toast("Not enough memory for that prop - remove some first");
+        return -1;
+    }
+    md = &lib->models[local]; // exact bounds, now it's loaded
+    vec3 mins = v3(md->mins[0], md->mins[1], md->mins[2]);
+    vec3 maxs = v3(md->maxs[0], md->maxs[1], md->maxs[2]);
+    vec3 half = v3_scale(v3_sub(maxs, mins), 0.5f);
+    // Sit the shape on the surface we hit: lift it along the normal by its extent in that direction.
+    vec3 ln = q_rotate_inv(rot, normal);
+    float lift = fabsf(ln.x) * half.x + fabsf(ln.y) * half.y + fabsf(ln.z) * half.z + 1.0f;
+    int i = phys_spawn(&G.phys, model, (int)(md->flags & PPAK_SHAPE_MASK), mins, maxs, md->mass, v3_mad(at, normal, lift), rot);
+    if (i < 0) {
+        toast("Too many physics objects");
+        return -1;
+    }
+    attach_hull(&G.phys.bodies[i], lib, local);
+    G.phys.bodies[i].tint_abgr = tint;
+    G.phys.bodies[i].surface = (int)md->surface;
+    if (model == camera_model()) G.phys.bodies[i].frozen = 1; // cameras hang where they're put, as in GMod
+    G.body_owner[i] = G.acting;
+    undo_push(i);
+    play(G.snd.spawn, 0.6f);
+    return i;
+}
+
+// --- Breakables -----------------------------------------------------------------------------------
+
+#define BREAK_SPEED 250.0f // impact speed (u/s) that shatters a breakable: about a 1.5 m drop
+#define PIECE_LIFE 8.0f    // seconds broken pieces stay
+
+static float rand_unit(void) {
+    return (float)(rand() % 2001 - 1000) * 0.001f;
+}
+
+// Which break group a body shatters into (0: it doesn't break)
+static int break_group(const Body *b) {
+    if (b->lib != 0 || b->life > 0.0f || b->model < 0 || b->model >= G.props.num_models) return 0;
+    return (int)((G.props.models[b->model].flags & PPAK_BREAK_MASK) >> PPAK_BREAK_SHIFT);
+}
+
+// Host: swaps a breakable prop for 2-4 of its group's pieces, flying apart, which go after a while
+static void break_body(int i) {
+    Body *b = &G.phys.bodies[i];
+    int g = break_group(b);
+    if (!g) return;
+    vec3 pos = b->pos, vel = b->vel, h = b->half;
+    quat rot = b->rot;
+    int surf = b->surface;
+    unsigned int tint = b->tint_abgr;
+    remove_body(i);
+    play_at(surf == SURF_GLASS ? G.snd.break_glass : surf == SURF_FLESH ? G.snd.break_flesh : G.snd.break_hard, pos, 0.9f);
+    int n = G.num_gibs[g];
+    int pieces = n ? 2 + rand() % 3 : 0;
+    for (int k = 0; k < pieces; k++) {
+        int model = G.gibs[g][rand() % n];
+        const PpakModel *md = &G.props.models[model];
+        vec3 off = v3(rand_unit() * h.x * 0.6f, rand_unit() * h.y * 0.6f, rand_unit() * h.z * 0.6f);
+        quat r = q_mul(rot, q_axis_angle(v3_norm(v3(rand_unit(), rand_unit(), 0.5f)), rand_unit() * 3.0f));
+        int j = phys_spawn(&G.phys, model, (int)(md->flags & PPAK_SHAPE_MASK), v3(md->mins[0], md->mins[1], md->mins[2]),
+                           v3(md->maxs[0], md->maxs[1], md->maxs[2]), md->mass, v3_add(pos, q_rotate(rot, off)), r);
+        if (j < 0) break;
+        attach_hull(&G.phys.bodies[j], &G.props, model);
+        Body *p = &G.phys.bodies[j];
+        p->surface = (int)md->surface;
+        p->tint_abgr = tint;
+        p->vel = v3_add(v3_scale(vel, 0.4f), v3(rand_unit() * 120.0f, rand_unit() * 120.0f, 60.0f + (rand() % 120)));
+        p->angvel = v3(rand_unit() * 10.0f, rand_unit() * 10.0f, rand_unit() * 10.0f);
+        p->life = PIECE_LIFE + (float)(rand() % 100) * 0.02f;
+        p->nocollide = 1; // pieces only hit the world: cheaper, and they don't jam between props
+        G.body_owner[j] = G.acting;
+    }
+}
+
+// Host: broken pieces disappear when their time is up
+static void expire_pieces(float dt) {
+    if (is_client()) return;
+    for (int i = 0; i < MAX_BODIES; i++) {
+        Body *b = &G.phys.bodies[i];
+        if (!b->active || b->life <= 0.0f) continue;
+        b->life -= dt;
+        if (b->life <= 0.0f) remove_body(i);
+    }
+}
+
+static void spawn_from_menu(int model) {
+    Aim a = aim_trace(SPAWN_RANGE);
+    if (model >= GRID_NPC) {
+        // NPCs stand on the floor below where you aim, facing you
+        Trace tr;
+        vec3 above = v3_mad(a.point, a.normal, 8.0f);
+        cm_trace_line(&G.map, above, v3_add(above, v3(0, 0, -512)), MASK_PLAYERSOLID, NULL, 0, &tr);
+        if (model >= GRID_RAG) {
+            // Ragdolls are simulated on each PSP for itself, so this one is ours alone
+            int r = npc_ragdoll_spawn(model - GRID_RAG, v3_add(tr.endpos, v3(0, 0, 4)), G.yaw + 180.0f);
+            if (r >= 0) {
+                if (!is_client()) undo_push(RAGDOLL_ID_BASE + r);
+                play(G.snd.spawn, 0.6f);
+            }
+            return;
+        }
+        if (is_client()) {
+            float f[4] = {tr.endpos.x, tr.endpos.y, tr.endpos.z + 2.0f, G.yaw + 180.0f};
+            send_cmd(CMD_SPAWN_NPC, model - GRID_NPC, 0, 0, f, 4);
+            play(G.snd.spawn, 0.6f);
+            return;
+        }
+        int i = npc_spawn(model - GRID_NPC, v3_add(tr.endpos, v3(0, 0, 2)), G.yaw + 180.0f);
+        if (i < 0) {
+            toast("Too many NPCs");
+            return;
+        }
+        undo_push(NPC_ID_BASE + i);
+        play(G.snd.spawn, 0.6f);
+        return;
+    }
+    vec3 n = a.body < 0 && a.hit_world ? a.normal : v3(0, 0, 1);
+    // Face the player, like GMod
+    spawn_prop(model, a.point, n, yaw_quat(G.yaw + 180.0f), 0xFFFFFFFF);
+}
+
+static void update_balloon_lift(Body *b) {
+    b->lift = b->balloons * BALLOON_FORCE / b->mass;
+}
+
+// --- Weapons ----------------------------------------------------------------------------------
+
+static void physgun_release(int quiet) {
+    if (G.held >= 0) {
+        G.phys.bodies[G.held].held = 0;
+        phys_wake(&G.phys, G.held);
+        if (!quiet) play(G.snd.drop, 0.7f);
+    }
+    if (G.held_rag >= 0 && !quiet) play(G.snd.drop, 0.7f);
+    if (G.hold_sound >= 0) snd_stop(G.hold_sound);
+    G.hold_sound = -1;
+    G.held = -1;
+    G.held_rag = -1;
+    G.use_carry = 0;
+}
+
+static void physgun_drive(int i, vec3 want_pos, quat want_rot);
+
+// The physics gun holding a ragdoll by one bone: the rest of it dangles
+static void physgun_ragdoll(const InputState *in, float dt) {
+    if (!npc_ragdoll_active(G.held_rag)) {
+        physgun_release(1);
+        return;
+    }
+    if (!(in->held & PSP_CTRL_RTRIGGER)) {
+        physgun_release(0);
+        return;
+    }
+    if (in->pressed & PSP_CTRL_LTRIGGER) {
+        npc_ragdoll_freeze(G.held_rag, 1);
+        physgun_release(1);
+        play(G.snd.freeze, 0.7f);
+        toast("Frozen");
+        return;
+    }
+    if (in->held & PSP_CTRL_UP) G.hold_dist += 300.0f * dt;
+    if (in->held & PSP_CTRL_DOWN) G.hold_dist -= 300.0f * dt;
+    G.hold_dist = clampf(G.hold_dist, PHYSGUN_MIN_DIST, PHYSGUN_MAX_DIST);
+    vec3 target = v3_mad(player_eye(&G.player), view_forward(), G.hold_dist);
+    npc_ragdoll_drag(G.held_rag, G.held_bone, target, dt);
+}
+
+static void physgun_update(const InputState *in, float dt) {
+    if (G.held_rag >= 0) {
+        physgun_ragdoll(in, dt);
+        return;
+    }
+    if ((in->pressed & PSP_CTRL_RTRIGGER) && G.held < 0) {
+        Aim a = aim_trace(USE_RANGE);
+        if (a.rag >= 0) {
+            G.held_rag = a.rag;
+            G.held_bone = a.bone;
+            G.hold_dist = clampf(a.dist, PHYSGUN_MIN_DIST, PHYSGUN_MAX_DIST);
+            npc_ragdoll_freeze(a.rag, 0);
+            play(G.snd.pickup, 0.7f);
+            if (g_settings.sound) G.hold_sound = snd_loop(G.snd.hold, 0.35f);
+            return;
+        }
+        if (a.body >= 0) {
+            Body *b = &G.phys.bodies[a.body];
+            G.held = a.body;
+            G.hold_dist = clampf(a.dist, PHYSGUN_MIN_DIST, PHYSGUN_MAX_DIST);
+            G.grab_local = q_rotate_inv(b->rot, v3_sub(a.point, b->pos));
+            G.hold_rel = q_mul(q_conj(yaw_quat(G.yaw)), b->rot);
+            b->frozen = 0;
+            phys_wake(&G.phys, a.body);
+            play(G.snd.pickup, 0.7f);
+            if (g_settings.sound) G.hold_sound = snd_loop(G.snd.hold, 0.35f);
+        } else {
+            play(G.snd.dryfire, 0.5f);
+        }
+    }
+    if (G.held < 0) return;
+    Body *b = &G.phys.bodies[G.held];
+    if (!b->active) {
+        physgun_release(1);
+        return;
+    }
+    if (!(in->held & PSP_CTRL_RTRIGGER)) {
+        physgun_release(0);
+        return;
+    }
+    if (in->pressed & PSP_CTRL_LTRIGGER) { // freeze in place, GMod's right click
+        if (is_client()) send_cmd(CMD_FREEZE, G.held, 0, 0, NULL, 0);
+        b->frozen = 1;
+        b->held = 0;
+        b->vel = v3(0, 0, 0);
+        b->angvel = v3(0, 0, 0);
+        physgun_release(1);
+        play(G.snd.freeze, 0.7f);
+        toast("Frozen");
+        return;
+    }
+    if (in->held & PSP_CTRL_UP) G.hold_dist += 300.0f * dt;
+    if (in->held & PSP_CTRL_DOWN) G.hold_dist -= 300.0f * dt;
+    G.hold_dist = clampf(G.hold_dist, PHYSGUN_MIN_DIST, PHYSGUN_MAX_DIST);
+    float spin = 0.0f;
+    if (in->held & PSP_CTRL_LEFT) spin += 120.0f * dt;
+    if (in->held & PSP_CTRL_RIGHT) spin -= 120.0f * dt;
+    if (spin != 0.0f) G.hold_rel = q_norm(q_mul(yaw_quat(spin), G.hold_rel));
+
+    vec3 eye = player_eye(&G.player);
+    vec3 target = v3_mad(eye, view_forward(), G.hold_dist);
+    quat want_rot = q_mul(yaw_quat(G.yaw), G.hold_rel);
+    vec3 want_pos = v3_sub(target, q_rotate(want_rot, G.grab_local));
+    if (is_client()) {
+        // The host moves it; show it where we want it meanwhile
+        G.net_hold_pos = want_pos;
+        G.net_hold_rot = want_rot;
+        float k = clampf(dt * PHYSGUN_PULL, 0.0f, 1.0f);
+        b->pos = v3_lerp(b->pos, want_pos, k);
+        b->rot = q_norm((quat){b->rot.x + (want_rot.x - b->rot.x) * k, b->rot.y + (want_rot.y - b->rot.y) * k,
+                               b->rot.z + (want_rot.z - b->rot.z) * k, b->rot.w + (want_rot.w - b->rot.w) * k});
+        return;
+    }
+    physgun_drive(G.held, want_pos, want_rot);
+}
+
+static float body_radius(const Body *b) {
+    float r = b->half.x > b->half.y ? b->half.x : b->half.y;
+    return r > b->half.z ? r : b->half.z;
+}
+
+// Shoves a body along the view (gravity gun punt, or throwing what the hands carry)
+static void launch_body(int i, float speed_50kg) {
+    Body *b = &G.phys.bodies[i];
+    float k = clampf(50.0f / b->mass, 0.25f, 2.5f); // light things fly further
+    vec3 vel = v3_add(v3_scale(view_forward(), speed_50kg * k), G.player.velocity);
+    if (is_client()) {
+        float v[3] = {vel.x, vel.y, vel.z};
+        send_cmd(CMD_PUNT, i, 0, 0, v, 3);
+    }
+    b->frozen = 0;
+    b->held = 0;
+    phys_wake(&G.phys, i);
+    b->vel = vel;
+}
+
+// Holds the carried prop (G.held) by its centre, gap units beyond its own size in front of the eye,
+// keeping the turn it had when picked up
+static void carry_in_front(float gap, float dt) {
+    Body *b = &G.phys.bodies[G.held];
+    G.hold_dist = body_radius(b) + gap;
+    vec3 eye = player_eye(&G.player);
+    quat want_rot = q_mul(yaw_quat(G.yaw), G.hold_rel);
+    vec3 want_pos = v3_mad(eye, view_forward(), G.hold_dist);
+    if (is_client()) {
+        G.net_hold_pos = want_pos;
+        G.net_hold_rot = want_rot;
+        float k = clampf(dt * PHYSGUN_PULL, 0.0f, 1.0f);
+        b->pos = v3_lerp(b->pos, want_pos, k);
+        b->rot = want_rot;
+        return;
+    }
+    physgun_drive(G.held, want_pos, want_rot);
+}
+
+// --- Use key (GMod's E) ---------------------------------------------------------------------------
+// Tap it on a door or button to use it. Hold it on something light to carry it in front of you,
+// whatever weapon you have: let go to drop it, or press R to throw it.
+
+#define USE_CARRY_MAX_MASS 35.0f
+#define USE_CARRY_RANGE 100.0f
+
+static unsigned int use_buttons(void) {
+#ifdef PS2
+    return PSP_CTRL_RIGHT | PSP_CTRL_TRIANGLE; // Triangle is free on the DualShock (the right stick looks)
+#else
+    return PSP_CTRL_RIGHT;
+#endif
+}
+
+// Starts carrying the prop the player is looking at, if it's close and light enough
+static int use_pickup(void) {
+    Aim a = aim_trace(USE_CARRY_RANGE);
+    if (a.body < 0 || a.dist > USE_CARRY_RANGE) return 0;
+    Body *b = &G.phys.bodies[a.body];
+    if (b->frozen || b->mass > USE_CARRY_MAX_MASS) return 0;
+    G.held = a.body;
+    G.use_carry = 1;
+    G.grab_local = v3(0, 0, 0);
+    G.hold_rel = q_mul(q_conj(yaw_quat(G.yaw)), b->rot);
+    phys_wake(&G.phys, a.body);
+    play(G.snd.drop, 0.5f);
+    return 1;
+}
+
+static void use_carry_update(const InputState *in, float dt) {
+    if (G.held < 0 || !G.phys.bodies[G.held].active) {
+        physgun_release(1);
+        return;
+    }
+    if (!(in->held & use_buttons())) { // let go of the key: drop it
+        physgun_release(0);
+        return;
+    }
+    if (in->pressed & PSP_CTRL_RTRIGGER) {
+        int i = G.held;
+        physgun_release(1);
+        launch_body(i, HANDS_THROW_SPEED);
+        play(G.snd.drop, 0.8f);
+        return;
+    }
+    carry_in_front(24.0f, dt);
+}
+
+// Gravity gun and hands: carry one prop in front of you, then drop or launch it.
+// The gravity gun pulls from far away, lifts up to 250 kg and punts; hands only reach what's close and light.
+static void carry_update(const InputState *in, float dt) {
+    int gravgun = G.weapon == WEAPON_GRAVGUN;
+#ifdef PS2
+    unsigned int pick = gravgun ? PSP_CTRL_LTRIGGER : PSP_CTRL_RTRIGGER;
+    unsigned int launch = gravgun ? PSP_CTRL_RTRIGGER : PSP_CTRL_LTRIGGER;
+#else
+    // L is jump on the PSP, so R picks up and drops, and L (jump is off while carrying) launches
+    unsigned int pick = PSP_CTRL_RTRIGGER, launch = PSP_CTRL_LTRIGGER;
+#endif
+    float max_mass = gravgun ? GRAVGUN_MAX_MASS : HANDS_MAX_MASS;
+    (void)dt;
+
+    if (G.held >= 0) {
+        Body *b = &G.phys.bodies[G.held];
+        if (!b->active) {
+            physgun_release(1);
+            return;
+        }
+        if (in->pressed & launch) {
+            int i = G.held;
+            physgun_release(1);
+            launch_body(i, gravgun ? GRAVGUN_PUNT_SPEED : HANDS_THROW_SPEED);
+            play(gravgun ? G.snd.punt : G.snd.drop, 0.8f);
+            G.kick = gravgun ? 4.0f : 1.0f;
+            return;
+        }
+        if (in->pressed & pick) {
+            physgun_release(0);
+            return;
+        }
+        carry_in_front(gravgun ? 40.0f : 24.0f, dt);
+        return;
+    }
+
+    if (in->pressed & pick) {
+        Aim a = aim_trace(gravgun ? GRAVGUN_PULL_RANGE : HANDS_RANGE);
+        Body *b = a.body >= 0 ? &G.phys.bodies[a.body] : NULL;
+        if (b && !b->frozen && b->mass <= max_mass) {
+            G.held = a.body;
+            G.grab_local = v3(0, 0, 0);
+            G.hold_rel = q_mul(q_conj(yaw_quat(G.yaw)), b->rot);
+            phys_wake(&G.phys, a.body);
+            play(gravgun ? G.snd.pickup_grav : G.snd.drop, 0.7f);
+            if (gravgun && g_settings.sound) G.hold_sound = snd_loop(G.snd.hold_grav, 0.3f);
+        } else if (gravgun && b && !b->frozen && a.dist <= GRAVGUN_PUNT_RANGE) {
+            launch_body(a.body, GRAVGUN_PUNT_SPEED); // too heavy to lift: shove it instead
+            play(G.snd.punt, 0.8f);
+            G.kick = 4.0f;
+        } else {
+            play(G.snd.dryfire, 0.5f);
+        }
+        return;
+    }
+#ifdef PS2
+    if (gravgun && (in->pressed & launch)) {
+        Aim a = aim_trace(GRAVGUN_PUNT_RANGE);
+        if (a.body >= 0 && G.phys.bodies[a.body].mass <= GRAVGUN_MAX_MASS * 4.0f) {
+            launch_body(a.body, GRAVGUN_PUNT_SPEED);
+            play(G.snd.punt, 0.8f);
+        } else {
+            play(G.snd.dryfire, 0.5f);
+        }
+        G.kick = 4.0f;
+    }
+#endif
+}
+
+// Pulls a body toward where a physics gun wants it (any player's)
+static void physgun_drive(int i, vec3 want_pos, quat want_rot) {
+    Body *b = &G.phys.bodies[i];
+    b->held = 1;
+    b->frozen = 0;
+    phys_wake(&G.phys, i);
+    b->vel = v3_scale(v3_sub(want_pos, b->pos), PHYSGUN_PULL);
+    quat err = q_mul(want_rot, q_conj(b->rot));
+    if (err.w < 0.0f) err = (quat){-err.x, -err.y, -err.z, -err.w};
+    float s = sqrtf(err.x * err.x + err.y * err.y + err.z * err.z);
+    if (s > 1e-4f) {
+        float angle = 2.0f * atan2f(s, err.w);
+        b->angvel = v3_scale(v3(err.x / s, err.y / s, err.z / s), angle * PHYSGUN_TURN);
+    } else {
+        b->angvel = v3(0, 0, 0);
+    }
+}
+
+// Camera tool's L: on to the next camera, and after the last one back to your own eyes
+static void camera_switch(void) {
+    int total = 0, next = -1, nth = 0;
+    for (int i = 0; i < MAX_BODIES; i++) {
+        if (!is_camera(i)) continue;
+        total++;
+        if (next < 0 && i > G.cam_view) {
+            next = i;
+            nth = total;
+        }
+    }
+    G.cam_view = next;
+    play(G.snd.menu_move, 0.6f);
+    if (total == 0) {
+        toast("No cameras yet - R places one");
+    } else if (next < 0) {
+        toast("Your view");
+    } else {
+        char msg[32];
+        snprintf(msg, sizeof(msg), "Camera %d of %d", nth, total);
+        toast(msg);
+    }
+}
+
+static int camera_tool_out(void) {
+    return G.weapon == WEAPON_TOOLGUN && G.tool == TOOL_CAMERA;
+}
+
+static void toolgun_fire(void) {
+    Aim a = aim_trace(USE_RANGE);
+    G.beam_end = a.point;
+    G.beam_time = 0.15f;
+    G.kick = 2.5f;
+    play(G.snd.tool, 0.6f);
+    Body *b = a.body >= 0 ? &G.phys.bodies[a.body] : NULL;
+    switch (G.tool) {
+    case TOOL_REMOVER:
+        if (a.rag >= 0) {
+            play(G.snd.remove, 0.6f);
+            npc_ragdoll_remove(a.rag); // ragdolls are local to each PSP
+        } else if (a.npc >= 0) {
+            play(G.snd.remove, 0.6f);
+            if (is_client()) {
+                send_cmd(CMD_REMOVE_NPC, a.npc, 0, 0, NULL, 0);
+            } else {
+                npc_remove(a.npc);
+            }
+        } else if (b) {
+            play(G.snd.remove, 0.6f);
+            if (is_client()) {
+                send_cmd(CMD_REMOVE, a.body, 0, 0, NULL, 0);
+            } else {
+                remove_body(a.body);
+            }
+        }
+        break;
+    case TOOL_INFLATOR:
+    case TOOL_DEFLATOR:
+        // Ragdolls are each PSP's own, so this needs no network message
+        if (a.rag >= 0) {
+            float s = npc_ragdoll_inflate(a.rag, a.bone, G.tool == TOOL_INFLATOR ? 1.25f : 0.8f);
+            char msg[32];
+            snprintf(msg, sizeof(msg), "Size %.0f%%", s * 100.0f);
+            notify(msg, NOTE_HINT);
+        } else {
+            notify("Aim at a ragdoll", NOTE_ERROR);
+        }
+        break;
+    case TOOL_COLOUR:
+        if (b) b->tint_abgr = k_palette[G.colour_sel];
+        if (b && is_client()) send_cmd(CMD_COLOUR, a.body, 0, k_palette[G.colour_sel], NULL, 0);
+        if (b) G.body_dirty[a.body] = 1;
+        break;
+    case TOOL_BALLOON:
+        if (b && is_client()) {
+            send_cmd(CMD_BALLOON, a.body, 0, 0, NULL, 0);
+        } else if (b) {
+            if (b->balloons < MAX_BALLOONS) {
+                G.body_dirty[a.body] = 1;
+                b->balloons++;
+                update_balloon_lift(b);
+                b->frozen = 0;
+                phys_wake(&G.phys, a.body);
+            } else {
+                toast("That prop has enough balloons");
+            }
+        }
+        break;
+    case TOOL_DUPLICATOR:
+        if (b && b->lib == 0) {
+            G.dupe_model = b->model;
+            G.dupe_rot = q_mul(q_conj(yaw_quat(G.yaw)), b->rot);
+            G.dupe_tint = b->tint_abgr;
+            toast("Copied");
+        } else if (b) {
+            toast("Map props can't be copied");
+        } else if (G.dupe_model >= 0 && a.hit_world) {
+            spawn_prop(G.dupe_model, a.point, a.normal, q_mul(yaw_quat(G.yaw), G.dupe_rot), G.dupe_tint);
+        }
+        break;
+    case TOOL_WELD:
+    case TOOL_BALLSOCKET:
+    case TOOL_ROPE:
+    case TOOL_ELASTIC:
+    case TOOL_SLIDER: {
+        // Weld and ball socket join a prop to a prop (or the world) at the second point;
+        // rope and elastic tie two points together, and a slider runs along the line between them
+        int rigid = G.tool == TOOL_WELD || G.tool == TOOL_BALLSOCKET;
+        if (!G.stage) {
+            if (!b && (rigid || !a.hit_world)) break;
+            G.stage = 1;
+            G.stage_body = a.body;
+            G.stage_point = a.point;
+            toast(rigid ? "Now pick what to attach it to" : "Now pick the other end");
+        } else {
+            if (!b && !a.hit_world) break;
+            int ok;
+            if (rigid) {
+                if (G.stage_body < 0 || a.body == G.stage_body) break;
+                if (is_client()) {
+                    float f[3] = {a.point.x, a.point.y, a.point.z};
+                    send_cmd(G.tool == TOOL_WELD ? CMD_WELD : CMD_BALLSOCKET, G.stage_body, a.body, 0, f, 3);
+                    ok = 1;
+                } else if (G.tool == TOOL_WELD) {
+                    ok = phys_weld(&G.phys, G.stage_body, a.body, a.point) >= 0;
+                } else {
+                    ok = phys_ballsocket(&G.phys, G.stage_body, a.body, a.point) >= 0;
+                }
+            } else {
+                if (G.stage_body < 0 && a.body < 0) {
+                    toast("It needs a prop on at least one end");
+                    G.stage = 0;
+                    break;
+                }
+                if (G.tool == TOOL_SLIDER && a.body == G.stage_body) {
+                    toast("Pick a different prop, or the world");
+                    G.stage = 0;
+                    break;
+                }
+                float len = v3_len(v3_sub(a.point, G.stage_point));
+                if (G.tool == TOOL_ELASTIC) len *= 0.5f; // rests at half the length, so it pulls straight away
+                if (is_client()) {
+                    float f[7] = {G.stage_point.x, G.stage_point.y, G.stage_point.z, a.point.x, a.point.y, a.point.z, len};
+                    int cmd = G.tool == TOOL_ROPE ? CMD_ROPE : G.tool == TOOL_ELASTIC ? CMD_ELASTIC : CMD_SLIDER;
+                    send_cmd(cmd, G.stage_body, a.body, 0, f, 7);
+                    ok = 1;
+                } else if (G.tool == TOOL_ROPE) {
+                    ok = phys_rope(&G.phys, G.stage_body, G.stage_point, a.body, a.point, len) >= 0;
+                } else if (G.tool == TOOL_ELASTIC) {
+                    ok = phys_elastic(&G.phys, G.stage_body, G.stage_point, a.body, a.point, len) >= 0;
+                } else {
+                    ok = phys_slider(&G.phys, G.stage_body, G.stage_point, a.body, a.point) >= 0;
+                }
+            }
+            G.stage = 0;
+            if (ok) {
+                play(G.snd.weld, 0.6f);
+                toast(G.tool == TOOL_WELD         ? "Welded"
+                      : G.tool == TOOL_BALLSOCKET ? "Ball socket added"
+                      : G.tool == TOOL_ROPE       ? "Roped"
+                      : G.tool == TOOL_ELASTIC    ? "Elastic added"
+                                                  : "Slider added");
+            } else {
+                toast("Too many constraints");
+            }
+        }
+        break;
+    }
+    case TOOL_NOCOLLIDE:
+        if (!b) break;
+        b->nocollide = !b->nocollide; // a client flips its copy too, for the message
+        if (is_client()) send_cmd(CMD_NOCOLLIDE, a.body, 0, 0, NULL, 0);
+        phys_wake(&G.phys, a.body);
+        toast(b->nocollide ? "Passes through props now" : "Collides with props again");
+        break;
+    case TOOL_WEIGHT: {
+        if (!b) break;
+        float m = next_weight(b->mass);
+        if (is_client()) {
+            float f[1] = {m};
+            send_cmd(CMD_WEIGHT, a.body, 0, 0, f, 1);
+        }
+        phys_set_mass(&G.phys, a.body, m);
+        char msg[32];
+        snprintf(msg, sizeof(msg), "Weight: %.0f kg", m);
+        toast(msg);
+        break;
+    }
+    case TOOL_THRUSTER:
+    case TOOL_HOVERBALL: {
+        if (!b) break;
+        vec3 dir = view_forward(); // a thruster pushes the way you shot it in
+        int ok;
+        if (is_client()) {
+            float f[6] = {a.point.x, a.point.y, a.point.z, dir.x, dir.y, dir.z};
+            send_cmd(G.tool == TOOL_THRUSTER ? CMD_THRUSTER : CMD_HOVER, a.body, 0, 0, f, 6);
+            ok = 1;
+        } else if (G.tool == TOOL_THRUSTER) {
+            ok = phys_add_force(&G.phys, FORCE_THRUSTER, a.body, a.point, dir, THRUSTER_FORCE) >= 0;
+        } else {
+            ok = phys_add_force(&G.phys, FORCE_HOVER, a.body, a.point, v3(0, 0, 1), a.point.z) >= 0;
+        }
+        if (ok) {
+            play(G.snd.weld, 0.6f);
+            toast(G.tool == TOOL_THRUSTER ? "Thruster added (Use switches it)" : "Hoverball added (Use switches it)");
+        } else {
+            toast("Too many thrusters and hoverballs");
+        }
+        break;
+    }
+    case TOOL_CAMERA: {
+        // A camera where you aim, pointing the way you look (frozen in the air if you aim at nothing)
+        int cm = camera_model();
+        if (cm < 0) {
+            toast("No camera model in this build's prop pack");
+            break;
+        }
+        vec3 fwd = view_forward();
+        vec3 at = a.point, n = a.normal;
+        if (!b && !a.hit_world) {
+            at = v3_mad(player_eye(&G.player), fwd, 80.0f);
+            n = v3_scale(fwd, -1.0f);
+        }
+        quat rot = q_mul(yaw_quat(G.yaw), q_axis_angle(v3(0, 1, 0), -G.pitch * DEG2RAD));
+        if (spawn_prop(cm, at, n, rot, 0xFFFFFFFF) >= 0 || is_client()) toast("Camera placed (L: switch view)");
+        break;
+    }
+    case TOOL_EXPLOSIVE:
+        if (!b) break;
+        if (is_client()) {
+            send_cmd(CMD_EXPLODE, a.body, 0, 0, NULL, 0);
+            show_explosion(b->pos);
+        } else {
+            do_explode(a.body);
+        }
+        break;
+    default:
+        break;
+    }
+}
+
+// --- Guns ---------------------------------------------------------------------------------------
+
+// Spread comes from a seed so the host can repeat a client's shotgun blast pellet for pellet
+static float spread_rand(uint32_t *s) {
+    *s = *s * 1664525u + 1013904223u;
+    return (float)((*s >> 8) & 0xFFFF) / 32768.0f - 1.0f;
+}
+
+static void add_tracer(vec3 a, vec3 b);
+
+// An armed NPC fired: the gun's sound where it is, and a tracer to where the shot went
+static void npc_shot(const char *weapon, vec3 from, vec3 to) {
+    int w = strcmp(weapon, "_pistol") == 0    ? WEAPON_PISTOL
+            : strcmp(weapon, "_shotgun") == 0 ? WEAPON_SHOTGUN
+            : strcmp(weapon, "_357") == 0     ? WEAPON_357
+                                              : WEAPON_SMG; // SMG and AR2
+    if (g_settings.sound && G.snd.fire[w] >= 0) snd_play_at(G.snd.fire[w], from, 0.7f);
+    add_tracer(from, to);
+}
+
+// Prop pack index of a model by name (NPC weapons), remembered after the first look
+static int prop_named(const char *name) {
+    static char names[16][16];
+    static int index[16], count;
+    for (int k = 0; k < count; k++) {
+        if (strncmp(names[k], name, 16) == 0) return index[k];
+    }
+    int found = -1;
+    for (int i = 0; i < G.props.num_models && found < 0; i++) {
+        if (strncmp(G.props.models[i].name, name, 16) == 0) found = i;
+    }
+    if (count < 16) {
+        strncpy(names[count], name, 16);
+        index[count++] = found;
+    }
+    return found;
+}
+
+static void make_light(PropLight *l, unsigned int ambient, int sunlit, unsigned int tint);
+
+// The guns NPCs hold, in the hands npcs_draw just posed
+static void draw_npc_weapons(void) {
+    if (!G.props_loaded) return;
+    proplib_begin();
+    for (int i = 0; i < MAX_NPCS; i++) {
+        const char *name;
+        ScePspFMatrix4 m;
+        if (!npc_weapon(i, &name, &m)) continue;
+        int model = prop_named(name);
+        if (model < 0) continue;
+        vec3 at = v3(m.w.x, m.w.y, m.w.z);
+        int leaf = map_point_leaf(&G.map, &at);
+        unsigned int amb = (leaf >= 0 && leaf < G.map.num_leafs) ? G.map.leafs[leaf].ambient_abgr : G.map.info->ambient_abgr;
+        PropLight l;
+        make_light(&l, amb, 1, 0xFFFFFFFF);
+        proplib_draw(&G.props, model, &m, &l);
+    }
+    proplib_end();
+}
+
+// --- Blood ----------------------------------------------------------------------------------------
+// A shot into flesh throws a spray of drops and leaves a splat on whatever is behind it, plus a
+// smaller one on the floor below.
+
+#define MAX_BLOOD_DROPS 64
+#define MAX_BLOOD_DECALS 32
+#define BLOOD_DROP_LIFE 0.6f
+#define BLOOD_DECAL_LIFE 40.0f // seconds before a splat fades away
+
+typedef struct {
+    vec3 p, v;
+    float life;
+} BloodDrop;
+typedef struct {
+    vec3 c, s, t; // centre (just off the surface) and the surface's two in-plane axes
+    float r, age;
+    uint32_t seed;
+} BloodDecal;
+static BloodDrop g_drops[MAX_BLOOD_DROPS];
+static BloodDecal g_decals[MAX_BLOOD_DECALS];
+static int g_next_drop, g_next_decal;
+static uint32_t g_blood_rand = 12345;
+
+static float blood_rand(void) { // -1..1
+    g_blood_rand = g_blood_rand * 1664525u + 1013904223u;
+    return (float)((g_blood_rand >> 8) & 0xFFFF) / 32768.0f - 1.0f;
+}
+
+// npc.c: a prop hit an NPC hard
+void game_blood(vec3 at, vec3 dir) {
+    blood_spray(at, dir, 6);
+}
+
+static void blood_clear(void) {
+    memset(g_drops, 0, sizeof(g_drops));
+    memset(g_decals, 0, sizeof(g_decals));
+}
+
+static void blood_decal(vec3 at, vec3 n, float r) {
+    BloodDecal *d = &g_decals[g_next_decal];
+    g_next_decal = (g_next_decal + 1) % MAX_BLOOD_DECALS;
+    d->s = v3_norm(fabsf(n.z) < 0.9f ? v3_cross(n, v3(0, 0, 1)) : v3_cross(n, v3(1, 0, 0)));
+    d->t = v3_cross(n, d->s);
+    d->c = v3_mad(at, n, 0.6f);
+    d->r = r;
+    d->age = 0.0f;
+    d->seed = g_blood_rand;
+    blood_rand();
+}
+
+static void blood_spray(vec3 hit, vec3 dir, int amount) {
+    for (int i = 0; i < amount; i++) {
+        BloodDrop *b = &g_drops[g_next_drop];
+        g_next_drop = (g_next_drop + 1) % MAX_BLOOD_DROPS;
+        b->p = hit;
+        // Mostly out the far side, some back towards the shooter, all thrown up a little
+        float out = (i & 3) ? 70.0f : -50.0f;
+        b->v = v3(dir.x * out + blood_rand() * 60.0f, dir.y * out + blood_rand() * 60.0f, dir.z * out + 40.0f + blood_rand() * 50.0f);
+        b->life = BLOOD_DROP_LIFE * (0.6f + 0.4f * blood_rand() * blood_rand());
+    }
+    Trace tr;
+    cm_trace_line(&G.map, hit, v3_mad(hit, dir, 110.0f), MASK_PROPSOLID, NULL, 0, &tr);
+    if (tr.fraction < 1.0f) blood_decal(tr.endpos, tr.normal, 9.0f + 4.0f * blood_rand());
+    cm_trace_line(&G.map, hit, v3(hit.x, hit.y, hit.z - 160.0f), MASK_PROPSOLID, NULL, 0, &tr);
+    if (tr.fraction < 1.0f && blood_rand() > -0.3f) blood_decal(tr.endpos, tr.normal, 6.0f + 3.0f * blood_rand());
+}
+
+static void blood_update(float dt) {
+    for (int i = 0; i < MAX_BLOOD_DROPS; i++) {
+        BloodDrop *b = &g_drops[i];
+        if (b->life <= 0.0f) continue;
+        b->life -= dt;
+        b->v.z -= 500.0f * dt;
+        b->p = v3_mad(b->p, b->v, dt);
+    }
+    for (int i = 0; i < MAX_BLOOD_DECALS; i++) {
+        if (g_decals[i].r > 0.0f && (g_decals[i].age += dt) > BLOOD_DECAL_LIFE) g_decals[i].r = 0.0f;
+    }
+}
+
+static void add_tracer(vec3 a, vec3 b) {
+    G.tracers[G.next_tracer].a = a;
+    G.tracers[G.next_tracer].b = b;
+    G.tracers[G.next_tracer].time = 0.06f;
+    G.next_tracer = (G.next_tracer + 1) % 8;
+}
+
+// One bullet (or crowbar swing) along dir. With world set it also hits props and NPCs (single
+// player / host); a multiplayer client only shoves its own ragdolls and leaves the rest to the host.
+// Returns what it hit: 0 nothing, 1 the world, 2 a prop, 3 an NPC, 4 a ragdoll.
+static int fire_bullet(vec3 eye, vec3 dir, const WeaponStats *ws, int world, int sound, vec3 *end) {
+    Trace tr;
+    cm_trace_line(&G.map, eye, v3_mad(eye, dir, ws->range), MASK_PROPSOLID, NULL, 0, &tr);
+    float best = tr.fraction * ws->range, t;
+    int kind = tr.fraction < 1.0f, idx = -1, bone = 0;
+    int b = phys_raycast(&G.phys, eye, dir, best, &t);
+    if (b >= 0) {
+        best = t;
+        kind = 2;
+        idx = b;
+    }
+    int n = npc_raycast(eye, dir, best, &t);
+    if (n >= 0) {
+        best = t;
+        kind = 3;
+        idx = n;
+    }
+    int rb;
+    int r = npc_ragdoll_raycast(eye, dir, best, &t, &rb);
+    if (r >= 0) {
+        best = t;
+        kind = 4;
+        idx = r;
+        bone = rb;
+    }
+    vec3 hit = v3_mad(eye, dir, best);
+    *end = hit;
+    int melee = ws->clip == 0;
+    if (kind >= 3) blood_spray(hit, dir, melee ? 5 : 8);
+    if (kind == 2 && world && break_group(&G.phys.bodies[idx])) {
+        break_body(idx); // a shot or a crowbar hit breaks it outright
+    } else if (kind == 2 && world) {
+        Body *bd = &G.phys.bodies[idx];
+        if (!bd->frozen) {
+            phys_wake(&G.phys, idx);
+            float k = fminf(ws->force * 50.0f / bd->mass, 1500.0f);
+            bd->vel = v3_mad(bd->vel, dir, k);
+            // Off-centre hits spin it
+            bd->angvel = v3_add(bd->angvel, v3_scale(v3_cross(v3_sub(hit, bd->pos), dir), k * 0.002f));
+        }
+    } else if (kind == 3 && world) {
+        npc_damage_dir(idx, ws->damage, v3_scale(dir, ws->force));
+    } else if (kind == 4) {
+        npc_ragdoll_push(idx, bone, v3_scale(dir, ws->force * 1.5f));
+    }
+    if (sound && kind) {
+        int s = kind >= 3 ? G.snd.bullet_flesh : melee ? G.snd.crowbar_hit : G.snd.bullet_impact;
+        if (g_settings.sound) snd_play_at(s, hit, 0.6f);
+    }
+    return kind;
+}
+
+// A whole shot: every pellet, from eye along f. effects: tracers (only the shooter sees them).
+static void shoot(int weapon, vec3 eye, vec3 f, uint32_t seed, int world, int effects) {
+    const WeaponStats *ws = &k_ws[weapon];
+    vec3 r = v3_cross(f, v3(0, 0, 1));
+    r = v3_len(r) > 1e-3f ? v3_norm(r) : v3(1, 0, 0);
+    vec3 u = v3_cross(r, f);
+    for (int p = 0; p < ws->pellets; p++) {
+        float sx = spread_rand(&seed) * ws->spread, sy = spread_rand(&seed) * ws->spread;
+        vec3 d = v3_norm(v3_add(f, v3_add(v3_scale(r, sx), v3_scale(u, sy))));
+        vec3 end;
+        fire_bullet(eye, d, ws, world, p == 0, &end);
+        if (effects && ws->clip) add_tracer(gun_muzzle(), end);
+    }
+}
+
+static void start_reload(void) {
+    const WeaponStats *ws = &k_ws[G.weapon];
+    if (!ws->clip || G.clip[G.weapon] >= ws->clip || G.ammo[G.weapon] <= 0 || G.reload_left > 0.0f) return;
+    G.reload_left = ws->reload;
+    play(G.weapon == WEAPON_SHOTGUN ? G.snd.pump : G.snd.reload, 0.6f);
+}
+
+static void gun_update(const InputState *in, float dt) {
+    int w = G.weapon;
+    const WeaponStats *ws = &k_ws[w];
+    if (G.reload_left > 0.0f) {
+        G.reload_left -= dt;
+        if (G.reload_left <= 0.0f) {
+            int take = ws->clip - G.clip[w];
+            if (take > G.ammo[w]) take = G.ammo[w];
+            G.clip[w] += take;
+            G.ammo[w] -= take;
+            if (w == WEAPON_SHOTGUN) play(G.snd.pump, 0.6f);
+        }
+        return;
+    }
+    if (g_settings.unlimited_ammo && ws->clip) G.clip[w] = ws->clip; // turned on with an empty gun
+    int want = ws->automatic ? (in->held & PSP_CTRL_RTRIGGER) : (in->pressed & PSP_CTRL_RTRIGGER);
+    if (!want || G.fire_cd > 0.0f) return;
+    if (ws->clip && G.clip[w] == 0) {
+        if (G.ammo[w] > 0) {
+            start_reload();
+        } else {
+            play(G.snd.empty, 0.5f);
+            G.fire_cd = 0.3f;
+        }
+        return;
+    }
+    G.fire_cd = ws->delay;
+    if (ws->clip && !g_settings.unlimited_ammo) G.clip[w]--;
+#ifdef PS2
+    play(G.snd.fire[w], ws->clip ? 0.8f : 0.5f);
+#else
+    if (g_settings.sound) snd_play_chan(G.snd.fire[w], ws->clip ? 0.8f : 0.5f, SND_CHAN_WEAPON);
+#endif
+    G.kick = ws->clip ? ws->kick * 0.6f : 4.0f;
+    G.pitch = clampf(G.pitch + ws->kick * 0.4f, -89.0f, 89.0f); // view punch
+    if (ws->clip) G.muzzle_time = 0.05f;
+    uint32_t seed = sceKernelGetSystemTimeLow();
+    vec3 eye = player_eye(&G.player), f = view_forward();
+    shoot(w, eye, f, seed, !is_client(), 1);
+    if (is_client()) {
+        float v[6] = {eye.x, eye.y, eye.z, f.x, f.y, f.z};
+        send_cmd(CMD_SHOOT, w, (int)seed, 0, v, 6);
+    }
+    if (ws->clip && G.clip[w] == 0) start_reload(); // like HL2, reload as soon as it's empty
+}
+
+// --- Spawn menu --------------------------------------------------------------------------------
+
+#define GRID_COLS 4
+#define GRID_ROWS 3
+#define NUM_TOOL_ROWS (TOOL_COUNT + 1) // every tool, then the colour swatches
+
+// Tools panel rows in display order (grouped), with the colour row last
+static Tool tool_at_row(int row) {
+    int r = 0;
+    for (int g = 0; g < NUM_TOOL_GROUPS; g++) {
+        for (int k = 0; k < k_tool_groups[g].count; k++, r++) {
+            if (r == row) return k_tool_groups[g].tools[k];
+        }
+    }
+    return TOOL_COUNT;
+}
+
+// Spawnlist rows: All Props, the core pack's categories, NPCs, Ragdolls (the same characters
+// spawned limp), then the extra props' categories
+static int npc_cat(void) {
+    return G.npcs_loaded ? G.props.num_categories + 1 : -1;
+}
+
+static int rag_cat(void) {
+    return G.npcs_loaded && npc_ragdolls_available() ? G.props.num_categories + 1 + (npc_cat() >= 0) : -1;
+}
+
+static int extra_row0(void) {
+    return G.props.num_categories + 1 + (npc_cat() >= 0) + (rag_cat() >= 0);
+}
+
+static int num_cats(void) {
+    return extra_row0() + propx_num_categories();
+}
+
+// The prop category (model_cat's numbering) a row lists; -1 for All Props
+static int row_prop_cat(int row) {
+    if (row == 0) return -1;
+    if (row <= G.props.num_categories) return row - 1;
+    return G.props.num_categories + row - extra_row0();
+}
+
+static const char *row_name(int row) {
+    if (row == 0) return "All Props";
+    if (row == npc_cat()) return "NPCs";
+    if (row == rag_cat()) return "Ragdolls";
+    if (row <= G.props.num_categories) return G.props.categories[row - 1];
+    return propx_category(row - extra_row0());
+}
+// Grid entries are prop model numbers, GRID_NPC + NPC type, or GRID_RAG + NPC type
+static int grid_items(int *out) {
+    int n = 0;
+    if (G.cat == npc_cat() || G.cat == rag_cat()) {
+        // Every character can be a ragdoll; the ragdoll-only ones (no animations) can't be NPCs
+        int npcs = G.cat == npc_cat();
+        for (int t = 0; t < npc_type_count() && n < MAX_SPAWNABLE; t++) {
+            if (npcs && npc_type_ragdoll_only(t)) continue;
+            out[n++] = (npcs ? GRID_NPC : GRID_RAG) + t;
+        }
+        return n;
+    }
+    int want = row_prop_cat(G.cat);
+    for (int k = 0; k < G.num_spawnable && n < MAX_SPAWNABLE; k++) {
+        int m = G.spawnable[k];
+        if (G.cat == 0 || model_cat(m) == want) out[n++] = m;
+    }
+    return n;
+}
+
+static void qmenu_close(void) {
+    G.qmenu = 0;
+}
+
+static void open_pause(void) {
+    G.paused = 1;
+    G.pause_sel = 0;
+    G.pause_options = 0;
+    play(G.snd.menu_select, 0.5f);
+}
+
+static void qmenu_update(const InputState *in) {
+    if (in->pressed & (PSP_CTRL_SELECT | PSP_CTRL_CIRCLE)) {
+        qmenu_close();
+        return;
+    }
+    if (in->pressed & PSP_CTRL_START) {
+        qmenu_close();
+        open_pause();
+        return;
+    }
+    int ncats = num_cats();
+    static int items[MAX_SPAWNABLE];
+    int n = grid_items(items);
+    int before = G.focus * 1000 + G.cat * 100 + G.grid_sel + G.tool_row * 10000 + G.colour_sel * 100000;
+
+    if (in->pressed & PSP_CTRL_RTRIGGER) G.focus = (G.focus + 1) % 3;
+    if (in->pressed & PSP_CTRL_LTRIGGER) G.focus = (G.focus + 2) % 3;
+
+    if (G.focus == 0) {
+        if (in->pressed & PSP_CTRL_UP) G.cat = (G.cat + ncats - 1) % ncats;
+        if (in->pressed & PSP_CTRL_DOWN) G.cat = (G.cat + 1) % ncats;
+        if (in->pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) {
+            G.grid_sel = 0;
+            G.grid_scroll = 0;
+        }
+        if (in->pressed & (PSP_CTRL_RIGHT | PSP_CTRL_CROSS)) G.focus = 1;
+    } else if (G.focus == 1) {
+        int col = G.grid_sel % GRID_COLS;
+        if (in->pressed & PSP_CTRL_LEFT) {
+            if (col == 0) {
+                G.focus = 0;
+            } else {
+                G.grid_sel--;
+            }
+        } else if (in->pressed & PSP_CTRL_RIGHT) {
+            if (col == GRID_COLS - 1 || G.grid_sel + 1 >= n) {
+                G.focus = 2;
+            } else {
+                G.grid_sel++;
+            }
+        }
+        if ((in->pressed & PSP_CTRL_DOWN) && G.grid_sel + GRID_COLS < n) G.grid_sel += GRID_COLS;
+        if ((in->pressed & PSP_CTRL_UP) && G.grid_sel >= GRID_COLS) G.grid_sel -= GRID_COLS;
+        int row = G.grid_sel / GRID_COLS;
+        if (row < G.grid_scroll) G.grid_scroll = row;
+        if (row >= G.grid_scroll + GRID_ROWS) G.grid_scroll = row - GRID_ROWS + 1;
+        if ((in->pressed & PSP_CTRL_CROSS) && n > 0) {
+            play(G.snd.menu_select, 0.6f);
+            spawn_from_menu(items[G.grid_sel < n ? G.grid_sel : 0]);
+            qmenu_close();
+            return;
+        }
+    } else {
+        if (in->pressed & PSP_CTRL_UP) G.tool_row = (G.tool_row + NUM_TOOL_ROWS - 1) % NUM_TOOL_ROWS;
+        if (in->pressed & PSP_CTRL_DOWN) G.tool_row = (G.tool_row + 1) % NUM_TOOL_ROWS;
+        if (G.tool_row == TOOL_COUNT) {
+            // Colour swatches
+            if (in->pressed & PSP_CTRL_RIGHT) G.colour_sel = (G.colour_sel + 1) % PALETTE_SIZE;
+            if (in->pressed & PSP_CTRL_LEFT) G.colour_sel = (G.colour_sel + PALETTE_SIZE - 1) % PALETTE_SIZE;
+        } else if (in->pressed & PSP_CTRL_LEFT) {
+            G.focus = 1;
+        }
+        if ((in->pressed & PSP_CTRL_CROSS)) {
+            Tool t = G.tool_row == TOOL_COUNT ? TOOL_COLOUR : tool_at_row(G.tool_row);
+            play(G.snd.menu_select, 0.6f);
+            G.tool = t;
+            G.stage = 0;
+            if (G.weapon != WEAPON_TOOLGUN) G.switch_time = 0.25f;
+            G.weapon = WEAPON_TOOLGUN;
+            G.wsel_time = 1.5f;
+            physgun_release(1);
+            qmenu_close();
+            return;
+        }
+    }
+    int after = G.focus * 1000 + G.cat * 100 + G.grid_sel + G.tool_row * 10000 + G.colour_sel * 100000;
+    if (after != before) play(G.snd.menu_move, 0.4f);
+}
+
+static void freeze_all(void) {
+    for (int i = 0; i < MAX_BODIES; i++) {
+        Body *b = &G.phys.bodies[i];
+        if (b->active && b->lib == 0) {
+            b->frozen = 1;
+            b->vel = b->angvel = v3(0, 0, 0);
+        }
+    }
+    physgun_release(1);
+    notify("Froze all props", NOTE_HINT);
+}
+
+static void cleanup_props(void) {
+    for (int i = 0; i < MAX_BODIES; i++) {
+        if (G.phys.bodies[i].active && G.phys.bodies[i].lib == 0) remove_body(i);
+    }
+    npcs_clear();
+    blood_clear();
+    release_unused_extras();
+    G.undo_count = 0;
+    for (int s = 0; s < NET_MAX_PLAYERS; s++) G.peers[s].undo_count = 0;
+    notify("Cleaned up all props", NOTE_CLEANUP);
+}
+
+// GMod's escape menu: Resume, Options, cleanup, Disconnect
+static GameResult pause_update(const InputState *in) {
+    if (G.pause_options) {
+        if (options_update(in)) G.pause_options = 0;
+        if (!g_settings.sound && G.hold_sound >= 0) {
+            snd_stop(G.hold_sound);
+            G.hold_sound = -1;
+        }
+        return GAME_CONTINUE;
+    }
+    int before = G.pause_sel;
+    if (in->pressed & PSP_CTRL_UP) G.pause_sel = (G.pause_sel + NUM_PAUSE_ITEMS - 1) % NUM_PAUSE_ITEMS;
+    if (in->pressed & PSP_CTRL_DOWN) G.pause_sel = (G.pause_sel + 1) % NUM_PAUSE_ITEMS;
+    if (G.pause_sel != before) play(G.snd.menu_move, 0.4f);
+    if (in->pressed & (PSP_CTRL_CIRCLE | PSP_CTRL_START)) {
+        G.paused = 0;
+        return GAME_CONTINUE;
+    }
+    if (!(in->pressed & PSP_CTRL_CROSS)) return GAME_CONTINUE;
+    play(G.snd.menu_select, 0.6f);
+    switch (G.pause_sel) {
+    case 0: G.paused = 0; break;
+    case 1: G.pause_options = 1; break;
+    case 2:
+        G.player.noclip = !G.player.noclip;
+        G.player.velocity = v3(0, 0, 0);
+        G.paused = 0;
+        notify(G.player.noclip ? "Noclip enabled" : "Noclip disabled", NOTE_HINT);
+        break;
+    case 3:
+    case 4:
+        if (is_client()) {
+            notify("Only the host can do that", NOTE_ERROR);
+        } else if (G.pause_sel == 3) {
+            freeze_all();
+        } else {
+            cleanup_props();
+        }
+        G.paused = 0;
+        break;
+    case 5:
+        G.paused = 0;
+        G.qmenu = 0;
+        net_leave();
+        return GAME_EXIT_TO_MENU;
+    default:
+        break;
+    }
+    if (!G.paused) G.qmenu = 0;
+    return GAME_CONTINUE;
+}
+
+// --- Per-frame update ----------------------------------------------------------------------------
+
+static float look_rate(int i, int held, float dt) {
+    G.look_hold[i] = held ? G.look_hold[i] + dt : 0.0f;
+    if (!held) return 0.0f;
+    float k = LOOK_MIN_FRACTION + (1.0f - LOOK_MIN_FRACTION) * clampf(G.look_hold[i] / LOOK_RAMP_TIME, 0.0f, 1.0f);
+    return k * (0.4f + 0.2f * g_settings.look_speed);
+}
+
+static void player_sounds(float dt) {
+    Player *p = &G.player;
+    float hs = sqrtf(p->velocity.x * p->velocity.x + p->velocity.y * p->velocity.y);
+    if (!p->noclip && p->on_ground) {
+        G.step_dist += hs * dt;
+        if (G.step_dist > STEP_STRIDE) {
+            G.step_dist = 0.0f;
+            play(p->water_level >= 1 ? G.snd.step_water : G.snd.step_concrete, p->ducked ? 0.15f : 0.35f);
+        }
+        G.bob_phase += hs * dt * 0.035f;
+    }
+    if (!p->noclip && p->on_ground && !G.was_on_ground && G.fall_speed > 300.0f) {
+        play(G.snd.land, clampf(G.fall_speed / 900.0f, 0.3f, 1.0f));
+    }
+    if (p->water_level >= 2 && G.last_water < 2 && G.fall_speed > 150.0f) play(G.snd.splash, 0.7f);
+    G.fall_speed = p->velocity.z < 0.0f ? -p->velocity.z : 0.0f;
+    G.was_on_ground = p->on_ground;
+    G.last_water = p->water_level;
+}
+
+static void impact_sounds(float dt) {
+    for (int i = 0; i < MAX_BODIES; i++) {
+        Body *b = &G.phys.bodies[i];
+        G.impact_cooldown[i] -= dt;
+        if (!b->active) continue;
+        // Hard enough to shatter a breakable (bottles, the watermelon, pots)? The host decides.
+        if (b->impact > BREAK_SPEED && !is_client() && break_group(b)) {
+            break_body(i);
+            continue;
+        }
+        if (b->impact > IMPACT_MIN_SPEED && G.impact_cooldown[i] <= 0.0f) {
+            int s = b->surface >= 0 && b->surface < NUM_SURF ? b->surface : 0;
+            play_at(G.snd.impact[s], b->pos, clampf((b->impact - IMPACT_MIN_SPEED) / 500.0f + 0.2f, 0.2f, 1.0f));
+            G.impact_cooldown[i] = 0.15f;
+        }
+        b->impact = 0.0f;
+    }
+}
+
+static void damage_player(float amount) {
+    if (G.dead_time > 0.0f || G.player.noclip || god_mode()) return;
+    // The HEV suit takes 80% of the hit out of its power while it has some (HL2's armour)
+    if (g_settings.hev_suit && G.suit > 0.0f) {
+        float soaked = fminf(amount * 0.8f, G.suit);
+        G.suit -= soaked;
+        amount -= soaked;
+    }
+    if (is_client()) {
+        // The host keeps everyone's health; it comes back in the next snapshot
+        float f[1] = {amount};
+        send_cmd(CMD_DAMAGE, 0, 0, 0, f, 1);
+        return;
+    }
+    G.health -= amount;
+    G.hurt_flash = 0.4f;
+    play(G.snd.impact[0], 0.8f);
+    if (G.health <= 0.0f) {
+        G.health = 0.0f;
+        G.dead_time = 0.001f;
+        physgun_release(1);
+        G.qmenu = 0;
+    }
+}
+
+static void respawn(void) {
+    const PmapSpawn *sp = &G.map.spawns[0];
+    player_spawn(&G.player, v3(sp->x, sp->y, sp->z));
+    G.yaw = sp->yaw;
+    G.pitch = 0.0f;
+    G.health = 100.0f;
+    G.suit = 100.0f;
+    G.dead_time = 0.0f;
+    refill_ammo();
+    if (is_client()) {
+        send_cmd(CMD_RESPAWN, 0, 0, 0, NULL, 0);
+        G.respawn_cmd = G.next_cmd;
+        G.respawn_pending = 1;
+    }
+}
+
+// Hard landings hurt, like HL2: nothing below about 580 units/s
+static void fall_damage(void) {
+    if (!G.player.noclip && G.player.on_ground && !G.was_on_ground && G.fall_speed > 580.0f) {
+        damage_player((G.fall_speed - 580.0f) * 0.25f);
+    }
+}
+
+// --- Multiplayer ----------------------------------------------------------------------------------
+// Host-authoritative over ad-hoc wireless. The host runs physics, NPCs and doors and broadcasts
+// snapshots; clients mirror them, send their own position and physics gun target, and ask the
+// host to do everything else (spawn, remove, weld...) with numbered commands that are resent
+// until a snapshot acknowledges them.
+
+#define SNAP_INTERVAL 0.05f
+#define ENTS_INTERVAL 0.1f
+#define ROPES_INTERVAL 0.5f
+#define BEACON_INTERVAL 0.5f
+#define SEND_INTERVAL 0.05f
+#define PEER_TIMEOUT 20.0f // a joining PSP is quiet while it loads the map
+#define HOST_TIMEOUT 8.0f
+#define BODIES_PER_PACKET 36
+#define MAX_BODY_PACKETS 3
+#define BODY_ROUND_ROBIN 12
+#define MAX_NET_ROPES 40
+#define ENTS_PER_PACKET 300
+
+#define NET_NO_MODEL 255 // NetPlayer / PkCState .model: the default character
+typedef struct {
+    uint8_t active, weapon, flags, model; // model: NPC type of the player model
+    float pos[3];
+    float yaw, pitch, health;
+    int16_t held;
+    uint16_t ack; // last command of this player's the host has run
+    char name[16];
+} NetPlayer;
+
+typedef struct {
+    NetHeader h;
+    uint32_t tick;
+    NetPlayer players[NET_MAX_PLAYERS];
+    NpcNet npcs[MAX_NPCS];
+} PkPlayers;
+
+static uint8_t model_byte(int type) {
+    return type >= 0 && type < NET_NO_MODEL ? (uint8_t)type : NET_NO_MODEL;
+}
+
+typedef struct {
+    NetHeader h;
+    float pos[3];
+    float yaw, pitch;
+    uint8_t weapon, flags, ncmds, model;
+    int16_t held, pad2;
+    float hold_pos[3];
+    float hold_rot[4];
+    NetCmd cmds[MAX_OUTQ];
+} PkCState;
+
+typedef struct {
+    uint8_t index, lib;
+    uint16_t model;
+    float pos[3];
+    int16_t rot[4];
+    uint32_t tint;
+    uint8_t balloons, flags, pad[2];
+} NetBody;
+
+typedef struct {
+    NetHeader h;
+    uint32_t tick;
+    uint8_t active[(MAX_BODIES + 7) / 8]; // which bodies exist: the rest get removed
+    uint8_t count, pad[3];
+    NetBody b[BODIES_PER_PACKET];
+} PkBodies;
+
+typedef struct {
+    NetHeader h;
+    uint16_t first, count;
+    uint8_t data[ENTS_PER_PACKET * 4];
+} PkEnts;
+
+// Ropes, elastics and sliders, for clients to draw
+#define NET_WORLD 255 // NetRope.b: tied to the world
+typedef struct {
+    uint8_t a, b, type, pad; // bodies (MAX_BODIES fits a byte), JOINT_*
+    float la[3], lb[3];
+    float length;
+} NetRope;
+
+typedef struct {
+    NetHeader h;
+    uint8_t count, pad[3];
+    NetRope r[MAX_NET_ROPES];
+} PkRopes;
+
+static NetHeader net_header(int type) {
+    NetHeader h = {NET_MAGIC, (uint8_t)type, (uint8_t)G.my_slot, NET_VERSION};
+    return h;
+}
+
+static int seq_newer(uint16_t a, uint16_t b) {
+    return (int16_t)(a - b) > 0;
+}
+
+static void map_base(char *out, int len) {
+    snprintf(out, len, "%s", G.map_name);
+    char *dot = strstr(out, ".low");
+    if (dot) *dot = 0;
+}
+
+static void send_cmd(int kind, int i0, int i1, uint32_t u, const float *f, int nf) {
+    if (!is_client()) return;
+    if (G.outq_n >= MAX_OUTQ) {
+        notify("Network busy - try again", NOTE_ERROR);
+        return;
+    }
+    NetCmd *c = &G.outq[G.outq_n++];
+    memset(c, 0, sizeof(*c));
+    c->id = ++G.next_cmd;
+    c->kind = (uint8_t)kind;
+    c->i0 = i0;
+    c->i1 = i1;
+    c->u = u;
+    for (int k = 0; k < nf && k < 10; k++) c->f[k] = f[k];
+}
+
+static int undo_pop(int slot) {
+    int *list, *count;
+    undo_list(slot, &list, &count);
+    while (*count > 0) {
+        int i = list[--(*count)];
+        if (i >= RAGDOLL_ID_BASE) {
+            if (!npc_ragdoll_active(i - RAGDOLL_ID_BASE)) continue;
+            npc_ragdoll_remove(i - RAGDOLL_ID_BASE);
+            return 3;
+        }
+        if (i >= NPC_ID_BASE) {
+            if (!npc_active(i - NPC_ID_BASE)) continue;
+            npc_remove(i - NPC_ID_BASE);
+            return 2;
+        }
+        const Body *b = &G.phys.bodies[i];
+        if (b->active && b->lib == 0 && G.body_owner[i] == slot) {
+            remove_body(i);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int body_valid(int i) {
+    return i >= 0 && i < MAX_BODIES && G.phys.bodies[i].active;
+}
+
+// Host: runs a client's action as that player
+static void exec_cmd(int slot, const NetCmd *c) {
+    Peer *p = &G.peers[slot];
+    int i = c->i0;
+    Body *b = body_valid(i) ? &G.phys.bodies[i] : NULL;
+    G.acting = slot;
+    switch (c->kind) {
+    case CMD_SPAWN:
+        spawn_prop(i, v3(c->f[0], c->f[1], c->f[2]), v3(c->f[3], c->f[4], c->f[5]),
+                   q_norm((quat){c->f[6], c->f[7], c->f[8], c->f[9]}), c->u);
+        break;
+    case CMD_SPAWN_NPC: {
+        int n = npc_spawn(i, v3(c->f[0], c->f[1], c->f[2]), c->f[3]);
+        if (n >= 0) undo_push(NPC_ID_BASE + n);
+        break;
+    }
+    case CMD_REMOVE:
+        if (b) {
+            play_at(G.snd.remove, b->pos, 0.6f);
+            remove_body(i);
+        }
+        break;
+    case CMD_REMOVE_NPC:
+        npc_remove(i);
+        break;
+    case CMD_COLOUR:
+        if (b) {
+            b->tint_abgr = c->u;
+            G.body_dirty[i] = 1;
+        }
+        break;
+    case CMD_BALLOON:
+        if (b && b->balloons < MAX_BALLOONS) {
+            b->balloons++;
+            update_balloon_lift(b);
+            b->frozen = 0;
+            phys_wake(&G.phys, i);
+            G.body_dirty[i] = 1;
+        }
+        break;
+    case CMD_WELD:
+        if (b && body_valid(c->i1) && c->i1 != i) phys_weld(&G.phys, i, c->i1, v3(c->f[0], c->f[1], c->f[2]));
+        break;
+    case CMD_ROPE: {
+        int a = b ? i : -1, o = body_valid(c->i1) ? c->i1 : -1;
+        if (a >= 0 || o >= 0) {
+            phys_rope(&G.phys, a, v3(c->f[0], c->f[1], c->f[2]), o, v3(c->f[3], c->f[4], c->f[5]), c->f[6]);
+        }
+        break;
+    }
+    case CMD_FREEZE:
+        if (b) {
+            b->frozen = 1;
+            b->held = 0;
+            b->vel = b->angvel = v3(0, 0, 0);
+            G.body_dirty[i] = 1;
+            if (p->held == i) p->held = -1;
+            p->held_prev = -1;
+        }
+        break;
+    case CMD_PUNT:
+        if (b) {
+            if (p->held == i) p->held = -1;
+            if (p->held_prev == i) p->held_prev = -1;
+            b->frozen = 0;
+            b->held = 0;
+            phys_wake(&G.phys, i);
+            b->vel = v3(c->f[0], c->f[1], c->f[2]);
+            G.body_dirty[i] = 1;
+        }
+        break;
+    case CMD_BALLSOCKET:
+        if (b && (c->i1 < 0 || body_valid(c->i1)) && c->i1 != i) phys_ballsocket(&G.phys, i, c->i1, v3(c->f[0], c->f[1], c->f[2]));
+        break;
+    case CMD_ELASTIC: {
+        int a2 = body_valid(i) ? i : -1, o = body_valid(c->i1) ? c->i1 : -1;
+        if (a2 >= 0 || o >= 0)
+            phys_elastic(&G.phys, a2, v3(c->f[0], c->f[1], c->f[2]), o, v3(c->f[3], c->f[4], c->f[5]), c->f[6]);
+        break;
+    }
+    case CMD_SLIDER: {
+        int a2 = body_valid(i) ? i : -1, o = body_valid(c->i1) ? c->i1 : -1;
+        if ((a2 >= 0 || o >= 0) && a2 != o)
+            phys_slider(&G.phys, a2, v3(c->f[0], c->f[1], c->f[2]), o, v3(c->f[3], c->f[4], c->f[5]));
+        break;
+    }
+    case CMD_NOCOLLIDE:
+        if (b) {
+            b->nocollide = !b->nocollide;
+            phys_wake(&G.phys, i);
+        }
+        break;
+    case CMD_WEIGHT:
+        if (b) phys_set_mass(&G.phys, i, clampf(c->f[0], 1.0f, 1000.0f));
+        break;
+    case CMD_THRUSTER:
+        if (b) phys_add_force(&G.phys, FORCE_THRUSTER, i, v3(c->f[0], c->f[1], c->f[2]), v3_norm(v3(c->f[3], c->f[4], c->f[5])), THRUSTER_FORCE);
+        break;
+    case CMD_HOVER:
+        if (b) phys_add_force(&G.phys, FORCE_HOVER, i, v3(c->f[0], c->f[1], c->f[2]), v3(0, 0, 1), c->f[2]);
+        break;
+    case CMD_EXPLODE:
+        if (b) do_explode(i);
+        break;
+    case CMD_TOGGLE:
+        if (b) toggle_forces(i);
+        break;
+    case CMD_UNDO:
+        undo_pop(slot);
+        break;
+    case CMD_USE:
+        ents_use(&G.map, v3(c->f[0], c->f[1], c->f[2]), v3(c->f[3], c->f[4], c->f[5]));
+        break;
+    case CMD_RESPAWN:
+        p->health = 100.0f;
+        break;
+    case CMD_DAMAGE:
+        if (p->health > 0.0f && !g_settings.god_mode) p->health = fmaxf(0.0f, p->health - c->f[0]);
+        break;
+    case CMD_SHOOT:
+        if (is_gun(i)) {
+            vec3 eye = v3(c->f[0], c->f[1], c->f[2]);
+            if (g_settings.sound && G.snd.fire[i] >= 0) snd_play_at(G.snd.fire[i], eye, 0.8f);
+            shoot(i, eye, v3_norm(v3(c->f[3], c->f[4], c->f[5])), (uint32_t)c->i1, 1, 0);
+        }
+        break;
+    default:
+        break;
+    }
+    G.acting = 0;
+}
+
+static int peer_by_mac(const uint8_t *mac) {
+    for (int s = 1; s < NET_MAX_PLAYERS; s++) {
+        if (G.peers[s].active && memcmp(G.peers[s].mac, mac, 6) == 0) return s;
+    }
+    return -1;
+}
+
+static void release_peer_hold(Peer *p) {
+    if (body_valid(p->held_prev) && p->held_prev != G.held) {
+        G.phys.bodies[p->held_prev].held = 0;
+        phys_wake(&G.phys, p->held_prev);
+    }
+    p->held_prev = -1;
+}
+
+static void drop_peer(int s, const char *why) {
+    Peer *p = &G.peers[s];
+    release_peer_hold(p);
+    char msg[48];
+    snprintf(msg, sizeof(msg), "%s %s", p->name, why);
+    notify(msg, NOTE_HINT);
+    p->active = 0;
+    npc_puppet_set(s, 0, -1, v3(0, 0, 0), 0.0f, 0.0f);
+}
+
+static void host_receive(void) {
+    union {
+        NetHeader h;
+        PkJoin join;
+        PkCState cs;
+        uint8_t raw[1500];
+    } pk;
+    uint8_t from[6];
+    int len;
+    while ((len = net_recv(from, &pk, sizeof(pk))) > 0) {
+        if (pk.h.version != NET_VERSION) continue;
+        int s = peer_by_mac(from);
+        if (pk.h.type == PK_JOIN && len >= (int)sizeof(PkJoin)) {
+            int is_new = s < 0;
+            if (is_new) {
+                for (s = 1; s < NET_MAX_PLAYERS && G.peers[s].active; s++) {
+                }
+                if (s == NET_MAX_PLAYERS) {
+                    NetHeader full = net_header(PK_FULL);
+                    net_send(from, &full, sizeof(full));
+                    continue;
+                }
+            }
+            // (Re)start this player, unless it's just a resend of the JOIN we already answered
+            Peer *p = &G.peers[s];
+            if (is_new || p->nonce != pk.join.nonce) {
+                release_peer_hold(p);
+                memset(p, 0, sizeof(*p));
+                p->active = 1;
+                p->nonce = pk.join.nonce;
+                memcpy(p->mac, from, 6);
+                snprintf(p->name, sizeof(p->name), "%.15s", pk.join.name);
+                p->health = 100.0f;
+                p->model = -1;
+                p->held = p->held_prev = -1;
+                p->pos = v3(G.map.spawns[0].x, G.map.spawns[0].y, G.map.spawns[0].z);
+            }
+            p->heard = 0.0f;
+            if (is_new) {
+                char msg[48];
+                snprintf(msg, sizeof(msg), "%s joined the game", p->name);
+                notify(msg, NOTE_HINT);
+            }
+            PkWelcome w;
+            memset(&w, 0, sizeof(w));
+            w.h = net_header(PK_WELCOME);
+            w.h.slot = (uint8_t)s;
+            map_base(w.map, sizeof(w.map));
+            net_send(from, &w, sizeof(w));
+        } else if (pk.h.type == PK_CSTATE && s > 0 && len >= (int)offsetof(PkCState, cmds)) {
+            Peer *p = &G.peers[s];
+            const PkCState *cs = &pk.cs;
+            p->heard = 0.0f;
+            p->pos = v3(cs->pos[0], cs->pos[1], cs->pos[2]);
+            p->yaw = cs->yaw;
+            p->pitch = cs->pitch;
+            p->weapon = cs->weapon;
+            p->flags = cs->flags;
+            p->model = cs->model == NET_NO_MODEL ? -1 : cs->model;
+            p->held = body_valid(cs->held) ? cs->held : -1;
+            p->hold_pos = v3(cs->hold_pos[0], cs->hold_pos[1], cs->hold_pos[2]);
+            p->hold_rot = q_norm((quat){cs->hold_rot[0], cs->hold_rot[1], cs->hold_rot[2], cs->hold_rot[3]});
+            int n = cs->ncmds;
+            int fits = (len - (int)offsetof(PkCState, cmds)) / (int)sizeof(NetCmd);
+            if (n > fits) n = fits;
+            if (n > MAX_OUTQ) n = MAX_OUTQ;
+            for (int k = 0; k < n; k++) {
+                if (!seq_newer(cs->cmds[k].id, p->last_cmd)) continue; // already done
+                exec_cmd(s, &cs->cmds[k]);
+                p->last_cmd = cs->cmds[k].id;
+            }
+        } else if (pk.h.type == PK_LEAVE && s > 0) {
+            drop_peer(s, "left the game");
+        }
+    }
+}
+
+static void pack_player(NetPlayer *np, int s) {
+    memset(np, 0, sizeof(*np));
+    uint8_t god = g_settings.god_mode ? PF_GOD : 0; // tells clients, so they stop reporting damage
+    if (s == 0) {
+        np->active = 1;
+        np->pos[0] = G.player.origin.x;
+        np->pos[1] = G.player.origin.y;
+        np->pos[2] = G.player.origin.z;
+        np->yaw = G.yaw;
+        np->pitch = G.pitch;
+        np->weapon = (uint8_t)G.weapon;
+        np->model = model_byte(player_model());
+        np->flags = (uint8_t)((G.player.noclip ? PF_NOCLIP : 0) | (G.player.ducked ? PF_DUCKED : 0) | (G.dead_time > 0.0f ? PF_DEAD : 0) | god);
+        np->health = G.health;
+        np->held = (int16_t)G.held;
+        snprintf(np->name, sizeof(np->name), "%s", net_nickname());
+        return;
+    }
+    const Peer *p = &G.peers[s];
+    if (!p->active) return;
+    np->active = 1;
+    np->pos[0] = p->pos.x;
+    np->pos[1] = p->pos.y;
+    np->pos[2] = p->pos.z;
+    np->yaw = p->yaw;
+    np->pitch = p->pitch;
+    np->weapon = (uint8_t)p->weapon;
+    np->model = model_byte(p->model);
+    np->flags = (uint8_t)((p->flags & ~PF_GOD) | god);
+    np->health = p->health;
+    np->held = (int16_t)p->held;
+    np->ack = p->last_cmd;
+    snprintf(np->name, sizeof(np->name), "%s", p->name);
+}
+
+static void pack_body(NetBody *nb, int i) {
+    const Body *b = &G.phys.bodies[i];
+    nb->index = (uint8_t)i;
+    nb->lib = (uint8_t)b->lib;
+    nb->model = (uint16_t)b->model;
+    nb->pos[0] = b->pos.x;
+    nb->pos[1] = b->pos.y;
+    nb->pos[2] = b->pos.z;
+    nb->rot[0] = (int16_t)(b->rot.x * 32767.0f);
+    nb->rot[1] = (int16_t)(b->rot.y * 32767.0f);
+    nb->rot[2] = (int16_t)(b->rot.z * 32767.0f);
+    nb->rot[3] = (int16_t)(b->rot.w * 32767.0f);
+    nb->tint = b->tint_abgr;
+    nb->balloons = (uint8_t)b->balloons;
+    nb->flags = (uint8_t)((b->frozen ? 1 : 0) | (b->held ? 2 : 0));
+}
+
+static void host_send_bodies(void) {
+    static PkBodies pk;
+    memset(&pk, 0, offsetof(PkBodies, b));
+    pk.h = net_header(PK_BODIES);
+    pk.tick = G.tick;
+    for (int i = 0; i < MAX_BODIES; i++) {
+        if (G.phys.bodies[i].active) pk.active[i >> 3] |= (uint8_t)(1u << (i & 7));
+    }
+    // Moving or changed bodies every time, then a few others in turn so everything gets refreshed
+    int list[MAX_BODY_PACKETS * BODIES_PER_PACKET];
+    int cap = MAX_BODY_PACKETS * BODIES_PER_PACKET, n = 0;
+    unsigned char picked[MAX_BODIES] = {0};
+    for (int i = 0; i < MAX_BODIES && n < cap; i++) {
+        const Body *b = &G.phys.bodies[i];
+        if (!b->active || !((!b->asleep && !b->frozen) || b->held || G.body_dirty[i])) continue;
+        list[n++] = i;
+        picked[i] = 1;
+        G.body_dirty[i] = 0;
+    }
+    int k, extra = 0;
+    for (k = 0; k < MAX_BODIES && n < cap && extra < BODY_ROUND_ROBIN; k++) {
+        int i = (G.body_rr + k) % MAX_BODIES;
+        if (!G.phys.bodies[i].active || picked[i]) continue;
+        list[n++] = i;
+        extra++;
+    }
+    G.body_rr = (G.body_rr + k) % MAX_BODIES;
+    int start = 0;
+    do {
+        int cnt = n - start < BODIES_PER_PACKET ? n - start : BODIES_PER_PACKET;
+        pk.count = (uint8_t)cnt;
+        for (int j = 0; j < cnt; j++) pack_body(&pk.b[j], list[start + j]);
+        net_send(NULL, &pk, (int)offsetof(PkBodies, b) + cnt * (int)sizeof(NetBody));
+        start += cnt;
+    } while (start < n);
+}
+
+static void host_send_players(void) {
+    PkPlayers pk;
+    memset(&pk, 0, sizeof(pk));
+    pk.h = net_header(PK_PLAYERS);
+    pk.tick = G.tick;
+    for (int s = 0; s < NET_MAX_PLAYERS; s++) pack_player(&pk.players[s], s);
+    for (int i = 0; i < MAX_NPCS; i++) npc_net_get(i, &pk.npcs[i]);
+    net_send(NULL, &pk, sizeof(pk));
+}
+
+static void host_send_ents(void) {
+    static PkEnts pk;
+    for (int first = 0; first < G.map.num_ents; first += ENTS_PER_PACKET) {
+        int cnt = G.map.num_ents - first < ENTS_PER_PACKET ? G.map.num_ents - first : ENTS_PER_PACKET;
+        pk.h = net_header(PK_ENTS);
+        pk.first = (uint16_t)first;
+        pk.count = (uint16_t)cnt;
+        int bytes = ents_net_pack(&G.map, first, cnt, pk.data);
+        net_send(NULL, &pk, (int)offsetof(PkEnts, data) + bytes);
+    }
+}
+
+static void host_send_ropes(void) {
+    static PkRopes pk;
+    memset(&pk, 0, offsetof(PkRopes, r));
+    pk.h = net_header(PK_ROPES);
+    for (int j = 0; j < MAX_JOINTS && pk.count < MAX_NET_ROPES; j++) {
+        const Joint *jt = &G.phys.joints[j];
+        if (!jt->active || (jt->type != JOINT_ROPE && jt->type != JOINT_ELASTIC && jt->type != JOINT_SLIDER)) continue;
+        NetRope *r = &pk.r[pk.count++];
+        r->a = (uint8_t)jt->a;
+        r->b = jt->b >= 0 ? (uint8_t)jt->b : NET_WORLD;
+        r->type = (uint8_t)jt->type;
+        r->la[0] = jt->la.x;
+        r->la[1] = jt->la.y;
+        r->la[2] = jt->la.z;
+        r->lb[0] = jt->lb.x;
+        r->lb[1] = jt->lb.y;
+        r->lb[2] = jt->lb.z;
+        r->length = jt->length;
+    }
+    net_send(NULL, &pk, (int)offsetof(PkRopes, r) + pk.count * (int)sizeof(NetRope));
+}
+
+static int num_players(void) {
+    int n = 1;
+    for (int s = 1; s < NET_MAX_PLAYERS; s++) n += G.peers[s].active;
+    return n;
+}
+
+// Host, before the physics step: hear clients, drive their physics guns, move their puppets
+static void host_update(float dt) {
+    NetState st = net_poll();
+    if (st == NET_FAILED) {
+        notify(net_status(), NOTE_ERROR);
+        net_stop();
+        G.role = ROLE_OFFLINE;
+        return;
+    }
+    if (st != NET_READY) return;
+    if (!G.net_was_ready) {
+        G.net_was_ready = 1;
+        notify(NET_HOSTING_HINT, NOTE_HINT);
+    }
+    host_receive();
+    for (int s = 1; s < NET_MAX_PLAYERS; s++) {
+        Peer *p = &G.peers[s];
+        if (!p->active) {
+            npc_puppet_set(s, 0, -1, v3(0, 0, 0), 0.0f, dt);
+            continue;
+        }
+        p->heard += dt;
+        if (p->heard > PEER_TIMEOUT) {
+            drop_peer(s, "timed out");
+            continue;
+        }
+        if (p->held != p->held_prev) release_peer_hold(p);
+        if (body_valid(p->held) && p->held != G.held) {
+            physgun_drive(p->held, p->hold_pos, p->hold_rot);
+            p->held_prev = p->held;
+        }
+        npc_puppet_set(s, p->health > 0.0f, p->model, p->pos, p->yaw, dt);
+    }
+}
+
+// Host, after the physics step: beacons and snapshots
+static void host_send(float dt) {
+    if (!net_active()) return;
+    G.beacon_timer -= dt;
+    if (G.beacon_timer <= 0.0f) {
+        G.beacon_timer = BEACON_INTERVAL;
+        PkBeacon bc;
+        memset(&bc, 0, sizeof(bc));
+        bc.h = net_header(PK_BEACON);
+        map_base(bc.map, sizeof(bc.map));
+        snprintf(bc.host, sizeof(bc.host), "%s", net_nickname());
+        bc.players = (uint8_t)num_players();
+        bc.max = NET_MAX_PLAYERS;
+        net_send(NULL, &bc, sizeof(bc));
+    }
+    if (num_players() < 2) return; // nobody to send to
+    G.snap_timer -= dt;
+    if (G.snap_timer <= 0.0f) {
+        G.snap_timer = SNAP_INTERVAL;
+        G.tick++;
+        host_send_players();
+        host_send_bodies();
+    }
+    G.ents_timer -= dt;
+    if (G.ents_timer <= 0.0f && G.map.num_ents) {
+        G.ents_timer = ENTS_INTERVAL;
+        host_send_ents();
+    }
+    G.ropes_timer -= dt;
+    if (G.ropes_timer <= 0.0f) {
+        G.ropes_timer = ROPES_INTERVAL;
+        host_send_ropes();
+    }
+}
+
+static void client_apply_players(const PkPlayers *pk) {
+    for (int s = 0; s < NET_MAX_PLAYERS; s++) {
+        const NetPlayer *np = &pk->players[s];
+        if (s == G.my_slot) {
+            // Forget the commands the host has run
+            int keep = 0;
+            for (int k = 0; k < G.outq_n; k++) {
+                if (seq_newer(G.outq[k].id, np->ack)) G.outq[keep++] = G.outq[k];
+            }
+            G.outq_n = keep;
+            G.acked = np->ack;
+            G.server_god = (np->flags & PF_GOD) != 0;
+            if (G.respawn_pending && !seq_newer(G.respawn_cmd, np->ack)) G.respawn_pending = 0;
+            if (!G.respawn_pending) {
+                if (np->health < G.health - 0.5f) {
+                    G.hurt_flash = 0.4f;
+                    play(G.snd.impact[0], 0.8f);
+                }
+                G.health = np->health;
+                if (G.health <= 0.0f && G.dead_time <= 0.0f) {
+                    G.dead_time = 0.001f;
+                    physgun_release(1);
+                    G.qmenu = 0;
+                }
+            }
+            continue;
+        }
+        Peer *p = &G.peers[s];
+        p->active = np->active;
+        p->pos = v3(np->pos[0], np->pos[1], np->pos[2]);
+        p->yaw = np->yaw;
+        p->pitch = np->pitch;
+        p->weapon = np->weapon;
+        p->flags = np->flags;
+        p->model = np->model == NET_NO_MODEL ? -1 : np->model;
+        p->health = np->health;
+        snprintf(p->name, sizeof(p->name), "%.15s", np->name);
+    }
+    for (int i = 0; i < MAX_NPCS; i++) npc_net_set(i, &pk->npcs[i]);
+}
+
+static void client_apply_bodies(const PkBodies *pk, int len) {
+    if ((int32_t)(pk->tick - G.last_body_tick) < 0) return; // arrived out of order
+    G.last_body_tick = pk->tick;
+    for (int i = 0; i < MAX_BODIES; i++) {
+        if (!(pk->active[i >> 3] & (1u << (i & 7))) && G.phys.bodies[i].active) remove_body(i);
+    }
+    int cnt = pk->count;
+    int fits = (len - (int)offsetof(PkBodies, b)) / (int)sizeof(NetBody);
+    if (cnt > fits) cnt = fits;
+    for (int j = 0; j < cnt; j++) {
+        const NetBody *nb = &pk->b[j];
+        int i = nb->index;
+        if (i >= MAX_BODIES || !(pk->active[i >> 3] & (1u << (i & 7)))) continue;
+        if ((nb->lib == 1 && (!G.maplib_loaded || nb->model >= G.maplib.num_models)) || (nb->lib == 0 && (!G.props_loaded || nb->model >= G.props.num_models + propx_count()))) continue;
+        Body *b = &G.phys.bodies[i];
+        vec3 pos = v3(nb->pos[0], nb->pos[1], nb->pos[2]);
+        quat rot = q_norm((quat){nb->rot[0] / 32767.0f, nb->rot[1] / 32767.0f, nb->rot[2] / 32767.0f, nb->rot[3] / 32767.0f});
+        if (!b->active || b->model != nb->model || b->lib != nb->lib) {
+            if (b->active) remove_body(i);
+            int local;
+            const PropLib *lib = nb->lib == 1 ? &G.maplib : model_lib(nb->model, &local);
+            if (nb->lib == 1) local = nb->model;
+            if (!lib) continue; // an extra prop we have no room for
+            const PpakModel *md = &lib->models[local];
+            vec3 mins = v3(md->mins[0], md->mins[1], md->mins[2]), maxs = v3(md->maxs[0], md->maxs[1], md->maxs[2]);
+            if (phys_spawn_at(&G.phys, i, nb->model, (int)(md->flags & PPAK_SHAPE_MASK), mins, maxs, md->mass, pos, rot) < 0) continue;
+            attach_hull(b, lib, local);
+            b->lib = nb->lib;
+            b->surface = (int)md->surface;
+        }
+        G.net_tpos[i] = pos;
+        G.net_trot[i] = rot;
+        b->tint_abgr = nb->tint;
+        if (b->balloons != nb->balloons) {
+            b->balloons = nb->balloons;
+            update_balloon_lift(b);
+        }
+        if (i != G.held) b->frozen = nb->flags & 1;
+        b->asleep = 1; // never simulated here
+    }
+}
+
+static void client_apply_ropes(const PkRopes *pk, int len) {
+    int cnt = pk->count;
+    int fits = (len - (int)offsetof(PkRopes, r)) / (int)sizeof(NetRope);
+    if (cnt > fits) cnt = fits;
+    memset(G.phys.joints, 0, sizeof(G.phys.joints));
+    for (int k = 0; k < cnt && k < MAX_JOINTS; k++) {
+        const NetRope *r = &pk->r[k];
+        int ob = r->b == NET_WORLD ? -1 : r->b;
+        if (!body_valid(r->a) || (ob >= 0 && !body_valid(ob))) continue;
+        Joint *jt = &G.phys.joints[k];
+        jt->active = 1;
+        jt->type = r->type == JOINT_ELASTIC || r->type == JOINT_SLIDER ? r->type : JOINT_ROPE;
+        jt->a = r->a;
+        jt->b = ob;
+        jt->la = v3(r->la[0], r->la[1], r->la[2]);
+        jt->lb = v3(r->lb[0], r->lb[1], r->lb[2]);
+        jt->length = r->length;
+    }
+}
+
+// Client: returns 0 when the game is over (host gone)
+static int client_update(float dt) {
+    if (net_poll() != NET_READY) {
+        snprintf(G.exit_msg, sizeof(G.exit_msg), NET_LOST_MSG);
+        return 0;
+    }
+    static union {
+        NetHeader h;
+        PkPlayers pl;
+        PkBodies bd;
+        PkEnts en;
+        PkRopes rp;
+        uint8_t raw[1500];
+    } pk;
+    uint8_t from[6];
+    int len;
+    while ((len = net_recv(from, &pk, sizeof(pk))) > 0) {
+        if (memcmp(from, G.host_mac, 6) != 0 || pk.h.version != NET_VERSION) continue;
+        G.host_heard = 0.0f;
+        switch (pk.h.type) {
+        case PK_PLAYERS:
+            if (len >= (int)sizeof(PkPlayers)) client_apply_players(&pk.pl);
+            break;
+        case PK_BODIES:
+            if (len >= (int)offsetof(PkBodies, b)) client_apply_bodies(&pk.bd, len);
+            break;
+        case PK_ENTS:
+            if (len >= (int)offsetof(PkEnts, data) + pk.en.count * 4 && pk.en.first + pk.en.count <= G.map.num_ents) {
+                ents_net_unpack(&G.map, pk.en.first, pk.en.count, pk.en.data);
+            }
+            break;
+        case PK_ROPES:
+            if (len >= (int)offsetof(PkRopes, r)) client_apply_ropes(&pk.rp, len);
+            break;
+        case PK_LEAVE:
+            snprintf(G.exit_msg, sizeof(G.exit_msg), "The host ended the game");
+            return 0;
+        default:
+            break;
+        }
+    }
+    G.host_heard += dt;
+    if (G.host_heard > HOST_TIMEOUT) {
+        snprintf(G.exit_msg, sizeof(G.exit_msg), "Lost connection to the host");
+        return 0;
+    }
+
+    G.send_timer -= dt;
+    if (G.send_timer <= 0.0f) {
+        G.send_timer = SEND_INTERVAL;
+        PkCState cs;
+        memset(&cs, 0, sizeof(cs));
+        cs.h = net_header(PK_CSTATE);
+        cs.pos[0] = G.player.origin.x;
+        cs.pos[1] = G.player.origin.y;
+        cs.pos[2] = G.player.origin.z;
+        cs.yaw = G.yaw;
+        cs.pitch = G.pitch;
+        cs.weapon = (uint8_t)G.weapon;
+        cs.model = model_byte(player_model());
+        cs.flags = (uint8_t)((G.player.noclip ? PF_NOCLIP : 0) | (G.player.ducked ? PF_DUCKED : 0) | (G.dead_time > 0.0f ? PF_DEAD : 0));
+        cs.held = (int16_t)((carries_props(G.weapon) || G.use_carry) && G.held >= 0 ? G.held : -1);
+        cs.hold_pos[0] = G.net_hold_pos.x;
+        cs.hold_pos[1] = G.net_hold_pos.y;
+        cs.hold_pos[2] = G.net_hold_pos.z;
+        cs.hold_rot[0] = G.net_hold_rot.x;
+        cs.hold_rot[1] = G.net_hold_rot.y;
+        cs.hold_rot[2] = G.net_hold_rot.z;
+        cs.hold_rot[3] = G.net_hold_rot.w;
+        cs.ncmds = (uint8_t)G.outq_n;
+        memcpy(cs.cmds, G.outq, sizeof(NetCmd) * G.outq_n);
+        net_send(G.host_mac, &cs, (int)offsetof(PkCState, cmds) + G.outq_n * (int)sizeof(NetCmd));
+    }
+
+    // Glide bodies toward their latest positions (the one we hold is ours to move)
+    float k = clampf(dt * 15.0f, 0.0f, 1.0f);
+    for (int i = 0; i < MAX_BODIES; i++) {
+        Body *b = &G.phys.bodies[i];
+        if (!b->active || i == G.held) continue;
+        vec3 d = v3_sub(G.net_tpos[i], b->pos);
+        b->pos = v3_len(d) > 256.0f ? G.net_tpos[i] : v3_mad(b->pos, d, k);
+        quat t = G.net_trot[i];
+        if (t.x * b->rot.x + t.y * b->rot.y + t.z * b->rot.z + t.w * b->rot.w < 0.0f) t = (quat){-t.x, -t.y, -t.z, -t.w};
+        b->rot = q_norm((quat){b->rot.x + (t.x - b->rot.x) * k, b->rot.y + (t.y - b->rot.y) * k, b->rot.z + (t.z - b->rot.z) * k,
+                               b->rot.w + (t.w - b->rot.w) * k});
+    }
+    npcs_animate(dt);
+    for (int s = 0; s < NET_MAX_PLAYERS; s++) {
+        const Peer *p = &G.peers[s];
+        npc_puppet_set(s, s != G.my_slot && p->active && p->health > 0.0f, p->model, p->pos, p->yaw, dt);
+    }
+    return 1;
+}
+
+static void net_leave(void) {
+    if (G.role == ROLE_OFFLINE) return;
+    if (net_active()) {
+        NetHeader bye = net_header(PK_LEAVE);
+        for (int k = 0; k < 3; k++) net_send(G.role == ROLE_CLIENT ? G.host_mac : NULL, &bye, sizeof(bye));
+    }
+    net_stop();
+    G.role = ROLE_OFFLINE;
+    npcs_clear();
+}
+
+void game_host(void) {
+    G.role = ROLE_HOST;
+    G.my_slot = 0;
+    G.net_was_ready = 0;
+    if (net_start() != 0) {
+        notify(net_status(), NOTE_ERROR);
+        G.role = ROLE_OFFLINE;
+        return;
+    }
+    notify(NET_STARTING_MSG, NOTE_HINT);
+}
+
+void game_join(int slot, const uint8_t host_mac[6]) {
+    G.role = ROLE_CLIENT;
+    G.my_slot = slot;
+    memcpy(G.host_mac, host_mac, 6);
+    G.host_heard = 0.0f;
+    G.last_body_tick = 0;
+    G.outq_n = 0;
+    G.next_cmd = 0;
+    G.respawn_pending = 0;
+    G.server_god = 0;
+    npcs_clear();
+    for (int i = 0; i < MAX_BODIES; i++) {
+        G.net_tpos[i] = G.phys.bodies[i].pos;
+        G.net_trot[i] = G.phys.bodies[i].rot;
+    }
+    notify("Joined the game", NOTE_HINT);
+}
+
+const char *game_exit_message(void) {
+    return G.exit_msg;
+}
+
+static void npc_hits(int target, float amount) {
+    if (target == 0) {
+        damage_player(amount);
+        return;
+    }
+    Peer *p = &G.peers[target];
+    if (p->health > 0.0f && !g_settings.god_mode) p->health = fmaxf(0.0f, p->health - amount);
+}
+
+// --- Physics damage ------------------------------------------------------------------------------
+// A prop flying into a player hurts, like HL2: by its mass times how fast it closes in, past a speed
+// that lets things be dropped, rolled and nudged harmlessly. It knocks the player back and loses some of
+// its own speed. The host works it out for everyone, since only it simulates the props.
+#define PROP_HURT_SPEED 300.0f      // closing speed (units/s) below which a prop does nothing
+#define PROP_HURT_SCALE (1.0f / 800.0f)
+#define PROP_HURT_MAX 150.0f
+#define PROP_HURT_COOLDOWN 0.4f
+
+// The hardest hit a player standing at feet takes from a prop this step, or 0. Only the prop's own
+// speed counts, so running into a prop doesn't hurt.
+static float prop_hit(vec3 feet, int ducked, float dt, int *body, vec3 *dir) {
+    vec3 lo = v3_add(feet, v3(-18, -18, 0)), hi = v3_add(feet, v3(18, 18, ducked ? 40.0f : 74.0f));
+    vec3 centre = v3_add(feet, v3(0, 0, ducked ? 20.0f : 36.0f));
+    float worst = 0.0f;
+    for (int i = 0; i < MAX_BODIES; i++) {
+        const Body *b = &G.phys.bodies[i];
+        if (!b->active || b->asleep || b->frozen || b->held || b->mass < 2.0f) continue;
+        vec3 rel = b->vel;
+        if (v3_dot(rel, rel) < PROP_HURT_SPEED * PROP_HURT_SPEED) continue;
+        // Its box over the whole step, so a fast one can't skip past
+        vec3 bl, bh, back = v3_scale(b->vel, -dt);
+        phys_body_aabb(b, &bl, &bh);
+        vec3 sl = v3(fminf(bl.x, bl.x + back.x), fminf(bl.y, bl.y + back.y), fminf(bl.z, bl.z + back.z));
+        vec3 sh = v3(fmaxf(bh.x, bh.x + back.x), fmaxf(bh.y, bh.y + back.y), fmaxf(bh.z, bh.z + back.z));
+        if (sl.x > hi.x || sh.x < lo.x || sl.y > hi.y || sh.y < lo.y || sl.z > hi.z || sh.z < lo.z) continue;
+        if (bh.z <= feet.z + 6.0f) continue; // under their feet: they're riding it
+        vec3 to = v3_sub(centre, b->pos);
+        float closing = v3_len(to) > 1.0f ? v3_dot(rel, v3_norm(to)) : v3_len(rel);
+        if (closing < PROP_HURT_SPEED) continue;
+        float dmg = (closing - PROP_HURT_SPEED) * b->mass * PROP_HURT_SCALE;
+        if (dmg > worst) {
+            worst = dmg;
+            *body = i;
+            *dir = v3_norm(rel);
+        }
+    }
+    return fminf(worst, PROP_HURT_MAX);
+}
+
+static void prop_damage(float dt) {
+    G.prop_hurt -= dt;
+    for (int s = 0; s < NET_MAX_PLAYERS; s++) {
+        int local = s == 0;
+        Peer *p = &G.peers[s];
+        if (!local) {
+            p->prop_hurt -= dt;
+            if (G.role != ROLE_HOST || !p->active || p->health <= 0.0f || (p->flags & PF_NOCLIP) || p->prop_hurt > 0.0f) continue;
+        } else if (G.dead_time > 0.0f || G.player.noclip || G.prop_hurt > 0.0f) {
+            continue;
+        }
+        int bi = -1;
+        vec3 dir = v3(0, 0, 0);
+        float dmg = local ? prop_hit(G.player.origin, G.player.ducked, dt, &bi, &dir)
+                          : prop_hit(p->pos, (p->flags & PF_DUCKED) != 0, dt, &bi, &dir);
+        if (dmg < 1.0f) continue;
+        Body *b = &G.phys.bodies[bi];
+        b->vel = v3_scale(b->vel, 0.5f); // it gave up some of its speed to the hit
+        if (local) {
+            G.prop_hurt = PROP_HURT_COOLDOWN;
+            damage_player(dmg);
+            G.player.velocity = v3_mad(G.player.velocity, dir, fminf(dmg * 8.0f, 450.0f));
+            if (dir.z > -0.5f) G.player.on_ground = 0;
+        } else {
+            p->prop_hurt = PROP_HURT_COOLDOWN;
+            if (!g_settings.god_mode) p->health = fmaxf(0.0f, p->health - dmg);
+        }
+    }
+}
+
+// Everything that isn't the local player: physics, NPCs, scripts, the network.
+// Returns 0 when a multiplayer game has ended for this PSP.
+static int world_step(float dt) {
+    if (is_client()) {
+        script_think(dt);
+        npc_ragdolls_update(&G.map, dt, &G.phys);
+        return client_update(dt);
+    }
+    if (G.role == ROLE_HOST) host_update(dt);
+    script_think(dt);
+    phys_step(&G.phys, &G.map, dt);
+    prop_damage(dt);
+    NpcTarget t[NET_MAX_PLAYERS];
+    memset(t, 0, sizeof(t));
+    t[0].pos = G.player.origin;
+    t[0].valid = G.dead_time <= 0.0f && !G.player.noclip;
+    for (int s = 1; s < NET_MAX_PLAYERS && G.role == ROLE_HOST; s++) {
+        const Peer *p = &G.peers[s];
+        t[s].pos = p->pos;
+        t[s].valid = p->active && p->health > 0.0f && !(p->flags & PF_NOCLIP);
+    }
+    npc_set_ai(!g_settings.npc_think, g_settings.npc_ignore_players); // Options (the host's, in multiplayer)
+    npc_set_blade_model(G.props_loaded ? prop_named("Sawblade") : -1);
+    npcs_update(&G.map, dt, t, G.role == ROLE_HOST ? NET_MAX_PLAYERS : 1, &G.phys, npc_hits);
+    npc_ragdolls_update(&G.map, dt, &G.phys);
+    impact_sounds(dt);
+    expire_pieces(dt);
+    if (G.role == ROLE_HOST) host_send(dt);
+    return 1;
+}
+
+GameResult game_update(const InputState *in, float dt) {
+    phys_set_quality(g_settings.physics);
+    for (int i = 0; i < MAX_NOTES; i++) G.notes[i].time += dt;
+    if (g_haunt.on && !G.paused) haunt_update(dt);
+    G.hurt_flash -= dt;
+    if (G.dead_time > 0.0f && !G.paused) {
+        // Dead: the world keeps going; X (or a few seconds) respawns
+        G.dead_time += dt;
+        if (G.dead_time > 1.0f && (in->pressed & (PSP_CTRL_CROSS | PSP_CTRL_RTRIGGER) || G.dead_time > 6.0f)) respawn();
+        if (in->pressed & PSP_CTRL_START) open_pause();
+        MoveCmd still = {0};
+        still.yaw = G.yaw;
+        player_move(&G.player, &G.map, &still, NULL, 0, dt);
+        npc_self_set(0, -1, G.player.origin, G.yaw, dt);
+        if (is_client()) {
+            ents_client_update(&G.map, dt);
+        } else {
+            ents_update(&G.map, dt, G.player.origin, G.player.origin);
+        }
+        if (!world_step(dt)) {
+            net_leave();
+            return GAME_EXIT_TO_MENU;
+        }
+        return GAME_CONTINUE;
+    }
+    G.wsel_time -= dt;
+    G.beam_time -= dt;
+    G.switch_time -= dt;
+    G.kick *= 1.0f - clampf(dt * 12.0f, 0.0f, 1.0f);
+    MoveCmd cmd = {0};
+
+    if (G.paused) {
+        // The world is frozen while paused, like single-player GMod; multiplayer keeps going
+        GameResult r = pause_update(in);
+        if (r != GAME_CONTINUE || G.role == ROLE_OFFLINE) return r;
+    } else if (G.qmenu) {
+        qmenu_update(in);
+    } else {
+        if (in->pressed & PSP_CTRL_START) {
+            physgun_release(1);
+            open_pause();
+            return GAME_CONTINUE;
+        }
+        // Select: tap for the spawn menu, hold for noclip
+        if (in->held & PSP_CTRL_SELECT) {
+            G.select_time += dt;
+            if (G.select_time >= SELECT_HOLD_TIME && !G.select_fired) {
+                G.select_fired = 1;
+                G.player.noclip = !G.player.noclip;
+                G.player.velocity = v3(0, 0, 0);
+                notify(G.player.noclip ? "Noclip enabled" : "Noclip disabled", NOTE_HINT);
+            }
+        } else {
+            if ((in->released & PSP_CTRL_SELECT) && !G.select_fired) {
+                G.qmenu = 1;
+                play(G.snd.menu_select, 0.5f);
+            }
+            G.select_time = 0.0f;
+            G.select_fired = 0;
+        }
+        float invert = g_settings.invert_y ? -1.0f : 1.0f;
+#ifdef PS2
+        if (in->pressed & PSP_CTRL_SQUARE) {
+            g_flashlight = !g_flashlight;
+            play(G.snd.menu_move, 0.6f);
+        }
+#else
+        // D-pad Right: tap to use, hold to switch the flashlight (Square is a look button on the PSP)
+        if ((in->held & PSP_CTRL_RIGHT) && G.held < 0 && G.held_rag < 0) {
+            g_flash_hold += dt;
+            if (g_flash_hold >= SELECT_HOLD_TIME && !g_flash_fired) {
+                g_flash_fired = 1;
+                g_flashlight = !g_flashlight;
+                play(G.snd.menu_move, 0.6f);
+                notify(g_flashlight ? "Flashlight on" : "Flashlight off", NOTE_HINT);
+            }
+        } else {
+            g_flash_hold = 0.0f;
+            g_flash_fired = 0;
+        }
+#endif
+#ifdef PS2
+        // DualShock 2: look with the right stick (squared for fine aim near the centre)
+        {
+            float k = 0.6f + 0.2f * g_settings.look_speed;
+            float rx = in->rx * fabsf(in->rx), ry = in->ry * fabsf(in->ry);
+            G.yaw -= LOOK_YAW_SPEED * 1.2f * k * dt * rx;
+            G.pitch -= invert * LOOK_PITCH_SPEED * 1.2f * k * dt * ry;
+        }
+        (void)look_rate;
+#else
+        G.yaw += LOOK_YAW_SPEED * dt * (look_rate(0, in->held & PSP_CTRL_SQUARE, dt) - look_rate(1, in->held & PSP_CTRL_CIRCLE, dt));
+        G.pitch += invert * LOOK_PITCH_SPEED * dt *
+                   (look_rate(2, in->held & PSP_CTRL_TRIANGLE, dt) - look_rate(3, in->held & PSP_CTRL_CROSS, dt));
+#endif
+        G.pitch = clampf(G.pitch, -89.0f, 89.0f);
+        G.yaw = fmodf(G.yaw, 360.0f);
+
+        cmd.forward = -in->ay;
+        cmd.side = in->ax;
+        cmd.yaw = G.yaw;
+        cmd.pitch = G.pitch;
+        int holding = G.held >= 0 || G.held_rag >= 0;
+#ifdef PS2
+        // X jumps on the DualShock (and L1, except with the gravity gun or the Camera tool, where L1 is theirs), except with the gravity gun or the Camera tool, where L1 is theirs)
+        cmd.jump = !holding && (in->held & (G.weapon == WEAPON_GRAVGUN || camera_tool_out() ? PSP_CTRL_CROSS
+                                                                                            : PSP_CTRL_LTRIGGER | PSP_CTRL_CROSS));
+#else
+        cmd.jump = !holding && !camera_tool_out() && (in->held & PSP_CTRL_LTRIGGER); // the Camera tool's L switches view
+#endif
+        if (!camera_tool_out() || !is_camera(G.cam_view)) G.cam_view = -1; // putting the tool away ends the camera view
+        if (G.player.noclip) {
+            cmd.duck = (in->held & PSP_CTRL_DOWN) && !holding;
+        } else if ((in->pressed & PSP_CTRL_DOWN) && !holding) {
+            G.player.ducked = !G.player.ducked; // crouch is a toggle: the thumb can't hold it and steer
+        }
+        if (!G.player.noclip) cmd.duck = G.player.ducked;
+
+        // Reload (GMod's R): Circle on the DualShock, which the right stick frees up; on the PSP, hold
+        // D-pad Left (a tap still switches weapons, when it's let go)
+        int next_weapon = 0;
+#ifdef PS2
+        next_weapon = !holding && (in->pressed & PSP_CTRL_LEFT);
+        if (!holding && (in->pressed & PSP_CTRL_CIRCLE)) start_reload();
+#else
+        if (in->held & PSP_CTRL_LEFT) {
+            G.left_hold += dt;
+            if (G.left_hold >= SELECT_HOLD_TIME && !G.left_fired) {
+                G.left_fired = 1;
+                start_reload();
+            }
+        } else {
+            next_weapon = !holding && (in->released & PSP_CTRL_LEFT) && !G.left_fired;
+            G.left_hold = 0.0f;
+            G.left_fired = 0;
+        }
+#endif
+        if (next_weapon) {
+            G.weapon = (G.weapon + 1) % WEAPON_COUNT;
+            G.reload_left = 0.0f; // switching away cancels a reload
+            G.switch_time = 0.25f;
+            G.wsel_time = 1.5f;
+            G.stage = 0;
+            play(G.snd.menu_move, 0.4f);
+        }
+        // Use key: switch a prop's thrusters and hoverballs, else pick up something light, else use
+        // whatever's there (doors, buttons). Only the host knows which props have thrusters.
+        int use_pressed = !holding && (in->pressed & use_buttons());
+        Aim use_aim;
+        use_aim.body = -1;
+        if (use_pressed) use_aim = aim_trace(1500.0f);
+        int has_forces = use_aim.body >= 0 && !is_client() && toggle_forces(use_aim.body);
+        if (has_forces) {
+            play(G.snd.menu_move, 0.5f);
+        } else if (use_pressed && use_pickup()) {
+            // carrying it now (use_carry_update)
+        } else if (use_aim.body >= 0 && is_client()) {
+            send_cmd(CMD_TOGGLE, use_aim.body, 0, 0, NULL, 0);
+            play(G.snd.menu_move, 0.5f);
+        } else if (use_pressed) {
+            vec3 eye = player_eye(&G.player), f = view_forward();
+            if (is_client()) {
+                float v[6] = {eye.x, eye.y, eye.z, f.x, f.y, f.z};
+                send_cmd(CMD_USE, 0, 0, 0, v, 6);
+            } else if (!ents_use(&G.map, eye, f) && !script_use()) {
+                play(G.snd.dryfire, 0.3f);
+            }
+        }
+        if (!holding && (in->pressed & PSP_CTRL_UP) && is_client()) {
+            send_cmd(CMD_UNDO, 0, 0, 0, NULL, 0);
+            play(G.snd.undo, 0.6f);
+            notify("Undone", NOTE_UNDO);
+        } else if (!holding && (in->pressed & PSP_CTRL_UP)) {
+            int r = undo_pop(0);
+            if (r) {
+                play(G.snd.undo, 0.6f);
+                notify(r == 3 ? "Undone Ragdoll" : r == 2 ? "Undone NPC" : "Undone Prop", NOTE_UNDO);
+            }
+        }
+        if (G.switch_time <= 0.0f) {
+            if (G.use_carry) {
+                use_carry_update(in, dt); // carrying with the use key takes over from the weapon
+            } else if (G.weapon == WEAPON_PHYSGUN) {
+                physgun_update(in, dt);
+            } else if (G.weapon == WEAPON_GRAVGUN || G.weapon == WEAPON_HANDS) {
+                carry_update(in, dt);
+            } else if (G.weapon == WEAPON_TOOLGUN) {
+                if (in->pressed & PSP_CTRL_RTRIGGER) toolgun_fire();
+                if (G.tool == TOOL_CAMERA && (in->pressed & PSP_CTRL_LTRIGGER)) camera_switch();
+            } else {
+                gun_update(in, dt);
+            }
+        }
+    }
+    G.fire_cd -= dt;
+    G.muzzle_time -= dt;
+    G.blast_time -= dt;
+    for (int i = 0; i < 8; i++) G.tracers[i].time -= dt;
+    blood_update(dt);
+
+    CmBox boxes[MAX_BODIES + MAX_NPCS + NET_MAX_PLAYERS];
+    int nb = build_prop_boxes(boxes, G.held);
+    player_move(&G.player, &G.map, &cmd, boxes, nb, dt);
+    // Your body, in third person or seen from a camera
+    npc_self_set(third_person() || G.cam_view >= 0, player_model(), G.player.origin, G.yaw, dt);
+
+    vec3 pmin, pmax;
+    player_hull(&G.player, &pmin, &pmax);
+    pmin = v3_add(G.player.origin, pmin);
+    pmax = v3_add(G.player.origin, pmax);
+    if (is_client()) {
+        ents_client_update(&G.map, dt);
+    } else {
+        ents_update(&G.map, dt, pmin, pmax);
+    }
+
+    // Walking into props shoves them (the host's physics decides that in multiplayer)
+    if (!G.player.noclip && !is_client()) {
+        vec3 smin = v3_sub(pmin, v3(3, 3, 0)), smax = v3_add(pmax, v3(3, 3, 0));
+        float pspeed = sqrtf(G.player.velocity.x * G.player.velocity.x + G.player.velocity.y * G.player.velocity.y);
+        for (int i = 0; i < MAX_BODIES && pspeed > 20.0f; i++) {
+            Body *b = &G.phys.bodies[i];
+            if (!b->active || b->frozen || b->held) continue;
+            vec3 bmin, bmax;
+            phys_body_aabb(b, &bmin, &bmax);
+            if (bmin.x > smax.x || bmax.x < smin.x || bmin.y > smax.y || bmax.y < smin.y || bmin.z > smax.z - 18.0f ||
+                bmax.z < smin.z + 2.0f)
+                continue;
+            vec3 d = v3_sub(b->pos, G.player.origin);
+            d.z = 0.0f;
+            d = v3_norm(d);
+            float push = v3_dot(G.player.velocity, d);
+            if (push <= 0.0f) continue;
+            float k = clampf(60.0f / b->mass, 0.05f, 1.0f);
+            phys_wake(&G.phys, i);
+            b->vel = v3_mad(b->vel, d, push * k * 0.5f);
+        }
+    }
+
+    // Fell out of the map
+    if (G.player.origin.z < G.map.info->mins[2] - 512.0f) {
+        const PmapSpawn *sp = &G.map.spawns[0];
+        player_spawn(&G.player, v3(sp->x, sp->y, sp->z));
+    }
+
+    snd_set_listener(player_eye(&G.player), G.yaw);
+    fall_damage();
+    player_sounds(dt);
+    if (!world_step(dt)) {
+        net_leave();
+        return GAME_EXIT_TO_MENU;
+    }
+    return GAME_CONTINUE;
+}
+
+// --- Script access ---------------------------------------------------------------------------------
+
+// Map scripts only change the world on the host (or single player): clients get it in snapshots
+int game_spawn_prop_by_name(const char *name, float x, float y, float z, float yaw) {
+    if (is_client()) return -1;
+    for (int k = 0; k < G.num_spawnable; k++) {
+        int i = G.spawnable[k];
+        if (strcasecmp(model_name(i), name) == 0) {
+            int b = spawn_prop(i, v3(x, y, z), v3(0, 0, 1), yaw_quat(yaw), 0xFFFFFFFF);
+            return b;
+        }
+    }
+    return -1;
+}
+
+Body *game_body(int i) {
+    return (i >= 0 && i < MAX_BODIES && G.phys.bodies[i].active) ? &G.phys.bodies[i] : NULL;
+}
+
+void game_remove_body(int i) {
+    if (game_body(i) && !is_client()) remove_body(i);
+}
+
+void game_player_pos(float *x, float *y, float *z) {
+    *x = G.player.origin.x;
+    *y = G.player.origin.y;
+    *z = G.player.origin.z;
+}
+
+float game_player_yaw(void) {
+    return G.yaw;
+}
+
+void game_message(const char *msg) {
+    toast(msg);
+}
+
+int game_aim_body(void) {
+    return aim_trace(USE_RANGE).body;
+}
+
+// --- Rendering ---------------------------------------------------------------------------------
+
+typedef struct {
+    unsigned int color;
+    float x, y, z;
+} ColVert;
+#define COLVERT_FMT (GU_COLOR_8888 | GU_VERTEX_32BITF | GU_TRANSFORM_3D)
+
+static unsigned int scale_abgr(unsigned int c, float k) {
+    unsigned int out = c & 0xFF000000u;
+    for (int s = 0; s < 24; s += 8) {
+        float v = (float)((c >> s) & 0xFF) * k;
+        out |= (v > 255.0f ? 255u : (unsigned int)v) << s;
+    }
+    return out;
+}
+
+static void update_body_light(Body *b) {
+    if (b->light_age < 20 && b->asleep) {
+        b->light_age++;
+        return;
+    }
+    b->light_age = 0;
+    int leaf = map_point_leaf(&G.map, &b->pos);
+    b->ambient_abgr = (leaf >= 0 && leaf < G.map.num_leafs) ? G.map.leafs[leaf].ambient_abgr : G.map.info->ambient_abgr;
+    // In sunlight unless something solid is between the prop and the sun (within a few thousand units).
+    const float *sd = G.map.info->sun_dir;
+    Trace tr;
+    vec3 from = v3_add(b->pos, v3(0, 0, b->half.z + 2.0f));
+    cm_trace_line(&G.map, from, v3_mad(from, v3(sd[0], sd[1], sd[2]), 3000.0f), MASK_PROPSOLID, NULL, 0, &tr);
+    b->sunlit = tr.fraction >= 1.0f;
+}
+
+// Options > Draw distance: Near, Medium, Far, or the map's own fog distance
+static float view_distance(void) {
+    static const float k_limits[4] = {1200.0f, 2200.0f, 3500.0f, 1e9f};
+    int d = g_settings.draw_dist < 1 ? 1 : g_settings.draw_dist > 4 ? 4 : g_settings.draw_dist;
+    return k_limits[d - 1] < G.map.info->fog_end ? k_limits[d - 1] : G.map.info->fog_end;
+}
+
+// The map's fog, pulled in to hide where drawing stops when the draw distance is shorter
+static void apply_fog(void) {
+    const PmapInfo *in = G.map.info;
+    float vd = view_distance();
+    if (vd >= in->fog_end) {
+        gfx_set_fog(in->fog_start, in->fog_end, in->fog_abgr);
+        return;
+    }
+    unsigned int col = in->fog_end > in->fog_start ? in->fog_abgr : in->sky_abgr;
+    gfx_set_fog(fminf(in->fog_start, vd * 0.55f), vd, col);
+}
+
+static int in_view(vec3 c, float radius, float max_dist) {
+    vec3 d = v3_sub(c, G.cam.pos);
+    float dist = v3_len(d);
+    if (dist - radius > max_dist) return 0;
+    if (dist < radius + 8.0f) return 1;
+    // Behind the camera, with a generous cone for the wide PSP screen
+    return v3_dot(d, view_forward()) > -radius && v3_dot(d, view_forward()) / dist > 0.35f - radius / dist;
+}
+
+static void make_light(PropLight *l, unsigned int ambient, int sunlit, unsigned int tint) {
+    const float *sd = G.map.info->sun_dir;
+    l->sun_dir = v3(sd[0], sd[1], sd[2]);
+    l->sun_abgr = sunlit ? scale_abgr(G.map.info->sun_abgr, 0.75f) : 0xFF000000;
+    l->ambient_abgr = scale_abgr(ambient, sunlit ? 1.1f : 1.4f);
+    l->tint_abgr = tint;
+}
+
+static void draw_props(void) {
+    float max_dist = fminf(view_distance(), mem_tier() == MEM_TIER_HIGH ? PROP_DRAW_DIST_HIGH : PROP_DRAW_DIST_LOW);
+    proplib_begin();
+    G.bodies_drawn = 0;
+    for (int i = 0; i < MAX_BODIES; i++) {
+        Body *b = &G.phys.bodies[i];
+        if (!b->active) continue;
+        if (b->lib == 1 && !G.maplib_loaded) continue;
+        int local;
+        const PropLib *lib = body_lib(b, &local);
+        if (!lib) continue;
+        if (!in_view(b->pos, v3_len(b->half), max_dist)) continue;
+        update_body_light(b);
+        PropLight l;
+        make_light(&l, b->ambient_abgr, b->sunlit, b->tint_abgr);
+        ScePspFMatrix4 m;
+        phys_body_matrix(b, &m);
+        proplib_draw(lib, local, &m, &l);
+        G.bodies_drawn++;
+    }
+
+    // Static props: PVS row for the camera's cluster, then view cone and distance
+    G.sprops_drawn = 0;
+    if (G.maplib_loaded && G.map.num_sprops) {
+        int leaf = map_point_leaf(&G.map, &G.cam.pos);
+        int cluster = (leaf >= 0 && leaf < G.map.num_leafs) ? G.map.leafs[leaf].cluster : -1;
+        const uint32_t *row = (cluster >= 0 && cluster < G.map.num_clusters && G.map.info->sprp_row_words)
+                                  ? G.map.spvs + (unsigned int)cluster * G.map.info->sprp_row_words
+                                  : NULL;
+        for (int i = 0; i < G.map.num_sprops; i++) {
+            if (row && !(row[i >> 5] & (1u << (i & 31)))) continue;
+            const PmapStaticProp *sp = &G.map.sprops[i];
+            if ((int)sp->model >= G.maplib.num_models) continue;
+            const PpakModel *md = &G.maplib.models[sp->model];
+            vec3 lc = v3((md->mins[0] + md->maxs[0]) * 0.5f, (md->mins[1] + md->maxs[1]) * 0.5f, (md->mins[2] + md->maxs[2]) * 0.5f);
+            vec3 c = v3(sp->origin[0] + sp->axis_x[0] * lc.x + sp->axis_y[0] * lc.y + sp->axis_z[0] * lc.z,
+                        sp->origin[1] + sp->axis_x[1] * lc.x + sp->axis_y[1] * lc.y + sp->axis_z[1] * lc.z,
+                        sp->origin[2] + sp->axis_x[2] * lc.x + sp->axis_y[2] * lc.y + sp->axis_z[2] * lc.z);
+            float radius = 0.5f * sqrtf((md->maxs[0] - md->mins[0]) * (md->maxs[0] - md->mins[0]) +
+                                        (md->maxs[1] - md->mins[1]) * (md->maxs[1] - md->mins[1]) +
+                                        (md->maxs[2] - md->mins[2]) * (md->maxs[2] - md->mins[2]));
+            float dist = sp->fade_dist > 0.0f ? fminf(sp->fade_dist, max_dist) : max_dist;
+            if (!in_view(c, radius, dist + radius)) continue;
+            ScePspFMatrix4 m;
+            m.x = (ScePspFVector4){sp->axis_x[0], sp->axis_x[1], sp->axis_x[2], 0.0f};
+            m.y = (ScePspFVector4){sp->axis_y[0], sp->axis_y[1], sp->axis_y[2], 0.0f};
+            m.z = (ScePspFVector4){sp->axis_z[0], sp->axis_z[1], sp->axis_z[2], 0.0f};
+            m.w = (ScePspFVector4){sp->origin[0], sp->origin[1], sp->origin[2], 1.0f};
+            PropLight l;
+            make_light(&l, G.sprop_ambient[i], G.sprop_sunlit[i], 0xFFFFFFFF);
+            proplib_draw(&G.maplib, (int)sp->model, &m, &l);
+            G.sprops_drawn++;
+        }
+    }
+    proplib_end();
+}
+
+static void draw_lines(const ColVert *pts, int n, int strip) {
+    ColVert *v = sceGuGetMemory(sizeof(ColVert) * n);
+    memcpy(v, pts, sizeof(ColVert) * n);
+    sceGumDrawArray(strip ? GU_LINE_STRIP : GU_LINES, COLVERT_FMT, n, 0, v);
+}
+
+static void draw_balloons_and_ropes(void) {
+    // A balloon is a little coloured octahedron on a string.
+    static const float oct[6][3] = {{0, 0, 1}, {0, 0, -1}, {1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}};
+    static const int tri[8][3] = {{0, 2, 4}, {0, 4, 3}, {0, 3, 5}, {0, 5, 2}, {1, 4, 2}, {1, 3, 4}, {1, 5, 3}, {1, 2, 5}};
+    for (int i = 0; i < MAX_BODIES; i++) {
+        const Body *b = &G.phys.bodies[i];
+        if (!b->active || b->balloons == 0) continue;
+        vec3 top = v3_add(b->pos, q_rotate(b->rot, v3(0, 0, b->half.z)));
+        for (int k = 0; k < b->balloons; k++) {
+            float ang = (float)k * (2.0f * PI / MAX_BALLOONS);
+            vec3 c = v3_add(top, v3(cosf(ang) * 14.0f * (b->balloons > 1), sinf(ang) * 14.0f * (b->balloons > 1), 56.0f));
+            unsigned int col = k_palette[1 + (i + k) % (PALETTE_SIZE - 2)];
+            ColVert *v = sceGuGetMemory(sizeof(ColVert) * 24);
+            for (int t = 0; t < 8; t++) {
+                float shade = t < 4 ? 1.0f : 0.6f;
+                for (int j = 0; j < 3; j++) {
+                    const float *o = oct[tri[t][j]];
+                    float sz = o[2] > 0 ? 13.0f : 10.0f;
+                    v[t * 3 + j] = (ColVert){scale_abgr(col, shade), c.x + o[0] * 10.0f, c.y + o[1] * 10.0f, c.z + o[2] * sz};
+                }
+            }
+            sceGumDrawArray(GU_TRIANGLES, COLVERT_FMT, 24, 0, v);
+            ColVert string[2] = {{0xFFE0E0E0, top.x, top.y, top.z}, {0xFFE0E0E0, c.x, c.y, c.z - 10.0f}};
+            draw_lines(string, 2, 0);
+        }
+    }
+    for (int j = 0; j < MAX_JOINTS; j++) {
+        const Joint *jt = &G.phys.joints[j];
+        if (!jt->active || (jt->type != JOINT_ROPE && jt->type != JOINT_ELASTIC && jt->type != JOINT_SLIDER)) continue;
+        vec3 a, b;
+        phys_joint_anchors(&G.phys, jt, &a, &b);
+        // Sag the rope a little when it's slack; elastic is a straight red band, a slider a grey rod
+        float slack = jt->type == JOINT_ROPE ? clampf(jt->length - v3_len(v3_sub(a, b)), 0.0f, 200.0f) : 0.0f;
+        unsigned int col = jt->type == JOINT_ROPE ? 0xFF305070 : jt->type == JOINT_ELASTIC ? 0xFF2020C0 : 0xFFA0A0A0;
+        ColVert pts[9];
+        for (int i = 0; i < 9; i++) {
+            float t = (float)i / 8.0f;
+            vec3 p = v3_lerp(a, b, t);
+            p.z -= slack * 0.5f * 4.0f * t * (1.0f - t);
+            pts[i] = (ColVert){col, p.x, p.y, p.z};
+        }
+        draw_lines(pts, 9, 1);
+    }
+    // Thrusters: a small dark cone with a flame while on. Hoverballs: a small glowing ball.
+    for (int f = 0; f < MAX_FORCES; f++) {
+        const Force *fc = &G.phys.forces[f];
+        if (!fc->active || !G.phys.bodies[fc->body].active) continue;
+        const Body *b = &G.phys.bodies[fc->body];
+        vec3 p = v3_add(b->pos, q_rotate(b->rot, fc->lpos));
+        vec3 d = fc->type == FORCE_THRUSTER ? q_rotate(b->rot, fc->ldir) : v3(0, 0, 1);
+        vec3 s = fabsf(d.z) < 0.9f ? v3_norm(v3_cross(d, v3(0, 0, 1))) : v3(1, 0, 0);
+        vec3 t = v3_cross(d, s);
+        float r = fc->type == FORCE_THRUSTER ? 4.0f : 5.0f;
+        unsigned int body_col = fc->type == FORCE_THRUSTER ? 0xFF404040 : (fc->on ? 0xFF60E0FF : 0xFF606060);
+        ColVert *v = sceGuGetMemory(sizeof(ColVert) * 24);
+        // Eight triangles round the attach point: a little octahedron (stretched back for thrusters)
+        vec3 tip = v3_mad(p, d, fc->type == FORCE_THRUSTER ? -8.0f : r), back = v3_mad(p, d, -r);
+        vec3 ring[4] = {v3_mad(p, s, r), v3_mad(p, t, r), v3_mad(p, s, -r), v3_mad(p, t, -r)};
+        for (int k = 0; k < 4; k++) {
+            vec3 q0 = ring[k], q1 = ring[(k + 1) & 3];
+            v[k * 6 + 0] = (ColVert){body_col, tip.x, tip.y, tip.z};
+            v[k * 6 + 1] = (ColVert){body_col, q0.x, q0.y, q0.z};
+            v[k * 6 + 2] = (ColVert){body_col, q1.x, q1.y, q1.z};
+            v[k * 6 + 3] = (ColVert){scale_abgr(body_col, 0.6f), back.x, back.y, back.z};
+            v[k * 6 + 4] = (ColVert){scale_abgr(body_col, 0.6f), q1.x, q1.y, q1.z};
+            v[k * 6 + 5] = (ColVert){scale_abgr(body_col, 0.6f), q0.x, q0.y, q0.z};
+        }
+        sceGumDrawArray(GU_TRIANGLES, COLVERT_FMT, 24, 0, v);
+        if (fc->type == FORCE_THRUSTER && fc->on) {
+            // The flame comes out the back, flickering
+            float len = 14.0f + (float)(sceKernelGetSystemTimeLow() % 7);
+            vec3 e = v3_mad(p, d, -8.0f - len);
+            ColVert flame[4] = {{0xFF40C0FF, tip.x, tip.y, tip.z}, {0xFF2060FF, e.x, e.y, e.z},
+                                {0xFF40C0FF, tip.x + s.x * 2, tip.y + s.y * 2, tip.z + s.z * 2},
+                                {0xFF2060FF, e.x + s.x * 2, e.y + s.y * 2, e.z + s.z * 2}};
+            draw_lines(flame, 4, 0);
+        }
+    }
+    // Explosion: a bright fireball that grows and fades
+    if (G.blast_time > 0.0f) {
+        float k = G.blast_time / 0.35f;
+        float s = 40.0f + 120.0f * (1.0f - k);
+        vec3 c = G.blast_pos, f = view_forward(), r = view_right();
+        vec3 u = v3_cross(r, f);
+        // A disc facing the camera: bright yellow-white middle fading to a transparent orange edge
+        unsigned int mid = ((unsigned int)(k * 240.0f) << 24) | 0x0090E0FF, edge = 0x000040FF;
+        ColVert *v = sceGuGetMemory(sizeof(ColVert) * 36);
+        for (int i = 0; i < 12; i++) {
+            float a0 = (float)i * (2.0f * PI / 12.0f), a1 = (float)(i + 1) * (2.0f * PI / 12.0f);
+            vec3 p0 = v3_add(c, v3_add(v3_scale(r, cosf(a0) * s), v3_scale(u, sinf(a0) * s)));
+            vec3 p1 = v3_add(c, v3_add(v3_scale(r, cosf(a1) * s), v3_scale(u, sinf(a1) * s)));
+            v[i * 3] = (ColVert){mid, c.x, c.y, c.z};
+            v[i * 3 + 1] = (ColVert){edge, p0.x, p0.y, p0.z};
+            v[i * 3 + 2] = (ColVert){edge, p1.x, p1.y, p1.z};
+        }
+        sceGuEnable(GU_BLEND);
+        sceGuBlendFunc(GU_ADD, GU_SRC_ALPHA, GU_FIX, 0, 0xFFFFFFFF);
+        sceGuDisable(GU_CULL_FACE);
+        sceGumDrawArray(GU_TRIANGLES, COLVERT_FMT, 36, 0, v);
+        sceGuDisable(GU_BLEND);
+    }
+}
+
+// One box of the figure: local x is its right, local y its facing direction, z up.
+static int haunt_box(ColVert *v, vec3 c, float yaw, float ox, float hx, float hy, float z0, float z1) {
+    float f = yaw * DEG2RAD;
+    vec3 fw = v3(cosf(f), sinf(f), 0.0f), rt = v3(sinf(f), -cosf(f), 0.0f);
+    vec3 p[8];
+    for (int i = 0; i < 8; i++) {
+        float lx = ox + ((i & 1) ? hx : -hx), ly = (i & 2) ? hy : -hy, lz = (i & 4) ? z1 : z0;
+        p[i] = v3(c.x + rt.x * lx + fw.x * ly, c.y + rt.y * lx + fw.y * ly, c.z + lz);
+    }
+    static const unsigned char faces[6][4] = {{0, 1, 3, 2}, {4, 6, 7, 5}, {0, 4, 5, 1}, {2, 3, 7, 6}, {0, 2, 6, 4}, {1, 5, 7, 3}};
+    int n = 0;
+    for (int fi = 0; fi < 6; fi++) {
+        const unsigned char *q = faces[fi];
+        const int tri[6] = {q[0], q[1], q[2], q[0], q[2], q[3]};
+        for (int k = 0; k < 6; k++) v[n++] = (ColVert){0xFF000000, p[tri[k]].x, p[tri[k]].y, p[tri[k]].z};
+    }
+    return n;
+}
+
+static void draw_haunt(void) {
+    if (!g_haunt.on || !g_haunt.visible) return;
+    ColVert *v = sceGuGetMemory(sizeof(ColVert) * 36 * 6);
+    vec3 c = g_haunt.pos;
+    float y = g_haunt.yaw;
+    int n = 0;
+    n += haunt_box(v + n, c, y, -5.0f, 3.0f, 3.0f, 0.0f, 44.0f);   // legs
+    n += haunt_box(v + n, c, y, 5.0f, 3.0f, 3.0f, 0.0f, 44.0f);
+    n += haunt_box(v + n, c, y, 0.0f, 9.0f, 4.5f, 44.0f, 74.0f);   // body
+    n += haunt_box(v + n, c, y, -12.5f, 2.5f, 2.5f, 30.0f, 72.0f); // long arms
+    n += haunt_box(v + n, c, y, 12.5f, 2.5f, 2.5f, 30.0f, 72.0f);
+    n += haunt_box(v + n, c, y, 0.0f, 4.5f, 5.0f, 75.0f, 88.0f);   // head
+    // Pure black: no fog to grey it out, and the flashlight doesn't light it
+    gu_flashlight(0, NULL, NULL);
+    gfx_set_fog(0, 0, 0);
+    sceGuDisable(GU_TEXTURE_2D);
+    sceGuDisable(GU_CULL_FACE);
+    sceGumMatrixMode(GU_MODEL);
+    sceGumLoadIdentity();
+    sceGumDrawArray(GU_TRIANGLES, COLVERT_FMT, n, 0, v);
+    apply_fog();
+    vec3 f = view_forward();
+    float e[3] = {G.cam.pos.x, G.cam.pos.y, G.cam.pos.z}, fw[3] = {f.x, f.y, f.z};
+    gu_flashlight(g_flashlight && G.dead_time <= 0.0f, e, fw);
+}
+
+static void draw_blood(void) {
+    sceGumMatrixMode(GU_MODEL);
+    sceGumLoadIdentity();
+    sceGuEnable(GU_BLEND);
+    sceGuBlendFunc(GU_ADD, GU_SRC_ALPHA, GU_ONE_MINUS_SRC_ALPHA, 0, 0);
+    sceGuDepthMask(GU_TRUE); // test against the world, don't write
+    sceGuDisable(GU_CULL_FACE);
+    // Splats: a ragged fan, dark in the middle and thinning out at the edge
+    for (int i = 0; i < MAX_BLOOD_DECALS; i++) {
+        const BloodDecal *d = &g_decals[i];
+        if (d->r <= 0.0f || v3_len(v3_sub(d->c, G.cam.pos)) > 1500.0f) continue;
+        float fade = clampf((BLOOD_DECAL_LIFE - d->age) / 5.0f, 0.0f, 1.0f);
+        unsigned int mid = ((unsigned int)(fade * 230.0f) << 24) | 0x00000070;
+        unsigned int edge = ((unsigned int)(fade * 120.0f) << 24) | 0x00000058;
+        enum { SEG = 10 };
+        float rad[SEG];
+        uint32_t s = d->seed;
+        for (int k = 0; k < SEG; k++) {
+            s = s * 1664525u + 1013904223u;
+            rad[k] = d->r * (0.55f + (float)((s >> 16) & 0xFF) / 255.0f * 0.7f);
+        }
+        ColVert *v = sceGuGetMemory(sizeof(ColVert) * SEG * 3);
+        for (int k = 0; k < SEG; k++) {
+            float a0 = (float)k * (2.0f * PI / SEG), a1 = (float)(k + 1) * (2.0f * PI / SEG);
+            float r0 = rad[k], r1 = rad[(k + 1) % SEG];
+            vec3 p0 = v3_add(d->c, v3_add(v3_scale(d->s, cosf(a0) * r0), v3_scale(d->t, sinf(a0) * r0)));
+            vec3 p1 = v3_add(d->c, v3_add(v3_scale(d->s, cosf(a1) * r1), v3_scale(d->t, sinf(a1) * r1)));
+            v[k * 3] = (ColVert){mid, d->c.x, d->c.y, d->c.z};
+            v[k * 3 + 1] = (ColVert){edge, p0.x, p0.y, p0.z};
+            v[k * 3 + 2] = (ColVert){edge, p1.x, p1.y, p1.z};
+        }
+        sceGumDrawArray(GU_TRIANGLES, COLVERT_FMT, SEG * 3, 0, v);
+    }
+    // Drops: little camera-facing diamonds
+    vec3 r = view_right(), u = v3_cross(r, view_forward());
+    int n = 0;
+    for (int i = 0; i < MAX_BLOOD_DROPS; i++) n += g_drops[i].life > 0.0f;
+    if (n) {
+        ColVert *v = sceGuGetMemory(sizeof(ColVert) * n * 6), *o = v;
+        for (int i = 0; i < MAX_BLOOD_DROPS; i++) {
+            const BloodDrop *b = &g_drops[i];
+            if (b->life <= 0.0f) continue;
+            float sz = 1.0f + 0.8f * (b->life / BLOOD_DROP_LIFE);
+            unsigned int col = ((unsigned int)(clampf(b->life / 0.2f, 0.0f, 1.0f) * 230.0f) << 24) | 0x00000090;
+            vec3 a = v3_scale(r, sz), c = v3_scale(u, sz), p = b->p;
+            vec3 q[4] = {v3_sub(p, a), v3_sub(p, c), v3_add(p, a), v3_add(p, c)};
+            const int idx[6] = {0, 1, 2, 0, 2, 3};
+            for (int k = 0; k < 6; k++) *o++ = (ColVert){col, q[idx[k]].x, q[idx[k]].y, q[idx[k]].z};
+        }
+        sceGumDrawArray(GU_TRIANGLES, COLVERT_FMT, n * 6, 0, v);
+    }
+    sceGuDepthMask(GU_FALSE);
+    sceGuDisable(GU_BLEND);
+}
+
+static void draw_beams(void) {
+    vec3 muzzle = gun_muzzle();
+    if (G.weapon == WEAPON_PHYSGUN && !G.use_carry && (G.held >= 0 || G.held_rag >= 0)) {
+        vec3 end;
+        if (G.held_rag >= 0) {
+            end = npc_ragdoll_point(G.held_rag, G.held_bone);
+        } else {
+            const Body *b = &G.phys.bodies[G.held];
+            end = v3_add(b->pos, q_rotate(b->rot, G.grab_local));
+        }
+        vec3 ctrl = v3_mad(muzzle, view_forward(), v3_len(v3_sub(end, muzzle)) * 0.5f);
+        // Bendy blue beam, drawn three times slightly offset to look thicker than one pixel.
+        for (int pass = 0; pass < 3; pass++) {
+            ColVert pts[12];
+            vec3 off = v3((float)(pass - 1) * 0.4f, 0.0f, (float)(pass - 1) * 0.4f);
+            for (int i = 0; i < 12; i++) {
+                float t = (float)i / 11.0f;
+                vec3 p = v3_add(v3_add(v3_scale(muzzle, (1 - t) * (1 - t)), v3_scale(ctrl, 2 * t * (1 - t))), v3_scale(end, t * t));
+                p = v3_add(p, off);
+                pts[i] = (ColVert){pass == 1 ? 0xFFFFF0C0 : 0xFFFFA040, p.x, p.y, p.z};
+            }
+            draw_lines(pts, 12, 1);
+        }
+    }
+    if (G.weapon == WEAPON_TOOLGUN && G.beam_time > 0.0f) {
+        ColVert pts[2] = {{0xFFFFFFFF, muzzle.x, muzzle.y, muzzle.z}, {0xFF80FFFF, G.beam_end.x, G.beam_end.y, G.beam_end.z}};
+        draw_lines(pts, 2, 0);
+    }
+    // Bullet tracers: a short bright streak partway along each shot
+    for (int i = 0; i < 8; i++) {
+        if (G.tracers[i].time <= 0.0f) continue;
+        float k = 1.0f - G.tracers[i].time / 0.06f;
+        vec3 a = v3_lerp(G.tracers[i].a, G.tracers[i].b, k * 0.7f), b = v3_lerp(G.tracers[i].a, G.tracers[i].b, k * 0.7f + 0.3f);
+        ColVert pts[2] = {{0xFF80E0FF, a.x, a.y, a.z}, {0xFFC0F8FF, b.x, b.y, b.z}};
+        draw_lines(pts, 2, 0);
+    }
+}
+
+static void draw_world_viewmodel(int model, vec3 f, vec3 r, vec3 u, unsigned int amb, int glow);
+
+// The weapon in your hands: its world model held in front of the camera, drawn after
+// clearing depth so it never pokes into walls.
+static void draw_viewmodel(void) {
+    int model = G.vm_model[G.weapon];
+    int cmodel = G.vm_c[G.weapon];
+    if (!G.props_loaded || (model < 0 && cmodel < 0) || G.player.noclip) return;
+    sceGuClear(GU_DEPTH_BUFFER_BIT);
+    vec3 f = view_forward(), r = view_right();
+    vec3 u = v3_cross(r, f);
+    vec3 eye = player_eye(&G.player);
+    int leaf = map_point_leaf(&G.map, &eye);
+    unsigned int amb = (leaf >= 0 && leaf < G.map.num_leafs) ? G.map.leafs[leaf].ambient_abgr : G.map.info->ambient_abgr;
+    int glow = (G.weapon == WEAPON_PHYSGUN || G.weapon == WEAPON_GRAVGUN) && !G.use_carry && (G.held >= 0 || G.held_rag >= 0);
+    int flash = is_gun(G.weapon) && G.muzzle_time > 0.0f;
+    if (cmodel >= 0) {
+        // The c_ model is authored in view space (+X forward, +Y left, +Z up, origin at the eye) and
+        // drawn with Source's view model field of view, so the arms sit where they do in GMod.
+        vec3 o = vm_origin();
+        ScePspFMatrix4 m;
+        m.x = (ScePspFVector4){f.x, f.y, f.z, 0.0f};
+        m.y = (ScePspFVector4){-r.x, -r.y, -r.z, 0.0f};
+        m.z = (ScePspFVector4){u.x, u.y, u.z, 0.0f};
+        m.w = (ScePspFVector4){o.x, o.y, o.z, 1.0f};
+        Camera vc = G.cam;
+        vc.fov_y = VM_FOV_Y;
+        vc.znear = 1.0f;
+        vc.zfar = 256.0f;
+        camera_apply(&vc);
+        PropLight l;
+        make_light(&l, amb, 1, glow ? 0xFFFFE0C0 : 0xFFFFFFFF);
+        l.ambient_abgr = scale_abgr(amb, 1.6f);
+        proplib_begin();
+        proplib_draw(&G.props, cmodel, &m, &l);
+        proplib_end();
+        camera_apply(&G.cam);
+    } else {
+        draw_world_viewmodel(model, f, r, u, amb, glow);
+    }
+
+    // Physics gun glow at the claws while it's holding something, or a gun's muzzle flash
+    if (glow || flash) {
+        vec3 c = gun_muzzle();
+        float s = flash ? 4.5f : 2.0f + 0.5f * sinf(G.bob_phase * 7.0f + (float)(sceKernelGetSystemTimeLow() & 0xFFFF) * 0.0004f);
+        unsigned int col = flash ? 0xD050D0FF : G.weapon == WEAPON_GRAVGUN ? 0x8040A0FF : 0x80FFC060;
+        vec3 a = v3_scale(r, s), b = v3_scale(u, s);
+        ColVert q[6] = {
+            {col, c.x - a.x - b.x, c.y - a.y - b.y, c.z - a.z - b.z}, {col, c.x + a.x - b.x, c.y + a.y - b.y, c.z + a.z - b.z},
+            {col, c.x + a.x + b.x, c.y + a.y + b.y, c.z + a.z + b.z}, {col, c.x - a.x - b.x, c.y - a.y - b.y, c.z - a.z - b.z},
+            {col, c.x + a.x + b.x, c.y + a.y + b.y, c.z + a.z + b.z}, {col, c.x - a.x + b.x, c.y - a.y + b.y, c.z - a.z + b.z},
+        };
+        sceGuEnable(GU_BLEND);
+        sceGuBlendFunc(GU_ADD, GU_SRC_ALPHA, GU_FIX, 0, 0xFFFFFFFF);
+        ColVert *v = sceGuGetMemory(sizeof(q));
+        memcpy(v, q, sizeof(q));
+        sceGumDrawArray(GU_TRIANGLES, COLVERT_FMT, 6, 0, v);
+        sceGuDisable(GU_BLEND);
+    }
+}
+
+// Fallback for packs without c_ models: the weapon's world model held in front of the camera
+static void draw_world_viewmodel(int model, vec3 f, vec3 r, vec3 u, unsigned int amb, int glow) {
+    vec3 grip = vm_grip();
+    // Model -Y points forward, -X points right, +Z up (after turning it by k_vm's turn)
+    float tc = cosf(k_vm[G.weapon].turn * DEG2RAD), ts = sinf(k_vm[G.weapon].turn * DEG2RAD);
+    vec3 mx = v3_add(v3_scale(r, -tc), v3_scale(f, -ts)), my = v3_add(v3_scale(r, ts), v3_scale(f, -tc));
+    vec3 mz = u;
+    if (k_vm[G.weapon].pitch != 0.0f || k_vm[G.weapon].roll != 0.0f) {
+        // Twist about the view direction (up turns towards left), then tip forward-pointing parts up
+        float cb = cosf(k_vm[G.weapon].roll * DEG2RAD), sb = sinf(k_vm[G.weapon].roll * DEG2RAD);
+        float ca = cosf(k_vm[G.weapon].pitch * DEG2RAD), sa = sinf(k_vm[G.weapon].pitch * DEG2RAD);
+        vec3 *axes[3] = {&mx, &my, &mz};
+        for (int k = 0; k < 3; k++) {
+            vec3 v = *axes[k];
+            float vr = v3_dot(v, r), vu = v3_dot(v, u), vf = v3_dot(v, f);
+            float r1 = vr * cb - vu * sb, u1 = vr * sb + vu * cb; // roll
+            float u2 = u1 * ca + vf * sa, f2 = vf * ca - u1 * sa; // pitch
+            *axes[k] = v3_add(v3_add(v3_scale(r, r1), v3_scale(u, u2)), v3_scale(f, f2));
+        }
+    }
+    ScePspFMatrix4 m;
+    m.x = (ScePspFVector4){mx.x, mx.y, mx.z, 0.0f};
+    m.y = (ScePspFVector4){my.x, my.y, my.z, 0.0f};
+    m.z = (ScePspFVector4){mz.x, mz.y, mz.z, 0.0f};
+    if (k_vm[G.weapon].centre) {
+        const PpakModel *md = &G.props.models[model];
+        vec3 c = v3((md->mins[0] + md->maxs[0]) * 0.5f, (md->mins[1] + md->maxs[1]) * 0.5f, (md->mins[2] + md->maxs[2]) * 0.5f);
+        grip = v3_sub(grip, v3_add(v3_add(v3_scale(mx, c.x), v3_scale(my, c.y)), v3_scale(mz, c.z)));
+    }
+    m.w = (ScePspFVector4){grip.x, grip.y, grip.z, 1.0f};
+    PropLight l;
+    make_light(&l, amb, 1, glow ? 0xFFFFE0C0 : 0xFFFFFFFF);
+    l.ambient_abgr = scale_abgr(amb, 1.6f);
+    proplib_begin();
+    proplib_draw(&G.props, model, &m, &l);
+    proplib_end();
+}
+
+// Derma-ish palette (ABGR)
+#define C_FRAME 0xF2D6D6D6
+#define C_PANEL 0xFFF4F4F4
+#define C_TAB 0xFFFFFFFF
+#define C_TEXT 0xFF303030
+#define C_TEXT_DIM 0xFF808080
+#define C_BLUE 0xFFE6A03D
+#define C_BLUE_DIM 0xFFE0C8A8
+#define C_HL2 0xFF00DCFF // HL2/GMod HUD yellow
+
+// Spawn menu, laid out like GMod's Q menu: spawnlists on the left, tools on the right
+static void draw_qmenu(int props) {
+    ui_rect(0, 0, 480, 272, 0x50000000);
+
+    // Spawnlists frame
+    float fx = 6, fy = 6, fw = 316, fh = 244;
+    ui_rrect(fx, fy, fw, fh, 4, C_FRAME);
+    ui_rrect(fx + 6, fy + 4, 76, 20, 3, C_TAB);
+    ui_text(FONT_BOLD, fx + 44, fy + 8, C_TEXT, ALIGN_CENTER, "Spawnlists");
+
+    // Categories
+    float cx = fx + 6, cy = fy + 28, cw = 90, ch = fh - 34;
+    ui_rect(cx, cy, cw, ch, C_PANEL);
+    if (G.focus == 0) ui_outline(cx, cy, cw, ch, C_BLUE);
+    int ncats = num_cats();
+    // Rows squeeze together a little when there are many spawnlists, then the list scrolls to keep
+    // the selected one in view
+    float rh = (ch - 8) / (float)ncats;
+    if (rh > 17.0f) rh = 17.0f;
+    if (rh < 14.0f) rh = 14.0f;
+    int visible = (int)((ch - 8) / rh);
+    if (G.cat < G.cat_scroll) G.cat_scroll = G.cat;
+    if (G.cat >= G.cat_scroll + visible) G.cat_scroll = G.cat - visible + 1;
+    if (G.cat_scroll > ncats - visible) G.cat_scroll = ncats - visible > 0 ? ncats - visible : 0;
+    for (int c = G.cat_scroll; c < ncats && c < G.cat_scroll + visible; c++) {
+        float ry = cy + 4 + (c - G.cat_scroll) * rh;
+        int sel = c == G.cat;
+        if (sel) ui_rect(cx + 2, ry - 1, cw - 4, rh - 1, G.focus == 0 ? C_BLUE : C_BLUE_DIM);
+        // A little folder glyph like GMod's spawnlist tree
+        ui_rect(cx + 6, ry + 4, 9, 7, sel ? 0xFFFFFFFF : 0xFF5AB4E8);
+        ui_rect(cx + 6, ry + 2, 4, 3, sel ? 0xFFFFFFFF : 0xFF5AB4E8);
+        ui_text_clip(FONT_SMALL, cx + 19, ry + 1, cw - 22, sel ? 0xFFFFFFFF : C_TEXT, row_name(c));
+    }
+    if (ncats > visible) {
+        float bar = (ch - 8) * visible / ncats;
+        ui_rect(cx + cw - 4, cy + 4, 2, ch - 8, 0xFFDDDDDD);
+        ui_rect(cx + cw - 4, cy + 4 + G.cat_scroll * (ch - 8 - bar) / (ncats - visible), 2, bar, 0xFF9A9A9A);
+    }
+
+    // Icon grid
+    propx_new_frame();
+    static int items[MAX_SPAWNABLE];
+    int n = grid_items(items);
+    float gx = cx + cw + 6, gy = cy;
+    float gw = fw - cw - 18;
+    ui_rect(gx, gy, gw, 164, C_PANEL);
+    if (G.focus == 1) ui_outline(gx, gy, gw, 164, C_BLUE);
+    for (int k = G.grid_scroll * GRID_COLS; k < n && k < (G.grid_scroll + GRID_ROWS) * GRID_COLS; k++) {
+        int r = k / GRID_COLS - G.grid_scroll, c = k % GRID_COLS;
+        float tx = gx + 6 + c * 52, ty = gy + 6 + r * 52;
+        int sel = k == G.grid_sel;
+        ui_rrect(tx - 1, ty - 1, 50, 50, 3, sel ? (G.focus == 1 ? C_BLUE : C_BLUE_DIM) : 0xFFC8C8C8);
+        ui_rect(tx + 1, ty + 1, 46, 46, 0xFFFFFFFF);
+        const char *iname = items[k] >= GRID_RAG ? npc_type_name(items[k] - GRID_RAG)
+                            : items[k] >= GRID_NPC   ? npc_type_name(items[k] - GRID_NPC)
+                                                        : model_name(items[k]);
+        char key[64];
+        snprintf(key, sizeof(key), "icon:%s", iname);
+        int img = ui_image_find(key);
+        int extra = items[k] < GRID_NPC && items[k] >= G.props.num_models;
+        if (img >= 0) {
+            ui_image(img, tx + 1, ty + 1, 46, 46, 0xFFFFFFFF);
+        } else if (!extra || !propx_draw_icon(items[k] - G.props.num_models, tx + 1, ty + 1, 46, 46)) {
+            ui_text_clip(FONT_SMALL, tx + 3, ty + 18, 42, C_TEXT, iname);
+        }
+    }
+    int rows = (n + GRID_COLS - 1) / GRID_COLS;
+    if (rows > GRID_ROWS) {
+        float bar = 152.0f * GRID_ROWS / rows;
+        ui_rect(gx + gw - 5, gy + 6, 3, 152, 0xFFDDDDDD);
+        ui_rect(gx + gw - 5, gy + 6 + G.grid_scroll * (152.0f - bar) / (rows - GRID_ROWS), 3, bar, 0xFF9A9A9A);
+    }
+    // Selected prop details
+    float iy = gy + 170;
+    ui_rect(gx, iy, gw, ch - 170, C_PANEL);
+    if (n > 0 && G.grid_sel < n && items[G.grid_sel] >= GRID_RAG) {
+        ui_text(FONT_BOLD, gx + 6, iy + 5, C_TEXT, ALIGN_LEFT, npc_type_name(items[G.grid_sel] - GRID_RAG));
+        ui_textf(FONT_SMALL, gx + 6, iy + 22, C_TEXT_DIM, ALIGN_LEFT, RAGDOLL_LOCAL_MSG);
+    } else if (n > 0 && G.grid_sel < n && items[G.grid_sel] >= GRID_NPC) {
+        ui_text(FONT_BOLD, gx + 6, iy + 5, C_TEXT, ALIGN_LEFT, npc_type_name(items[G.grid_sel] - GRID_NPC));
+        ui_textf(FONT_SMALL, gx + 6, iy + 22, C_TEXT_DIM, ALIGN_LEFT, "NPCs %d/%d", npc_alive_count(), MAX_NPCS);
+    } else if (n > 0 && G.grid_sel < n) {
+        PpakModel tmp;
+        const PpakModel *md = model_info(items[G.grid_sel], &tmp);
+        ui_text(FONT_BOLD, gx + 6, iy + 5, C_TEXT, ALIGN_LEFT, md->name);
+        ui_textf(FONT_SMALL, gx + 6, iy + 22, C_TEXT_DIM, ALIGN_LEFT, "%.0f kg   %.0f x %.0f x %.0f", md->mass,
+                 md->maxs[0] - md->mins[0], md->maxs[1] - md->mins[1], md->maxs[2] - md->mins[2]);
+    }
+    ui_textf(FONT_SMALL, gx + gw - 6, iy + 5, props >= PLAYER_PROP_LIMIT ? 0xFF3030D0 : C_TEXT_DIM, ALIGN_RIGHT,
+             "Props %d/%d", props, PLAYER_PROP_LIMIT);
+
+    // Tools frame
+    float tx = 328, ty = 6, tw = 146, th = 244;
+    ui_rrect(tx, ty, tw, th, 4, C_FRAME);
+    ui_rrect(tx + 6, ty + 4, 50, 20, 3, C_TAB);
+    ui_text(FONT_BOLD, tx + 31, ty + 8, C_TEXT, ALIGN_CENTER, "Tools");
+    float lx = tx + 6, ly = ty + 28, lw = tw - 12;
+    ui_rect(lx, ly, lw, 150, C_PANEL);
+    if (G.focus == 2) ui_outline(lx, ly, lw, 150, C_BLUE);
+    // The list is taller than the panel, so it scrolls to keep the selected tool in view
+    const float list_h = 150.0f;
+    {
+        float vy = 4.0f, sel_y = 0.0f;
+        int r = 0;
+        for (int g = 0; g < NUM_TOOL_GROUPS; g++) {
+            vy += 15.0f;
+            for (int k = 0; k < k_tool_groups[g].count; k++, r++, vy += 14.0f) {
+                if (r == G.tool_row) sel_y = vy;
+            }
+            vy += 3.0f;
+        }
+        if (G.tool_row < TOOL_COUNT) {
+            if (sel_y - G.tool_scroll < 18.0f) G.tool_scroll = (int)(sel_y - 18.0f);
+            if (sel_y - G.tool_scroll > list_h - 16.0f) G.tool_scroll = (int)(sel_y - list_h + 16.0f);
+        }
+        if (G.tool_scroll > (int)(vy - list_h)) G.tool_scroll = (int)(vy - list_h);
+        if (G.tool_scroll < 0) G.tool_scroll = 0;
+    }
+    float y = ly + 4 - (float)G.tool_scroll;
+    int row = 0;
+#define TOOL_ROW_VISIBLE(yy, hh) ((yy) >= ly && (yy) + (hh) <= ly + list_h)
+    for (int g = 0; g < NUM_TOOL_GROUPS; g++) {
+        if (TOOL_ROW_VISIBLE(y, 13)) ui_text(FONT_BOLD, lx + 5, y, C_TEXT, ALIGN_LEFT, k_tool_groups[g].heading);
+        y += 15;
+        for (int k = 0; k < k_tool_groups[g].count; k++, row++) {
+            Tool t = k_tool_groups[g].tools[k];
+            int sel = row == G.tool_row;
+            if (TOOL_ROW_VISIBLE(y - 1, 14)) {
+                if (sel) ui_rect(lx + 2, y - 1, lw - 4, 14, G.focus == 2 ? C_BLUE : C_BLUE_DIM);
+                ui_text(FONT_SMALL, lx + 14, y, sel ? 0xFFFFFFFF : C_TEXT, ALIGN_LEFT, k_tool_names[t]);
+                if (t == G.tool && G.weapon == WEAPON_TOOLGUN) ui_rect(lx + 6, y + 4, 4, 4, sel ? 0xFFFFFFFF : C_BLUE);
+            }
+            y += 14;
+        }
+        y += 3;
+    }
+#undef TOOL_ROW_VISIBLE
+    // Scroll hint: a thin bar on the right
+    {
+        float total = 4.0f;
+        for (int g = 0; g < NUM_TOOL_GROUPS; g++) total += 18.0f + 14.0f * (float)k_tool_groups[g].count;
+        if (total > list_h) {
+            float bar = list_h * list_h / total;
+            ui_rect(lx + lw - 4, ly + 2, 2, list_h - 4, 0xFFDDDDDD);
+            ui_rect(lx + lw - 4, ly + 2 + (float)G.tool_scroll * (list_h - 4 - bar) / (total - list_h), 2, bar, 0xFF9A9A9A);
+        }
+    }
+    // Colour tool swatches
+    float sy = ly + 154;
+    int csel = G.focus == 2 && G.tool_row == TOOL_COUNT;
+    ui_rect(lx, sy, lw, 38, C_PANEL);
+    if (csel) ui_outline(lx, sy, lw, 38, C_BLUE);
+    ui_text(FONT_SMALL, lx + 5, sy + 3, C_TEXT, ALIGN_LEFT, "Colour");
+    for (int i = 0; i < PALETTE_SIZE; i++) {
+        float px = lx + 5 + i * 16.5f;
+        if (i == G.colour_sel) ui_rect(px - 2, sy + 18, 17, 17, csel ? C_BLUE : 0xFF606060);
+        ui_rect(px, sy + 20, 13, 13, k_palette[i]);
+    }
+    // Description of the highlighted tool
+    Tool ht = G.tool_row == TOOL_COUNT ? TOOL_COLOUR : tool_at_row(G.tool_row);
+    ui_text_clip(FONT_SMALL, lx + 2, sy + 42, lw - 2, C_TEXT_DIM, k_tool_desc[ht]);
+
+    // Footer hints
+    ui_rrect(6, 254, 468, 16, 3, 0xC0000000);
+    ui_text(FONT_SMALL, 14, 256, 0xFFE0E0E0, ALIGN_LEFT,
+            "X Select    L/R Switch panel    O / SELECT Close    START Pause");
+}
+
+static void draw_notifications(void) {
+    static const unsigned int kind_colour[] = {0xFFE6A03D, 0xFF50C0FF, 0xFF60C060, 0xFF4040E0, 0xFF40A0FF};
+    static const char *kind_glyph[] = {"i", "<", "!", "x", "*"};
+    float y = is_gun(G.weapon) && k_ws[G.weapon].clip ? 190 : 226; // above the ammo box
+    for (int i = 0; i < MAX_NOTES; i++) {
+        float t = G.notes[i].time;
+        if (!G.notes[i].text[0] || t > 4.0f) continue;
+        float slide = t < 0.2f ? (1.0f - t / 0.2f) * 120.0f : 0.0f;
+        unsigned int a = t > 3.5f ? (unsigned int)(255.0f * (4.0f - t) / 0.5f) : 255u;
+        float w = ui_text_width(FONT_SMALL, G.notes[i].text) + 30;
+        float x = 474 - w + slide;
+        ui_rrect(x, y, w, 20, 3, (a * 0xC0 / 255) << 24 | 0x202020);
+        ui_rrect(x + 3, y + 3, 14, 14, 3, (a << 24) | (kind_colour[G.notes[i].kind] & 0xFFFFFF));
+        ui_text(FONT_BOLD, x + 10, y + 3, (a << 24) | 0xFFFFFF, ALIGN_CENTER, kind_glyph[G.notes[i].kind]);
+        ui_text(FONT_SMALL, x + 22, y + 4, (a << 24) | 0xFFFFFF, ALIGN_LEFT, G.notes[i].text);
+        y -= 24;
+    }
+}
+
+// HL2 / GMod style HUD
+static void draw_hud(float fps) {
+    if (G.player.water_level >= 3) ui_rect(0, 0, 480, 272, 0x60804010); // underwater tint
+
+    if (G.cam_view >= 0) {
+        // Looking through a camera: a recording dot instead of the crosshair (it isn't where you aim)
+        ui_rrect(12, 12, 8, 8, 4, 0xF02020E0);
+        ui_text_shadow(FONT_BOLD, 26, 9, 0xFFFFFFFF, ALIGN_LEFT, "CAMERA");
+        ui_text_shadow(FONT_SMALL, 26, 26, 0xFFE0E0E0, ALIGN_LEFT, "L: Next camera / your view");
+    } else if (g_settings.crosshair && !G.qmenu) {
+        // A small dot with a dark rim so it shows on bright and dark backgrounds
+        ui_rect(238, 135, 4, 4, 0x80000000);
+        ui_rect(239, 136, 2, 2, 0xF0FFFFFF);
+    }
+
+    // Other players' names over their heads
+    if (G.role != ROLE_OFFLINE) {
+        vec3 f = view_forward(), r = view_right(), u = v3_cross(r, f);
+        float focal = 136.0f / tanf(G.cam.fov_y * 0.5f * DEG2RAD);
+        for (int s = 0; s < NET_MAX_PLAYERS; s++) {
+            const Peer *p = &G.peers[s];
+            if (s == G.my_slot || !p->active || p->health <= 0.0f) continue;
+            vec3 d = v3_sub(v3_add(p->pos, v3(0, 0, 82)), G.cam.pos);
+            float z = v3_dot(d, f);
+            if (z < 16.0f || z > 1500.0f) continue;
+            float sx = 240.0f + v3_dot(d, r) / z * focal, sy = 136.0f - v3_dot(d, u) / z * focal;
+            if (sx < 0 || sx > 480 || sy < 0 || sy > 272) continue;
+            ui_text_shadow(FONT_SMALL, sx, sy - 6, 0xFFFFFFFF, ALIGN_CENTER, p->name);
+        }
+    }
+
+    // Health box, bottom left
+    // Label and number laid out from measured widths so they can't overlap
+    if (G.hurt_flash > 0.0f) ui_rect(0, 0, 480, 272, ((unsigned int)(G.hurt_flash * 200.0f) << 24) | 0x0000C0);
+    if (G.dead_time > 0.0f) {
+        ui_rect(0, 0, 480, 272, 0x700000A0);
+        ui_text_shadow(FONT_TITLE, 240, 110, 0xFFFFFFFF, ALIGN_CENTER, "You died");
+        if (G.dead_time > 1.0f) ui_text_shadow(FONT_SMALL, 240, 150, 0xFFE0E0E0, ALIGN_CENTER, "Press X to respawn");
+    }
+    // Options > Show HUD off hides the boxes, hints and notes (the crosshair has its own option)
+    if (!g_settings.show_hud) goto stats;
+
+    char hp[8];
+    snprintf(hp, sizeof(hp), "%d", (int)ceilf(G.health));
+    unsigned int hp_col = G.health > 25.0f ? C_HL2 : 0xFF2020FF;
+    float label_w = ui_text_width(FONT_BOLD, "HEALTH");
+    float num_w = ui_text_width(FONT_TITLE, hp);
+    float box_w = 10 + label_w + 12 + num_w + 10;
+    ui_rrect(10, 230, box_w, 34, 6, 0x60000000);
+    ui_text(FONT_BOLD, 20, 248, hp_col, ALIGN_LEFT, "HEALTH");
+    ui_text(FONT_TITLE, 10 + box_w - 10, 233, hp_col, ALIGN_RIGHT, hp);
+    // HEV suit power, next to it like HL2's SUIT box
+    if (g_settings.hev_suit) {
+        char sp[8];
+        snprintf(sp, sizeof(sp), "%d", (int)ceilf(G.suit));
+        float sl = ui_text_width(FONT_BOLD, "SUIT"), sn = ui_text_width(FONT_TITLE, sp);
+        float sx = 10 + box_w + 8, sw = 10 + sl + 12 + sn + 10;
+        unsigned int sc = G.suit > 0.0f ? C_HL2 : 0xFF2020FF;
+        ui_rrect(sx, 230, sw, 34, 6, 0x60000000);
+        ui_text(FONT_BOLD, sx + 10, 248, sc, ALIGN_LEFT, "SUIT");
+        ui_text(FONT_TITLE, sx + sw - 10, 233, sc, ALIGN_RIGHT, sp);
+    }
+    if (god_mode()) ui_text_shadow(FONT_SMALL, 12, 214, C_HL2, ALIGN_LEFT, "God mode");
+
+    // Tool gun info, top left like GMod's tool HUD (a camera view has its own label there)
+    if (G.weapon == WEAPON_TOOLGUN && G.cam_view < 0) {
+        const char *help = G.stage ? "R: Pick the second point" : k_tool_help[G.tool];
+        float w = 24 + fmaxf(fmaxf(ui_text_width(FONT_LARGE, k_tool_names[G.tool]), ui_text_width(FONT_SMALL, k_tool_desc[G.tool])),
+                             ui_text_width(FONT_SMALL, help));
+        ui_rrect(8, 8, w, 58, 6, 0x90000000);
+        ui_text_shadow(FONT_LARGE, 18, 12, 0xFFFFFFFF, ALIGN_LEFT, k_tool_names[G.tool]);
+        ui_text(FONT_SMALL, 18, 34, 0xFFC8C8C8, ALIGN_LEFT, k_tool_desc[G.tool]);
+        ui_text(FONT_SMALL, 18, 49, C_HL2, ALIGN_LEFT, help);
+        if (G.tool == TOOL_COLOUR) ui_rrect(w - 10, 14, 12, 12, 3, k_palette[G.colour_sel]);
+    }
+
+    // Weapon selector, top centre, HL2 bucket style
+    if (G.wsel_time > 0.0f) {
+        unsigned int a = G.wsel_time < 0.3f ? (unsigned int)(255 * G.wsel_time / 0.3f) : 255u;
+        // Seven slots: the selected one is wide enough for its name
+        const float slot = 34.0f, wide = 120.0f, gap = 4.0f;
+        float x = 240.0f - (slot * (WEAPON_COUNT - 1) + wide + gap * (WEAPON_COUNT - 1)) * 0.5f;
+        for (int i = 0; i < WEAPON_COUNT; i++) {
+            int sel = i == (int)G.weapon;
+            float bw = sel ? wide : slot, by = 70;
+            ui_rrect(x, by, bw, sel ? 44 : 30, 5, ((sel ? 0xA0u : 0x60u) * a / 255) << 24);
+            ui_textf(FONT_BOLD, x + 5, by + 3, (a << 24) | (C_HL2 & 0xFFFFFF), ALIGN_LEFT, "%d", i + 1);
+            if (sel) {
+                ui_text(FONT_BOLD, x + bw / 2, by + 22, (a << 24) | (C_HL2 & 0xFFFFFF), ALIGN_CENTER, k_weapon_names[i]);
+            }
+            x += bw + gap;
+        }
+    }
+
+    // Ammo, bottom right, like the health box
+    if (is_gun(G.weapon) && k_ws[G.weapon].clip) {
+        char clip[8], spare[12];
+        snprintf(clip, sizeof(clip), "%d", G.clip[G.weapon]);
+        snprintf(spare, sizeof(spare), "%d", G.ammo[G.weapon]);
+        float lw = ui_text_width(FONT_BOLD, "AMMO"), cw = ui_text_width(FONT_TITLE, clip), sw = ui_text_width(FONT_BOLD, spare);
+        float bw = 10 + lw + 12 + cw + 10 + sw + 10;
+        unsigned int col = G.clip[G.weapon] == 0 ? 0xFF2020FF : C_HL2;
+        ui_rrect(470 - bw, 230, bw, 34, 6, 0x60000000);
+        ui_text(FONT_BOLD, 480 - bw, 248, col, ALIGN_LEFT, "AMMO");
+        ui_text(FONT_TITLE, 480 - bw + lw + 12 + cw, 233, col, ALIGN_RIGHT, clip);
+        ui_text(FONT_BOLD, 460, 248, C_HL2, ALIGN_RIGHT, spare);
+        if (G.reload_left > 0.0f) ui_text_shadow(FONT_SMALL, 470 - bw / 2, 214, 0xFFE0E0E0, ALIGN_CENTER, "Reloading...");
+    }
+
+    // Context hint while holding something with the physics gun
+    if (G.use_carry) {
+        ui_text_shadow(FONT_SMALL, 240, 250, 0xFFE0E0E0, ALIGN_CENTER, "Let go of Use to drop    R: Throw");
+    } else if (G.held_rag >= 0) {
+        ui_text_shadow(FONT_SMALL, 240, 250, 0xFFE0E0E0, ALIGN_CENTER, "L: Freeze    Up/Down: Distance");
+    } else if (G.held >= 0 && G.weapon == WEAPON_PHYSGUN) {
+        ui_text_shadow(FONT_SMALL, 240, 250, 0xFFE0E0E0, ALIGN_CENTER, "L: Freeze    Up/Down: Distance    Left/Right: Rotate");
+    }
+
+    draw_notifications();
+
+stats:
+    if (g_settings.show_fps) ui_textf(FONT_SMALL, 474, 4, 0xC0FFFFFF, ALIGN_RIGHT, "%.0f fps", fps);
+    if (g_settings.debug) {
+        ui_textf(FONT_SMALL, 6, 74, 0xFFFFFFFF, ALIGN_LEFT, "%s  tris %d (clip %d)  batches %d/%d  tex %d", G.map_name,
+                 G.ds.tris_drawn, G.ds.clipped_tris, G.ds.batches_drawn, G.ds.batches_visible, G.ds.tex_binds);
+        ui_textf(FONT_SMALL, 6, 88, 0xFFFFFFFF, ALIGN_LEFT, "cluster %d  heap %u KB  vram tex %d  contacts %d",
+                 G.ds.cluster, (unsigned int)(mem_heap_used() / 1024), G.map.vram_textures, G.phys.contacts_last_step);
+        ui_textf(FONT_SMALL, 6, 102, 0xFFFFFFFF, ALIGN_LEFT, "pos %.0f %.0f %.0f  %s  props %d+%d", G.player.origin.x,
+                 G.player.origin.y, G.player.origin.z, G.player.on_ground ? "ground" : "air", G.sprops_drawn,
+                 G.bodies_drawn);
+#ifdef PS2
+        char prof[128];
+        gu_profile_text(prof, sizeof(prof));
+        ui_text_shadow(FONT_SMALL, 6, 130, 0xFF80FFFF, ALIGN_LEFT, prof);
+        ui_textf(FONT_SMALL, 6, 144, 0xFF80FFFF, ALIGN_LEFT, "ps2: update %.1fms  map %.1fms  props %.1fms  npcs %.1fms",
+                 g_ps2_prof[3], g_ps2_prof[0], g_ps2_prof[1], g_ps2_prof[2]);
+#endif
+        if (npc_ragdoll_active(0)) {
+            vec3 rp = npc_ragdoll_point(0, 0);
+            int ss, hits, asleep;
+            npc_ragdoll_debug(&ss, &hits, &asleep);
+            ui_textf(FONT_SMALL, 6, 116, 0xFFFFFFFF, ALIGN_LEFT, "ragdoll 0 at %.0f %.0f %.0f  startsolid %d hits %d %s", rp.x,
+                     rp.y, rp.z, ss, hits, asleep ? "asleep" : "awake");
+        }
+    }
+}
+
+static void draw_pause(void) {
+    ui_rect(0, 0, 480, 272, 0x80000000);
+    menu_draw_backdrop();
+    int logo = ui_image_find("logo");
+    if (logo >= 0) {
+        int w, h;
+        ui_image_size(logo, &w, &h);
+        float s = fminf(200.0f / (float)w, 50.0f / (float)h);
+        ui_image(logo, 20, 18, w * s, h * s, 0xFFFFFFFF);
+    }
+    if (G.pause_options) {
+        options_draw(150, 60, 300, 186);
+    } else {
+        ui_text_shadow(FONT_BOLD, 24, 74, 0xFFA0A0A0, ALIGN_LEFT, "PAUSED");
+        menu_draw_buttons(k_pause_items, NUM_PAUSE_ITEMS, G.pause_sel, 92, 22);
+        ui_text_shadow(FONT_SMALL, 24, 256, 0xC0FFFFFF, ALIGN_LEFT, "X Select    O / START Resume");
+        ui_textf(FONT_SMALL, 474, 256, 0xA0FFFFFF, ALIGN_RIGHT, "%s  -  %d props", G.map_name, player_prop_count());
+        if (G.role != ROLE_OFFLINE) {
+            // Who's playing, top right
+            float y = 74;
+            ui_text_shadow(FONT_BOLD, 456, y, 0xFFA0A0A0, ALIGN_RIGHT, G.role == ROLE_HOST ? NET_HOSTING_TAG : "MULTIPLAYER");
+            if (G.role == ROLE_HOST && !net_active()) {
+                y += 16;
+                ui_text_shadow(FONT_SMALL, 456, y, 0xFFC0C0C0, ALIGN_RIGHT, net_status());
+            }
+            for (int s = 0; s < NET_MAX_PLAYERS; s++) {
+                const char *name = s == G.my_slot ? net_nickname() : G.peers[s].active ? G.peers[s].name : NULL;
+                if (!name) continue;
+                y += 16;
+                ui_textf(FONT_SMALL, 456, y, s == G.my_slot ? 0xFFFFFFFF : 0xFFD0D0D0, ALIGN_RIGHT, "%s%s", name, s == 0 ? "  (host)" : "");
+            }
+        }
+    }
+}
+
+// Options > Third-person view: the camera sits behind the player's eye, pulled in where a wall's in the way
+#define THIRD_PERSON_BACK 80.0f
+#define THIRD_PERSON_UP 12.0f
+
+static int third_person(void) {
+    return g_settings.third_person && G.dead_time <= 0.0f;
+}
+
+static vec3 third_person_camera(vec3 eye) {
+    vec3 want = v3_add(v3_mad(eye, view_forward(), -THIRD_PERSON_BACK), v3(0, 0, THIRD_PERSON_UP));
+    Trace tr;
+    cm_trace(&G.map, eye, want, v3(-4, -4, -4), v3(4, 4, 4), MASK_PLAYERSOLID, NULL, 0, &tr);
+    return tr.startsolid ? eye : tr.endpos;
+}
+
+void game_render(float fps) {
+    gfx_begin_frame(G.map.info->sky_abgr);
+    G.cam.pos = player_eye(&G.player);
+    if (G.dead_time > 0.0f) G.cam.pos.z = G.player.origin.z + 10.0f + 50.0f * fmaxf(0.0f, 1.0f - G.dead_time * 2.0f);
+    if (third_person()) G.cam.pos = third_person_camera(G.cam.pos);
+    G.cam.yaw = G.yaw;
+    G.cam.pitch = G.pitch;
+    if (is_camera(G.cam_view)) {
+        // Looking through a camera prop: from just in front of its lens, along its forward axis
+        const Body *cb = &G.phys.bodies[G.cam_view];
+        vec3 f = q_rotate(cb->rot, v3(1, 0, 0));
+        G.cam.pos = v3_mad(cb->pos, f, 12.0f);
+        G.cam.yaw = atan2f(f.y, f.x) / DEG2RAD;
+        G.cam.pitch = asinf(clampf(f.z, -1.0f, 1.0f)) / DEG2RAD;
+    }
+    G.cam.zfar = view_distance() + 512.0f;
+    camera_apply(&G.cam);
+    sky_draw(&G.cam);
+    apply_fog();
+    map_set_view_limit(view_distance());
+#ifdef PS2
+    {
+        vec3 f = view_forward();
+        float e[3] = {G.cam.pos.x, G.cam.pos.y, G.cam.pos.z}, fw[3] = {f.x, f.y, f.z};
+        gu_flashlight(g_flashlight && G.dead_time <= 0.0f, e, fw);
+    }
+    SceInt64 t0 = sceKernelGetSystemTimeWide();
+    map_draw(&G.map, &G.cam, &G.ds);
+    SceInt64 t1 = sceKernelGetSystemTimeWide();
+    draw_props();
+    SceInt64 t2 = sceKernelGetSystemTimeWide();
+    npcs_draw(&G.map, &G.cam);
+    draw_npc_weapons();
+    draw_haunt();
+    g_ps2_prof[0] = (float)(t1 - t0) / 1000.0f;
+    g_ps2_prof[1] = (float)(t2 - t1) / 1000.0f;
+    g_ps2_prof[2] = (float)(sceKernelGetSystemTimeWide() - t2) / 1000.0f;
+#else
+    {
+        vec3 f = view_forward();
+        float e[3] = {G.cam.pos.x, G.cam.pos.y, G.cam.pos.z}, fw[3] = {f.x, f.y, f.z};
+        gu_flashlight(g_flashlight && G.dead_time <= 0.0f, e, fw);
+    }
+    map_draw(&G.map, &G.cam, &G.ds);
+    draw_props();
+    npcs_draw(&G.map, &G.cam);
+    draw_npc_weapons();
+    draw_haunt();
+#endif
+    sceGuDisable(GU_TEXTURE_2D);
+    draw_balloons_and_ropes();
+    draw_beams();
+    draw_blood();
+    if (G.dead_time <= 0.0f && !third_person() && G.cam_view < 0) draw_viewmodel();
+    gu_flashlight(0, NULL, NULL); // the menu's background map shouldn't inherit it
+    map_set_view_limit(1e9f);     // nor the draw distance
+
+    ui_begin();
+    if (!G.paused) {
+        draw_hud(fps);
+        script_hud();
+    }
+    if (G.qmenu && !G.paused) draw_qmenu(player_prop_count());
+    if (G.paused) draw_pause();
+    ui_end();
+    gfx_end_frame();
+    gfx_present(1);
+}

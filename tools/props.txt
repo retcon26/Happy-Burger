@@ -1,0 +1,210 @@
+# Props for the spawn menu:  model path | display name | options
+#   shape=box|sphere|cylinder   physics shape (cylinders stand along the model's Z axis)
+#   cat=Name                    spawn menu category (use _ for spaces)
+#   hidden                      packed but not in the spawn menu (weapon models)
+#   skin=N                      use the model's Nth skin
+# Run: tools/bspconv.sh props   (models not found in your GMod install are skipped)
+models/hunter/blocks/cube1x1x1.mdl                | PHX Cube         | cat=Construction
+models/hunter/plates/plate1x2.mdl                 | PHX Plate 1x2    | cat=Construction
+models/hunter/plates/plate2x2.mdl                 | PHX Plate 2x2    | cat=Construction
+models/props_c17/concrete_barrier001a.mdl         | Barrier          | cat=Construction
+models/props_junk/cinderblock01a.mdl              | Cinder Block     | cat=Construction
+models/props_junk/wood_crate001a.mdl              | Wood Crate       | cat=Junk
+models/props_junk/wood_crate002a.mdl              | Long Crate       | cat=Junk
+models/props_junk/cardboard_box001a.mdl           | Cardboard Box    | cat=Junk
+models/props_c17/oildrum001.mdl                   | Oil Drum         | cat=Junk shape=cylinder
+models/props_c17/oildrum001_explosive.mdl         | Red Barrel       | cat=Junk shape=cylinder
+models/props_borealis/bluebarrel001.mdl           | Blue Barrel      | cat=Junk shape=cylinder
+models/props_junk/trafficcone001a.mdl             | Traffic Cone     | cat=Junk shape=cylinder
+models/props_junk/watermelon01.mdl                | Watermelon       | cat=Junk shape=sphere break=melon
+models/props_junk/popcan01a.mdl                   | Soda Can         | cat=Junk shape=cylinder
+models/props_junk/metalbucket01a.mdl              | Bucket           | cat=Junk shape=cylinder
+models/props_junk/plasticcrate01a.mdl             | Plastic Crate    | cat=Junk
+models/props_junk/sawblade001a.mdl                | Sawblade         | cat=Junk shape=cylinder
+models/props_trainstation/trashcan_indoor001a.mdl | Trash Can        | cat=Junk shape=cylinder
+models/props_c17/furniturechair001a.mdl           | Chair            | cat=Furniture
+models/props_c17/furnituretable002a.mdl           | Table            | cat=Furniture
+models/props_interiors/furniture_couch01a.mdl     | Couch            | cat=Furniture
+models/props_c17/furniturebathtub001a.mdl         | Bathtub          | cat=Furniture
+models/props_c17/furnituredresser001a.mdl         | Dresser          | cat=Furniture
+models/props_wasteland/kitchen_fridge001a.mdl     | Fridge           | cat=Furniture
+models/props_interiors/vendingmachinesoda01a.mdl  | Vending Machine  | cat=Furniture
+models/props_c17/lockers001a.mdl                  | Lockers          | cat=Furniture
+models/props_lab/monitor01a.mdl                   | Monitor          | cat=Furniture
+models/props_c17/doll01.mdl                       | Doll             | cat=Misc
+models/props_c17/gravestone001a.mdl               | Gravestone       | cat=Misc
+models/props_vehicles/car002a_physics.mdl         | Car              | cat=Vehicles
+models/hunter/blocks/cube05x05x05.mdl             | PHX Small Cube   | cat=Construction
+models/hunter/blocks/cube2x2x2.mdl                | PHX Big Cube     | cat=Construction
+models/hunter/plates/plate1x1.mdl                 | PHX Plate 1x1    | cat=Construction
+models/hunter/plates/plate4x4.mdl                 | PHX Plate 4x4    | cat=Construction
+models/hunter/blocks/cube1x4x1.mdl                | PHX Beam         | cat=Construction
+models/props_debris/wood_board04a.mdl             | Wood Board       | cat=Construction
+models/props_junk/wood_pallet001a.mdl             | Pallet           | cat=Construction
+models/props_c17/fence01a.mdl                     | Fence            | cat=Construction
+models/props_c17/metalladder001.mdl               | Ladder           | cat=Construction
+models/props_junk/ibeam01a.mdl                    | I-Beam           | cat=Construction
+models/props_c17/door01_left.mdl                  | Door             | cat=Construction
+models/props_junk/propane_tank001a.mdl            | Propane Tank     | cat=Junk shape=cylinder
+models/props_junk/gascan001a.mdl                  | Gas Can          | cat=Junk
+models/props_c17/canister01a.mdl                  | Canister         | cat=Junk shape=cylinder
+models/props_junk/trashdumpster01a.mdl            | Dumpster         | cat=Junk
+models/props_junk/trashbin01a.mdl                 | Trash Bin        | cat=Junk shape=cylinder
+models/props_junk/garbage_bag001a.mdl             | Garbage Bag      | cat=Junk
+models/props_junk/garbage_milkcarton002a.mdl      | Milk Carton      | cat=Junk
+models/props_junk/cardboard_box002a.mdl           | Big Box          | cat=Junk
+models/props_junk/cardboard_box004a.mdl           | Small Box        | cat=Junk
+models/props_junk/metal_paintcan001a.mdl          | Paint Can        | cat=Junk shape=cylinder
+models/props_junk/shoe001a.mdl                    | Shoe             | cat=Junk
+models/props_junk/shovel01a.mdl                   | Shovel           | cat=Junk
+models/props_junk/meathook001a.mdl                | Meat Hook        | cat=Junk
+models/props_junk/harpoon002a.mdl                 | Harpoon          | cat=Junk
+models/props_junk/terracotta01.mdl                | Terracotta Pot   | cat=Junk shape=sphere break=pot
+models/props_junk/bicycle01a.mdl                  | Bicycle          | cat=Junk
+models/props_junk/wheebarrow01a.mdl               | Wheelbarrow      | cat=Junk
+models/props_junk/ravenholmsign.mdl               | Ravenholm Sign   | cat=Junk
+models/props_c17/briefcase001a.mdl                | Briefcase        | cat=Junk
+models/props_c17/suitcase001a.mdl                 | Suitcase         | cat=Junk
+models/props_c17/furniturecouch002a.mdl           | Sofa             | cat=Furniture
+models/props_c17/furniturewashingmachine001a.mdl  | Washing Machine  | cat=Furniture
+models/props_c17/furnitureboiler001a.mdl          | Boiler           | cat=Furniture shape=cylinder
+models/props_c17/furnitureradiator001a.mdl        | Radiator         | cat=Furniture
+models/props_c17/furnituremattress001a.mdl        | Mattress         | cat=Furniture
+models/props_c17/furniturebed001a.mdl             | Bed              | cat=Furniture
+models/props_c17/furnituretoilet001a.mdl          | Toilet           | cat=Furniture
+models/props_c17/furnitureshelf001a.mdl           | Shelf            | cat=Furniture
+models/props_c17/chair02a.mdl                     | Armchair         | cat=Furniture
+models/props_interiors/furniture_desk01a.mdl      | Desk             | cat=Furniture
+models/props_wasteland/controlroom_chair001a.mdl  | Office Chair     | cat=Furniture
+models/props_wasteland/cafeteria_table001a.mdl    | Cafeteria Table  | cat=Furniture
+models/props_wasteland/cafeteria_bench001a.mdl    | Bench            | cat=Furniture
+models/props_lab/filecabinet02.mdl                | File Cabinet     | cat=Furniture
+models/props_interiors/pot01a.mdl                 | Kettle           | cat=Furniture
+models/props_interiors/pot02a.mdl                 | Pot              | cat=Furniture
+models/props_lab/harddrive01.mdl                  | Computer         | cat=Furniture
+models/props_lab/huladoll.mdl                     | Hula Doll        | cat=Misc
+models/props_combine/breenglobe.mdl               | Globe            | cat=Misc shape=sphere
+models/props_combine/breenbust.mdl                | Breen Bust       | cat=Misc
+models/props_combine/breenchair.mdl               | Breen Chair      | cat=Misc
+models/props_lab/kennel_physics.mdl               | Kennel           | cat=Misc
+models/props_c17/gravestone002a.mdl               | Gravestone 2     | cat=Misc
+models/props_vehicles/car004a_physics.mdl         | Sedan            | cat=Vehicles
+models/props_vehicles/car005a_physics.mdl         | Hatchback        | cat=Vehicles
+models/props_vehicles/carparts_tire01a.mdl        | Tire             | cat=Vehicles shape=cylinder
+models/props_vehicles/carparts_door01a.mdl        | Car Door         | cat=Vehicles
+models/hunter/blocks/cube025x025x025.mdl          | PHX Tiny Cube    | cat=Shapes
+models/hunter/plates/plate1x4.mdl                 | PHX Plate 1x4    | cat=Shapes
+models/hunter/tubes/tube1x1x1.mdl                 | PHX Tube         | cat=Shapes
+models/hunter/tubes/circle2x2.mdl                 | PHX Disc         | cat=Shapes shape=cylinder
+models/hunter/misc/sphere1x1.mdl                  | PHX Sphere       | cat=Shapes shape=sphere
+models/hunter/misc/sphere2x2.mdl                  | PHX Big Sphere   | cat=Shapes shape=sphere
+models/hunter/triangles/1x1.mdl                   | PHX Wedge        | cat=Shapes
+models/hunter/triangles/2x2.mdl                   | PHX Big Wedge    | cat=Shapes
+models/hunter/misc/stair1x1.mdl                   | PHX Stairs       | cat=Shapes
+models/props_phx/misc/soccerball.mdl              | Soccer Ball      | cat=Shapes shape=sphere
+models/props_phx/ball.mdl                         | Big Ball         | cat=Shapes shape=sphere
+models/props_phx/cannonball.mdl                   | Cannonball       | cat=Shapes shape=sphere
+models/props_phx/wheels/magnetic_large.mdl        | Wheel            | cat=Shapes shape=cylinder
+models/props_phx/games/chess/white_king.mdl       | Chess King       | cat=Shapes
+models/props_c17/lamppost03a_off.mdl              | Lamp Post        | cat=Street
+models/props_c17/bench01a.mdl                     | Park Bench       | cat=Street
+models/props_trainstation/payphone001a.mdl        | Payphone         | cat=Street
+models/props_c17/streetsign004e.mdl               | Street Sign      | cat=Street
+models/props_wasteland/barricade001a.mdl          | Road Barricade   | cat=Street
+models/props_trainstation/trainstation_post001.mdl | Bollard         | cat=Street shape=cylinder
+models/props_debris/metal_panel01a.mdl            | Metal Panel      | cat=Street
+models/props_junk/rock001a.mdl                    | Rock             | cat=Street
+models/props_combine/combine_barricade_short01a.mdl | Combine Barricade | cat=Combine
+models/props_combine/combine_mine01.mdl           | Combine Mine     | cat=Combine
+models/combine_helicopter/helicopter_bomb01.mdl   | Heli Bomb        | cat=Combine shape=sphere
+models/props_combine/headcrabcannister01a.mdl     | Headcrab Canister | cat=Combine
+models/props_combine/health_charger001.mdl        | Health Charger   | cat=Combine
+models/props_combine/combine_intmonitor001.mdl    | Combine Monitor  | cat=Combine
+models/manhack.mdl                                | Manhack          | cat=Combine
+models/roller.mdl                                 | Rollermine       | cat=Combine shape=sphere
+models/food/burger.mdl                            | Burger           | cat=Food
+models/food/hotdog.mdl                            | Hot Dog          | cat=Food
+models/props/cs_italy/bananna.mdl                 | Banana           | cat=Food
+models/props/cs_italy/orange.mdl                  | Orange           | cat=Food shape=sphere
+models/props_junk/garbage_glassbottle003a.mdl     | Bottle           | cat=Food shape=cylinder break=glass
+models/props_junk/glassjug01.mdl                  | Jug              | cat=Food break=glass
+models/props_junk/garbage_takeoutcarton001a.mdl   | Takeout          | cat=Food
+models/props_lab/citizenradio.mdl                 | Radio            | cat=Lab
+models/props_lab/reciever01a.mdl                  | Receiver         | cat=Lab
+models/props_lab/monitor02.mdl                    | CRT Monitor      | cat=Lab
+models/props_lab/jar01a.mdl                       | Specimen Jar     | cat=Lab shape=cylinder
+models/props_lab/partsbin01.mdl                   | Parts Bin        | cat=Lab
+models/props_c17/tv_monitor01.mdl                 | TV               | cat=Lab
+models/props_c17/clock01.mdl                      | Clock            | cat=Lab shape=cylinder
+models/props_interiors/furniture_lamp01a.mdl      | Lamp             | cat=Furniture
+models/props_interiors/refrigerator01a.mdl        | Fridge 2         | cat=Furniture
+models/props_vehicles/van001a_physics.mdl         | Van              | cat=Vehicles
+models/props_vehicles/car003a_physics.mdl         | Old Car          | cat=Vehicles
+models/props_canal/boat001a.mdl                   | Rowboat          | cat=Vehicles
+models/props_junk/trashdumpster02.mdl             | Giant Dumpster   | cat=Junk
+models/hunter/blocks/cube1x2x1.mdl                | PHX Block 1x2    | cat=Construction
+models/hunter/blocks/cube2x4x1.mdl                | PHX Block 2x4    | cat=Construction
+models/hunter/blocks/cube4x4x4.mdl                | PHX Huge Cube    | cat=Construction
+models/hunter/blocks/cube1x8x1.mdl                | PHX Long Beam    | cat=Construction
+models/hunter/plates/plate1x8.mdl                 | PHX Plate 1x8    | cat=Construction
+models/hunter/plates/plate2x4.mdl                 | PHX Plate 2x4    | cat=Construction
+models/hunter/plates/plate3x3.mdl                 | PHX Plate 3x3    | cat=Construction
+models/hunter/plates/plate8x8.mdl                 | PHX Plate 8x8    | cat=Construction
+models/hunter/triangles/1x1x1.mdl                 | PHX Ramp         | cat=Construction
+models/hunter/misc/platehole1x1a.mdl              | PHX Hole Plate   | cat=Construction
+models/hunter/tubes/tube4x4x1.mdl                 | PHX Big Tube     | cat=Construction
+models/props_phx/construct/metal_plate1x2.mdl     | Metal Plate 1x2  | cat=Construction
+models/props_phx/construct/metal_plate2x2.mdl     | Metal Plate 2x2  | cat=Construction
+models/props_phx/construct/metal_plate2x4.mdl     | Metal Plate 2x4  | cat=Construction
+models/props_phx/construct/metal_wire1x1.mdl      | Metal Frame      | cat=Construction
+models/props_phx/construct/metal_wire1x2.mdl      | Metal Frame 1x2  | cat=Construction
+models/props_phx/construct/metal_angle90.mdl      | Metal Angle      | cat=Construction
+models/props_phx/construct/metal_tube.mdl         | Metal Tube       | cat=Construction
+models/props_phx/construct/wood/wood_panel1x1.mdl | Wood Panel       | cat=Construction
+models/props_phx/construct/wood/wood_panel2x2.mdl | Wood Panel 2x2   | cat=Construction
+models/props_phx/construct/wood/wood_boardx1.mdl  | Wood Beam        | cat=Construction
+models/props_phx/construct/wood/wood_wire1x1.mdl  | Wood Frame       | cat=Construction
+models/props_phx/construct/windows/window1x1.mdl  | Window           | cat=Construction
+models/props_phx/construct/glass/glass_plate1x1.mdl | Glass Plate    | cat=Construction break=glass
+models/props_wasteland/dockplank01a.mdl           | Dock Plank       | cat=Construction
+models/props_wasteland/wood_fence01a.mdl          | Wood Fence       | cat=Construction
+models/props_c17/fence02a.mdl                     | Chain Fence      | cat=Construction
+models/props_c17/gate_door01a.mdl                 | Gate             | cat=Construction
+models/props_c17/column02a.mdl                    | Column           | cat=Construction
+models/props_lab/blastdoor001a.mdl                | Blast Door       | cat=Construction
+models/props_wasteland/cargo_container01.mdl      | Cargo Container  | cat=Construction
+models/props_phx/gears/spur24.mdl                 | Gear             | cat=Shapes shape=cylinder
+models/props_phx/wheels/wooden_wheel1.mdl         | Wooden Wheel     | cat=Shapes shape=cylinder
+models/props_junk/glassbottle01a.mdl              | Beer Bottle      | cat=Food shape=cylinder break=glass
+models/props_junk/garbage_glassbottle001a.mdl     | Wine Bottle      | cat=Food shape=cylinder break=glass
+models/props_junk/garbage_glassbottle002a.mdl     | Green Bottle     | cat=Food shape=cylinder break=glass
+models/props_junk/glassbottle01a_chunk01a.mdl     | _gib             | gib=glass
+models/props_junk/glassbottle01a_chunk02a.mdl     | _gib             | gib=glass
+models/props_junk/garbage_glassbottle001a_chunk01.mdl | _gib         | gib=glass
+models/props_junk/garbage_glassbottle001a_chunk02.mdl | _gib         | gib=glass
+models/props_junk/garbage_glassbottle003a_chunk01.mdl | _gib         | gib=glass
+models/props_junk/glassjug01_chunk02.mdl          | _gib             | gib=glass
+models/props_junk/watermelon01_chunk01a.mdl       | _gib             | gib=melon
+models/props_junk/watermelon01_chunk01b.mdl       | _gib             | gib=melon
+models/props_junk/watermelon01_chunk01c.mdl       | _gib             | gib=melon
+models/props_junk/terracotta_chunk01a.mdl         | _gib             | gib=pot
+models/props_junk/terracotta_chunk01b.mdl         | _gib             | gib=pot
+models/props_junk/terracotta_chunk01f.mdl         | _gib             | gib=pot
+models/weapons/w_physics.mdl                      | _physgun         | hidden skin=1
+models/weapons/w_toolgun.mdl                      | _toolgun         | hidden
+models/weapons/w_crowbar.mdl                      | _crowbar         | hidden
+models/weapons/w_pistol.mdl                       | _pistol          | hidden
+models/weapons/w_357.mdl                          | _357             | hidden
+models/weapons/w_smg1.mdl                         | _smg1            | hidden
+models/weapons/w_shotgun.mdl                      | _shotgun         | hidden
+models/weapons/w_irifle.mdl                       | _ar2             | hidden
+models/weapons/w_stunbaton.mdl                    | _stunstick       | hidden
+models/weapons/c_physcannon.mdl                   | _vm_physgun      | hidden vm hue=180
+models/weapons/c_physcannon.mdl                   | _vm_gravgun      | hidden vm
+models/weapons/c_toolgun.mdl                      | _vm_toolgun      | hidden vm
+models/weapons/c_crowbar.mdl                      | _vm_crowbar      | hidden vm
+models/weapons/c_pistol.mdl                       | _vm_pistol       | hidden vm
+models/weapons/c_357.mdl                          | _vm_357          | hidden vm
+models/weapons/c_smg1.mdl                         | _vm_smg1         | hidden vm
+models/weapons/c_shotgun.mdl                      | _vm_shotgun      | hidden vm
+models/dav0r/camera.mdl                           | _camera          | hidden shape=box

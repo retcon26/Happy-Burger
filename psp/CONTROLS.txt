@@ -1,0 +1,91 @@
+PSP SANDBOX / PS2GMOD - CONTROLS  (v1.2.0)
+=========================================
+
+ON FOOT                      PSP                        PS2 (DualShock 2)
+---------------------------  -------------------------  ---------------------------
+Move                         Analog nub                 Left stick
+Look                         Square / Circle (left /    Right stick
+                             right), Triangle / Cross
+                             (up / down)
+Jump                         L                          X  (or L1 / L2)
+Crouch (toggle)              D-pad Down                 D-pad Down
+Fire / use weapon            R                          R1 / R2
+Reload                       Hold D-pad Left            Circle
+Next weapon                  Tap D-pad Left             D-pad Left
+Use (doors, buttons,         D-pad Right                D-pad Right or Triangle
+  thrusters, hoverballs)
+Carry a light prop           Hold D-pad Right           Hold D-pad Right or Triangle
+  (let go to drop, R throws)
+Flashlight                   Hold D-pad Right           Square
+Undo last prop/NPC/ragdoll   D-pad Up                   D-pad Up
+Spawn menu                   Tap Select                 Tap Select
+Noclip (fly)                 Hold Select                Hold Select
+  - in noclip: Jump = up, hold D-pad Down = down
+Pause menu                   Start                      Start
+Respawn after dying          X or R                     X or R1
+
+
+WEAPONS (D-pad Left cycles through them)
+  Hands, Physics Gun, Gravity Gun, Tool Gun, Crowbar, Pistol, .357 Magnum, SMG, Shotgun
+
+Physics Gun                  PSP                        PS2
+  Grab and hold              Hold R                     Hold R1
+  Freeze in place            L (while holding)          L1 (while holding)
+  Push away / pull closer    D-pad Up / Down            D-pad Up / Down
+  Rotate                     D-pad Left / Right         D-pad Left / Right
+  Works on props and on ragdolls (grab any limb).
+
+Gravity Gun                  PSP                        PS2
+  Pick up / drop             R                          L1
+  Launch (punt)              L                          R1
+  Lifts up to 250 kg from a distance.
+
+Hands                        PSP                        PS2
+  Pick up / drop             R                          R1
+  Throw                      L                          L1
+  Close, light things only.
+
+Tool Gun
+  Pick the tool in the spawn menu's Tools panel, then press R (PS2: R1).
+  The top-left box shows what the tool does and what to press next.
+  Tools: Remover, Colour, Balloon, Duplicator, Weld, Rope, Ball Socket, Elastic,
+         No-Collide, Weight, Thruster, Hoverball, Explosive, Slider,
+         Inflator, Deflator (resize ragdoll body parts), Camera
+
+Camera tool (Tool Gun)       PSP                        PS2
+  Place a camera             R                          R1
+  Look through the next      L                          L1
+    camera (after the last
+    one, back to your eyes)
+  A camera faces the way you were looking when you placed it, and stays put.
+  Move or weld it like any prop (Physics Gun), e.g. onto a car.
+  Putting the tool away returns to your own view. On the PSP, L doesn't jump
+  while the Camera tool is out (on the PS2, X still jumps).
+
+
+SPAWN MENU (tap Select)
+  L / R               Switch between Categories, Items and Tools panels
+  D-pad               Move around a panel (Right/Left also steps between panels)
+  X                   Spawn the item / pick the tool
+  Circle or Select    Close
+  Start               Close and pause
+  Categories include Props (by game), NPCs and Ragdolls.
+
+
+PAUSE MENU (Start)
+  Resume Game, Options, Toggle Noclip, Freeze All Props, Clean Up Props
+  (also clears blood), Disconnect
+  D-pad Up / Down to choose, X to select, Circle or Start to resume.
+
+
+OPTIONS
+  D-pad Up / Down to choose, X or Right / Left to change, Circle to go back.
+  Includes: Sound, Look speed, Invert look, God mode, Player model,
+  Third-person view, NPC thinking, NPCs ignore players, Unlimited ammo,
+  HEV suit, Show HUD, Crosshair, Show FPS, Draw distance, Physics quality,
+  Credits.
+
+
+MAIN MENU
+  D-pad to choose, X to select, Circle to go back.
+  The version number is in the bottom-left corner.

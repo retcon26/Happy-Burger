@@ -1,0 +1,244 @@
+# Maps to convert, one .bsp path per line (as seen from Ubuntu). Maps from other Source games work too:
+# their own textures and models are found automatically next to the map.
+/mnt/d/SteamLibrary/steamapps/common/GarrysMod/garrysmod/maps/gm_flatgrass.bsp
+/mnt/d/SteamLibrary/steamapps/common/GarrysMod/garrysmod/maps/gm_construct.bsp
+
+# Half-Life 2 Deathmatch
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2 Deathmatch/hl2mp/maps/dm_lockdown.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2 Deathmatch/hl2mp/maps/dm_overwatch.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2 Deathmatch/hl2mp/maps/dm_runoff.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2 Deathmatch/hl2mp/maps/dm_steamlab.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2 Deathmatch/hl2mp/maps/dm_underpass.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2 Deathmatch/hl2mp/maps/dm_resistance.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2 Deathmatch/hl2mp/maps/dm_powerhouse.bsp
+
+# Counter-Strike: Source
+/mnt/d/SteamLibrary/steamapps/common/Counter-Strike Source/cstrike/maps/cs_militia.bsp
+/mnt/d/SteamLibrary/steamapps/common/Counter-Strike Source/cstrike/maps/cs_office.bsp
+/mnt/d/SteamLibrary/steamapps/common/Counter-Strike Source/cstrike/maps/cs_italy.bsp
+/mnt/d/SteamLibrary/steamapps/common/Counter-Strike Source/cstrike/maps/cs_assault.bsp
+/mnt/d/SteamLibrary/steamapps/common/Counter-Strike Source/cstrike/maps/de_dust2.bsp
+/mnt/d/SteamLibrary/steamapps/common/Counter-Strike Source/cstrike/maps/de_dust.bsp
+/mnt/d/SteamLibrary/steamapps/common/Counter-Strike Source/cstrike/maps/de_inferno.bsp
+/mnt/d/SteamLibrary/steamapps/common/Counter-Strike Source/cstrike/maps/de_nuke.bsp
+/mnt/d/SteamLibrary/steamapps/common/Counter-Strike Source/cstrike/maps/de_aztec.bsp
+
+# Day of Defeat: Source
+/mnt/d/SteamLibrary/steamapps/common/Day of Defeat Source/dod/maps/dod_anzio.bsp
+/mnt/d/SteamLibrary/steamapps/common/Day of Defeat Source/dod/maps/dod_argentan.bsp
+/mnt/d/SteamLibrary/steamapps/common/Day of Defeat Source/dod/maps/dod_avalanche.bsp
+/mnt/d/SteamLibrary/steamapps/common/Day of Defeat Source/dod/maps/dod_colmar.bsp
+/mnt/d/SteamLibrary/steamapps/common/Day of Defeat Source/dod/maps/dod_donner.bsp
+/mnt/d/SteamLibrary/steamapps/common/Day of Defeat Source/dod/maps/dod_flash.bsp
+/mnt/d/SteamLibrary/steamapps/common/Day of Defeat Source/dod/maps/dod_jagd.bsp
+/mnt/d/SteamLibrary/steamapps/common/Day of Defeat Source/dod/maps/dod_kalt.bsp
+/mnt/d/SteamLibrary/steamapps/common/Day of Defeat Source/dod/maps/dod_palermo.bsp
+
+# Half-Life Deathmatch: Source
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 1 Source Deathmatch/hl1mp/maps/boot_camp.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 1 Source Deathmatch/hl1mp/maps/bounce.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 1 Source Deathmatch/hl1mp/maps/crossfire.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 1 Source Deathmatch/hl1mp/maps/datacore.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 1 Source Deathmatch/hl1mp/maps/frenzy.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 1 Source Deathmatch/hl1mp/maps/lambda_bunker.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 1 Source Deathmatch/hl1mp/maps/rapidcore.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 1 Source Deathmatch/hl1mp/maps/snarkpit.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 1 Source Deathmatch/hl1mp/maps/stalkyard.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 1 Source Deathmatch/hl1mp/maps/subtransit.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 1 Source Deathmatch/hl1mp/maps/undertow.bsp
+
+# Half-Life 2 campaign
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d1_canals_01.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d1_canals_01a.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d1_canals_02.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d1_canals_03.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d1_canals_05.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d1_canals_06.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d1_canals_07.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d1_canals_08.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d1_canals_09.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d1_canals_10.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d1_canals_11.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d1_canals_12.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d1_canals_13.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d1_eli_01.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d1_eli_02.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d1_town_01.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d1_town_01a.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d1_town_02.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d1_town_02a.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d1_town_03.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d1_town_04.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d1_town_05.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d1_trainstation_01.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d1_trainstation_02.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d1_trainstation_03.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d1_trainstation_04.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d1_trainstation_05.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d1_trainstation_06.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d2_coast_01.bsp
+# d2_coast_02.bsp is an empty file in this install
+# /mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d2_coast_02.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d2_coast_03.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d2_coast_04.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d2_coast_05.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d2_coast_07.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d2_coast_08.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d2_coast_09.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d2_coast_10.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d2_coast_11.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d2_coast_12.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d2_prison_01.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d2_prison_02.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d2_prison_03.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d2_prison_04.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d2_prison_05.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d2_prison_06.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d2_prison_07.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d2_prison_08.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d3_breen_01.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d3_c17_01.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d3_c17_02.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d3_c17_03.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d3_c17_04.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d3_c17_05.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d3_c17_06a.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d3_c17_06b.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d3_c17_07.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d3_c17_08.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d3_c17_09.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d3_c17_10a.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d3_c17_10b.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d3_c17_11.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d3_c17_12.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d3_c17_12b.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d3_c17_13.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d3_citadel_01.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d3_citadel_02.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d3_citadel_03.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d3_citadel_04.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life 2/hl2/maps/d3_citadel_05.bsp
+
+# Half-Life (the original, GoldSrc): converted as hl1_<name>
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/boot_camp.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/bounce.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c0a0.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c0a0a.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c0a0b.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c0a0c.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c0a0d.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c0a0e.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c1a0.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c1a0a.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c1a0b.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c1a0c.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c1a0d.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c1a0e.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c1a1.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c1a1a.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c1a1b.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c1a1c.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c1a1d.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c1a1f.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c1a2.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c1a2a.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c1a2b.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c1a2c.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c1a2d.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c1a3.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c1a3a.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c1a3b.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c1a3c.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c1a3d.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c1a4.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c1a4b.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c1a4d.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c1a4e.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c1a4f.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c1a4g.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c1a4i.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c1a4j.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c1a4k.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a1.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a1a.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a1b.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a2.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a2a.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a2b1.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a2b2.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a2c.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a2d.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a2e.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a2f.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a2g.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a2h.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a3.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a3a.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a3b.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a3c.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a3d.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a3e.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a4.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a4a.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a4b.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a4c.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a4d.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a4e.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a4f.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a4g.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a5.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a5a.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a5b.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a5c.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a5d.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a5e.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a5f.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a5g.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a5w.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c2a5x.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c3a1.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c3a1a.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c3a1b.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c3a2.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c3a2a.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c3a2b.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c3a2c.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c3a2d.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c3a2e.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c3a2f.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c4a1.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c4a1a.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c4a1b.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c4a1c.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c4a1d.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c4a1e.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c4a1f.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c4a2.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c4a2a.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c4a2b.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c4a3.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/c5a1.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/contamination.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/crossfire.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/datacore.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/disposal.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/doublecross.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/frenzy.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/gasworks.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/lambda_bunker.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/pool_party.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/rapidcore.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/rocket_frenzy.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/rustmill.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/snark_pit.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/stalkyard.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/subtransit.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/t0a0.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/t0a0a.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/t0a0b.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/t0a0b1.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/t0a0b2.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/t0a0c.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/t0a0d.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/undertow.bsp
+/mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/xen_dm.bsp

@@ -1,0 +1,91 @@
+# Sound pack: name  loop  path [more paths = random variants]
+# Run: tools/bspconv.sh sounds
+physgun_pickup   0 sound/weapons/physcannon/physcannon_pickup.wav
+physgun_drop     0 sound/weapons/physcannon/physcannon_drop.wav
+physgun_hold     1 sound/weapons/physcannon/hold_loop.wav
+gravgun_punt     0 sound/weapons/physcannon/superphys_launch1.wav
+physgun_dryfire  0 sound/weapons/physcannon/physcannon_dryfire.wav
+physgun_freeze   0 sound/weapons/physcannon/superphys_small_zap1.wav sound/weapons/physcannon/superphys_small_zap2.wav
+toolgun_shoot    0 sound/weapons/airboat/airboat_gun_lastshot1.wav sound/weapons/airboat/airboat_gun_lastshot2.wav
+spawn            0 sound/ui/buttonclickrelease.wav sound/buttons/button14.wav
+undo             0 sound/buttons/button15.wav
+menu_move        0 sound/ui/buttonrollover.wav sound/buttons/lightswitch2.wav
+menu_select      0 sound/ui/buttonclick.wav sound/buttons/button9.wav
+impact_wood      0 sound/physics/wood/wood_box_impact_hard1.wav sound/physics/wood/wood_box_impact_hard2.wav sound/physics/wood/wood_box_impact_hard3.wav
+impact_metal     0 sound/physics/metal/metal_barrel_impact_hard1.wav sound/physics/metal/metal_barrel_impact_hard2.wav sound/physics/metal/metal_barrel_impact_hard3.wav
+impact_plastic   0 sound/physics/plastic/plastic_box_impact_hard1.wav sound/physics/plastic/plastic_box_impact_hard2.wav
+impact_concrete  0 sound/physics/concrete/concrete_block_impact_hard1.wav sound/physics/concrete/concrete_block_impact_hard2.wav
+impact_glass     0 sound/physics/glass/glass_impact_hard1.wav sound/physics/glass/glass_impact_hard2.wav
+impact_cardboard 0 sound/physics/cardboard/cardboard_box_impact_hard1.wav sound/physics/cardboard/cardboard_box_impact_hard2.wav
+impact_flesh     0 sound/physics/flesh/flesh_squishy_impact_hard1.wav sound/physics/flesh/flesh_squishy_impact_hard2.wav
+impact_rubber    0 sound/physics/rubber/rubber_tire_impact_hard1.wav sound/physics/rubber/rubber_tire_impact_hard2.wav
+step_concrete    0 sound/player/footsteps/concrete1.wav sound/player/footsteps/concrete2.wav sound/player/footsteps/concrete3.wav sound/player/footsteps/concrete4.wav
+step_grass       0 sound/player/footsteps/grass1.wav sound/player/footsteps/grass2.wav sound/player/footsteps/grass3.wav sound/player/footsteps/grass4.wav
+step_water       0 sound/player/footsteps/wade1.wav sound/player/footsteps/wade2.wav
+jump_land        0 sound/physics/body/body_medium_impact_soft1.wav sound/player/footsteps/concrete3.wav
+swim             0 sound/player/footsteps/wade5.wav sound/player/footsteps/wade6.wav
+splash           0 sound/ambient/water/water_splash1.wav sound/ambient/water/water_splash2.wav
+door_move        0 sound/doors/door1_move.wav sound/doors/doormove2.wav
+door_stop        0 sound/doors/door1_stop.wav sound/doors/doorstop1.wav
+button           0 sound/buttons/button3.wav sound/buttons/button1.wav
+balloon_pop      0 sound/garrysmod/balloon_pop_cute.wav
+weld             0 sound/weapons/airboat/airboat_gun_lastshot1.wav
+remove           0 sound/garrysmod/content_downloaded.wav sound/buttons/button16.wav
+crowbar_swing    0 sound/weapons/iceaxe/iceaxe_swing1.wav
+crowbar_hit      0 sound/weapons/crowbar/crowbar_impact1.wav sound/weapons/crowbar/crowbar_impact2.wav
+pistol_fire      0 sound/weapons/pistol/pistol_fire2.wav sound/weapons/pistol/pistol_fire3.wav
+357_fire         0 sound/weapons/357/357_fire2.wav sound/weapons/357/357_fire3.wav
+smg1_fire        0 sound/weapons/smg1/smg1_fire1.wav
+shotgun_fire     0 sound/weapons/shotgun/shotgun_fire6.wav sound/weapons/shotgun/shotgun_fire7.wav
+reload           0 sound/weapons/pistol/pistol_reload1.wav sound/weapons/smg1/smg1_reload.wav
+shotgun_pump     0 sound/weapons/shotgun/shotgun_cock.wav
+empty            0 sound/weapons/pistol/pistol_empty.wav
+bullet_impact    0 sound/physics/concrete/concrete_impact_bullet1.wav sound/physics/concrete/concrete_impact_bullet2.wav sound/physics/concrete/concrete_impact_bullet3.wav
+bullet_flesh     0 sound/physics/flesh/flesh_impact_bullet1.wav sound/physics/flesh/flesh_impact_bullet2.wav sound/physics/flesh/flesh_impact_bullet3.wav
+ragdoll_hit      0 sound/physics/body/body_medium_impact_hard1.wav sound/physics/body/body_medium_impact_hard2.wav sound/physics/body/body_medium_impact_soft1.wav
+explode          0 sound/weapons/explode3.wav sound/weapons/explode4.wav sound/weapons/explode5.wav
+break_glass      0 sound/physics/glass/glass_bottle_break1.wav sound/physics/glass/glass_bottle_break2.wav
+break_flesh      0 sound/physics/flesh/flesh_squishy_impact_hard1.wav
+break_hard       0 sound/physics/concrete/concrete_break2.wav
+
+# NPC voices: vo_<voice>_pain / _die / _alert (npcs.txt voice=NAME picks the set). Names starting
+# vo_ are stored at a quarter of the pack's rate (half in the reduced pack) and cut to 1 second.
+vo_male_pain 0 sound/vo/npc/male01/pain01.wav sound/vo/npc/male01/pain04.wav
+vo_male_die 0 sound/vo/npc/male01/pain07.wav sound/vo/npc/male01/pain09.wav
+vo_male_alert 0 sound/vo/npc/male01/runforyourlife01.wav
+vo_female_pain 0 sound/vo/npc/female01/pain01.wav sound/vo/npc/female01/pain04.wav
+vo_female_die 0 sound/vo/npc/female01/pain07.wav sound/vo/npc/female01/pain09.wav
+vo_female_alert 0 sound/vo/npc/female01/runforyourlife01.wav
+vo_combine_pain 0 sound/npc/combine_soldier/pain1.wav sound/npc/combine_soldier/pain2.wav
+vo_combine_die 0 sound/npc/combine_soldier/die1.wav sound/npc/combine_soldier/die2.wav
+vo_combine_alert 0 sound/npc/combine_soldier/vo/contact.wav
+vo_metro_pain 0 sound/npc/metropolice/pain1.wav sound/npc/metropolice/pain2.wav
+vo_metro_die 0 sound/npc/metropolice/die1.wav sound/npc/metropolice/die2.wav
+vo_metro_alert 0 sound/npc/metropolice/vo/holdit.wav
+vo_zombie_pain 0 sound/npc/zombie/zombie_pain1.wav sound/npc/zombie/zombie_pain3.wav
+vo_zombie_die 0 sound/npc/zombie/zombie_die1.wav sound/npc/zombie/zombie_die2.wav
+vo_zombie_alert 0 sound/npc/zombie/zombie_alert1.wav
+vo_fastzombie_pain 0 sound/npc/fast_zombie/fz_frenzy1.wav
+vo_fastzombie_die 0 sound/npc/fast_zombie/fz_scream1.wav
+vo_fastzombie_alert 0 sound/npc/fast_zombie/fz_alert_close1.wav
+vo_poison_pain 0 sound/npc/zombie_poison/pz_pain1.wav sound/npc/zombie_poison/pz_pain2.wav
+vo_poison_die 0 sound/npc/zombie_poison/pz_die1.wav sound/npc/zombie_poison/pz_die2.wav
+vo_poison_alert 0 sound/npc/zombie_poison/pz_alert1.wav
+vo_antlion_pain 0 sound/npc/antlion/pain1.wav sound/npc/antlion/pain2.wav
+vo_antlion_die 0 sound/npc/antlion/pain2.wav
+vo_antlion_alert 0 sound/npc/antlion/distract1.wav
+vo_headcrab_pain 0 sound/npc/headcrab/pain1.wav sound/npc/headcrab/pain2.wav
+vo_headcrab_die 0 sound/npc/headcrab/die1.wav sound/npc/headcrab/die2.wav
+vo_headcrab_alert 0 sound/npc/headcrab/alert1.wav
+vo_guard_pain 0 sound/npc/antlion_guard/antlion_guard_pain1.wav sound/npc/antlion_guard/antlion_guard_pain2.wav
+vo_guard_die 0 sound/npc/antlion_guard/antlion_guard_die1.wav
+vo_guard_alert 0 sound/npc/antlion_guard/angry1.wav
+vo_vort_pain 0 sound/npc/vort/vort_pain3.wav
+vo_vort_die 0 sound/vo/npc/vortigaunt/vortigese05.wav
+vo_vort_alert 0 sound/vo/npc/vortigaunt/vortigese02.wav
+vo_alyx_pain 0 sound/vo/npc/alyx/hurt04.wav sound/vo/npc/alyx/hurt05.wav
+vo_alyx_die 0 sound/vo/npc/alyx/hurt08.wav sound/vo/npc/alyx/gasp02.wav
+vo_alyx_alert 0 sound/vo/npc/alyx/watchout01.wav
+vo_barney_pain 0 sound/vo/npc/barney/ba_pain01.wav sound/vo/npc/barney/ba_pain02.wav
+vo_barney_die 0 sound/vo/npc/barney/ba_pain07.wav sound/vo/npc/barney/ba_pain09.wav
+vo_barney_alert 0 sound/vo/npc/barney/ba_ohshit03.wav
