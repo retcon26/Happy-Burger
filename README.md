@@ -6,7 +6,7 @@ A Garry's Mod–style sandbox for the PSP, with a port to the PS2. There are thr
   directly and has its own physics, sound mixer, NPCs, multiplayer and Lua scripting.
 - **`tools/bspconv/`**: a PC-side converter (Python). It reads maps, models, textures and sounds from your own
   Garry's Mod install (and other Source games) and turns them into compact files the consoles can load.
-- **`Desktop/ps2gmod/`** (a separate folder): the PS2 port. It runs the same engine code on the PS2 and reads
+- **[PS2-GMOD](https://github.com/retcon26/PS2-GMOD)** (a separate repo, `Desktop/ps2gmod/` locally): the PS2 port. It runs the same engine code on the PS2 and reads
   the same converted data, packed onto a bootable disc image.
 
 GMod's and Valve's maps, models, textures and sounds belong to their owners. The converter reads your local
