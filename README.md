@@ -287,6 +287,8 @@ PS2's: low detail but with the ragdoll-only characters).
 
 Ideas for what's next:
 
+- [ ] **Team Fortress 2 content (coming soon):** TF2's maps, props and characters through the converter, like the
+      other Source games
 - [ ] **Drivable vehicles:** HL2's Jeep and Airboat, with GMod's seat for sitting on your own contraptions
 - [ ] **Save and load:** builds saved to the memory stick or memory card and loaded back on any map, and Options
       saved on the PS2 too
