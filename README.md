@@ -14,6 +14,12 @@ set in `psp/src/version.h`).
 owners. You make the game data yourself from the games you own (see [Building](#building)), and builds that
 contain it are for your own use. Don't share them.
 
+<p align="center">
+  <img src="docs/multiplayer.jpg" width="450" alt="Two PSPs playing gm_flatgrass together over ad-hoc multiplayer, each showing the other player's character holding the physics gun">
+  <br>
+  <em>Two real PSPs in ad-hoc multiplayer on gm_flatgrass: each sees the other player, physics gun in hand.</em>
+</p>
+
 ## What's in it
 
 - **228 maps:** gm_construct and gm_flatgrass, the Half-Life 2 campaign, the original Half-Life campaign
