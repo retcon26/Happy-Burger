@@ -301,9 +301,8 @@ Ideas for what's next:
 - [ ] **Lua gamemodes:** a bigger Lua API and small gamemodes built on it, like Prop Hunt and a zombie survival mode
 - [ ] **More maps:** Half-Life 2: Episode One and Two, Portal and Black Mesa maps, from games whose props are
       already in the spawn menu
-- [ ] **Breakable props:** wooden crates, glass and pottery that smash into gibs as they do in HL2, with item
-      drops from crates
-- [ ] **Player customization:** player colour, model skins and bodygroups, and a weapon colour for the physics gun
+- [ ] **More player customization:** on top of picking a player model, a player colour, model skins and
+      bodygroups, and a weapon colour for the physics gun
 - [ ] **Host settings:** prop limits per player, PvP, noclip and NPC spawning on or off for everyone in a
       multiplayer game
 - [ ] **Quick chat:** a radial menu of short messages and gestures for multiplayer, since the consoles have no
