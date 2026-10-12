@@ -275,5 +275,19 @@ PS2's: low detail but with the ragdoll-only characters).
 - [x] Thousands of extra props from other Source games
 - [x] Multiplayer (PSP ad-hoc, PS2 LAN), up to 4, host-authoritative
 - [x] PS2 port, with map geometry on the VU1 coprocessor
+- [x] Camera tool; Poser tools (Inflator, Deflator); unlimited ammo and HEV suit options
 - [ ] PS2 speed: props and NPCs on VU1 too
 - [ ] Animated first-person weapons; PvP damage; synced ragdolls
+
+Ideas for what's next:
+
+- [ ] **Drivable vehicles:** HL2's Jeep and Airboat, with GMod's seat for sitting on your own contraptions
+- [ ] **Save and load:** builds saved to the memory stick or memory card and loaded back on any map, and Options
+      saved on the PS2 too
+- [ ] **More tools:** Wheel, Winch, Hydraulic, Lamp, Light, Button and Emitter
+- [ ] **More weapons:** RPG, crossbow, grenades, AR2 and bugbait (antlions follow you)
+- [ ] **NPC navigation:** routes along the map's own node graph (`info_node`), so NPCs walk round walls instead
+      of into them
+- [ ] **Face and finger posing:** Face Poser expressions and Finger Poser hands for ragdolls
+- [ ] **Effects:** sparks on metal, smoke, fire after explosions, muzzle smoke and tracer impacts
+- [ ] **Lua gamemodes:** a bigger Lua API and small gamemodes built on it, like Prop Hunt and a zombie survival mode
