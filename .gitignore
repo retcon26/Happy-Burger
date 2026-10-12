@@ -1,6 +1,7 @@
 # Converted game data: made from your own Valve/GMod installs by tools/bspconv. It belongs to Valve and
 # Facepunch, so it never goes in the repo. Rebuild it with the converter (see README.md).
-psp/data/
+psp/data/*
+!psp/data/lua/
 psp/data_backup/
 psp/release/
 audio_check/
