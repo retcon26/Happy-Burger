@@ -35,7 +35,7 @@ contain it are for your own use. Don't share them.
 
 | System | RAM for games | Files used |
 |---|---|---|
-| PSP-2000 / 3000 / Go (primary) | ~52 MB | full detail: `name.pmap`, `props.ppak`, `npcs.pnpc`, `sounds.psnd` |
+| PSP-2000 / 3000 / Go / Street (primary) | ~52 MB | full detail: `name.pmap`, `props.ppak`, `npcs.pnpc`, `sounds.psnd` |
 | PSP-1000 | ~24 MB | `*.low.*`: half-size textures, coarser geometry, 16 kHz sound, no ragdoll-only characters |
 | PS2 | 32 MB | full detail when it fits, otherwise the `.low` version of that map |
 
