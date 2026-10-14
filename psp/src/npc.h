@@ -90,3 +90,31 @@ void npc_ragdoll_freeze(int r, int frozen);
 // Inflator: multiplies one bone's size by factor (within limits); returns the new size
 float npc_ragdoll_inflate(int r, int bone, float factor);
 void npc_ragdoll_debug(int *startsolid, int *hits, int *asleep);
+
+// Multiplayer ragdolls: the host simulates them all; a client mirrors them (npc_ragdolls_set_remote) and
+// asks the host to spawn, drag, freeze, inflate and remove them. A slot's gen (1-255) is new each time
+// it gets a ragdoll, so a client can tell a new body from an update to the old one.
+#define RAG_NET_MAX_BONES 64
+typedef struct {
+    uint8_t slot, gen, type, nb;
+    uint8_t spawned, pad[3];
+    float origin[3];                     // bone 0 at death
+    float size;                          // the character's scale
+    int16_t pos[RAG_NET_MAX_BONES][3];   // the points at death, from origin, in 1/8 units
+    int16_t rot[RAG_NET_MAX_BONES][4];   // the rotations at death (quaternions x 32767)
+    uint8_t scale[RAG_NET_MAX_BONES];    // inflator size x 32
+    int8_t stump[RAG_NET_MAX_BONES];     // sawblade cuts
+} RagInfo;
+typedef struct {
+    uint8_t slot, gen, nb, flags;        // flags 1: frozen
+    float origin[3];                     // bone 0 now
+    int16_t pos[RAG_NET_MAX_BONES][3];   // the points now, from origin, in 1/8 units (only nb of them sent)
+} RagPose;
+void npc_ragdolls_set_remote(int on);
+int npc_ragdoll_gen(int r);   // 0 when the slot is empty
+int npc_ragdoll_awake(int r); // moving (worth sending often)
+void npc_ragdoll_net_info(int r, RagInfo *out);
+int npc_ragdoll_net_pose(int r, RagPose *out); // returns its size in bytes
+void npc_ragdoll_net_set_info(const RagInfo *in);
+void npc_ragdoll_net_set_pose(const RagPose *in);
+void npc_ragdoll_net_keep(uint8_t active_mask, const uint8_t *gens);

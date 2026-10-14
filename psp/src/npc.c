@@ -2,7 +2,9 @@
 
 #include <pspgu.h>
 #include <pspgum.h>
+#include <math.h>
 #include <pspkernel.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -138,6 +140,7 @@ typedef struct {
     int aim[RAG_MAX_BONES];                     // the child bone that steers this bone's rotation
     int aim2[RAG_MAX_BONES];                    // a second child off that line (pelvis: a thigh), fixing the twist
     float rot0[RAG_MAX_BONES][9];               // world rotation at death
+    vec3 p0[RAG_MAX_BONES];                     // the points at death (multiplayer clients rebuild from them)
     vec3 dir0[RAG_MAX_BONES], side0[RAG_MAX_BONES]; // directions to the aim children at death
     // Distance constraints: each bone to its parent, plus the children of a branching bone to each
     // other, which keeps the pelvis, chest and hands rigid
@@ -152,6 +155,10 @@ typedef struct {
     int sunlit, light_age;
 } Ragdoll;
 static Ragdoll g_rags[MAX_RAGDOLLS];
+// Multiplayer: the host simulates every ragdoll and clients mirror them (npc_ragdoll_net_*)
+static int g_rag_remote;                                 // client: don't make or simulate our own
+static uint8_t g_rag_gen[MAX_RAGDOLLS];                  // a slot's ragdoll number: 1-255, new each time
+static vec3 g_rag_target[MAX_RAGDOLLS][RAG_MAX_BONES];   // client: where the host last had each point
 static int g_snd_rag = -1;
 
 // Voices (pack flags bits 8-15, in npcbuild.py's VOICES order): pain, death and spotting-an-enemy lines
@@ -1104,30 +1111,9 @@ static void world_pose(const Npc *n, float (*out)[12]) {
     }
 }
 
-static int rag_create(int type, float (*pose)[12], vec3 vel) {
-    if (!g_ragbones || type < 0 || type >= g_num_models) return -1;
-    const NpcModel *md = &g_models[type];
-    const RagBone *rb = g_ragbones + md->first_rag;
-    int r = rag_slot();
-    Ragdoll *g = &g_rags[r];
-    memset(g, 0, sizeof(*g));
-    g->active = 1;
-    g->type = type;
-    g->nb = (int)md->num_bones < RAG_MAX_BONES ? (int)md->num_bones : RAG_MAX_BONES;
-    g->light_age = 1000;
-    for (int b = 0; b < g->nb; b++) {
-        const float *m = pose[b], *pv = rb[b].pivot;
-        g->p[b] = v3(m[0] * pv[0] + m[1] * pv[1] + m[2] * pv[2] + m[3], m[4] * pv[0] + m[5] * pv[1] + m[6] * pv[2] + m[7],
-                     m[8] * pv[0] + m[9] * pv[1] + m[10] * pv[2] + m[11]);
-        float *R = g->rot0[b];
-        R[0] = m[0], R[1] = m[1], R[2] = m[2];
-        R[3] = m[4], R[4] = m[5], R[5] = m[6];
-        R[6] = m[8], R[7] = m[9], R[8] = m[10];
-        g->prev[b] = v3_mad(g->p[b], vel, -1.0f / 60.0f);
-        g->aim[b] = -1;
-        g->scale[b] = 1.0f;
-        g->stump[b] = -1;
-    }
+// Everything else a ragdoll needs, from its points and rotations at death: bone lengths, which child
+// steers each bone's rotation, and the bracing constraints
+static void rag_build(Ragdoll *g, const RagBone *rb) {
     for (int b = 0; b < g->nb; b++) {
         int par = rb[b].parent;
         if (par < 0 || par >= b) continue;
@@ -1171,11 +1157,45 @@ static int rag_create(int type, float (*pose)[12], vec3 vel) {
             }
         }
     }
+}
+
+static int rag_create(int type, float (*pose)[12], vec3 vel) {
+    // A multiplayer client's ragdolls are the host's (npc_ragdoll_net_set_info): its own would take their slots
+    if (!g_ragbones || g_rag_remote || type < 0 || type >= g_num_models) return -1;
+    const NpcModel *md = &g_models[type];
+    const RagBone *rb = g_ragbones + md->first_rag;
+    int r = rag_slot();
+    Ragdoll *g = &g_rags[r];
+    memset(g, 0, sizeof(*g));
+    g->active = 1;
+    g->type = type;
+    g->nb = (int)md->num_bones < RAG_MAX_BONES ? (int)md->num_bones : RAG_MAX_BONES;
+    g->light_age = 1000;
+    for (int b = 0; b < g->nb; b++) {
+        const float *m = pose[b], *pv = rb[b].pivot;
+        g->p[b] = v3(m[0] * pv[0] + m[1] * pv[1] + m[2] * pv[2] + m[3], m[4] * pv[0] + m[5] * pv[1] + m[6] * pv[2] + m[7],
+                     m[8] * pv[0] + m[9] * pv[1] + m[10] * pv[2] + m[11]);
+        float *R = g->rot0[b];
+        R[0] = m[0], R[1] = m[1], R[2] = m[2];
+        R[3] = m[4], R[4] = m[5], R[5] = m[6];
+        R[6] = m[8], R[7] = m[9], R[8] = m[10];
+        g->prev[b] = v3_mad(g->p[b], vel, -1.0f / 60.0f);
+        g->aim[b] = -1;
+        g->scale[b] = 1.0f;
+        g->stump[b] = -1;
+    }
+    memcpy(g->p0, g->p, sizeof(vec3) * (size_t)g->nb);
+    g_rag_gen[r] = (uint8_t)(g_rag_gen[r] % 255 + 1);
+    rag_build(g, rb);
     return r;
 }
 
 static int become_ragdoll(Npc *n, vec3 dv) {
     if (!g_ragbones || n->ragdolled) return -1;
+    if (g_rag_remote) {
+        n->ragdolled = 1; // the host's ragdoll arrives over the network
+        return -1;
+    }
     static float pose[MAX_PALETTE][12];
     world_pose(n, pose);
     vec3 vel = v3_add(v3(n->mover.velocity.x, n->mover.velocity.y, 0.0f), dv);
@@ -1228,7 +1248,7 @@ static void rag_wake(Ragdoll *g) {
 }
 
 void npc_ragdoll_push(int r, int bone, vec3 dv) {
-    if (!npc_ragdoll_active(r) || bone < 0 || bone >= g_rags[r].nb) return;
+    if (g_rag_remote || !npc_ragdoll_active(r) || bone < 0 || bone >= g_rags[r].nb) return;
     Ragdoll *g = &g_rags[r];
     if (g->frozen) return;
     rag_wake(g);
@@ -1236,7 +1256,7 @@ void npc_ragdoll_push(int r, int bone, vec3 dv) {
 }
 
 void npc_ragdoll_drag(int r, int bone, vec3 target, float dt) {
-    if (!npc_ragdoll_active(r) || bone < 0 || bone >= g_rags[r].nb) return;
+    if (g_rag_remote || !npc_ragdoll_active(r) || bone < 0 || bone >= g_rags[r].nb) return;
     Ragdoll *g = &g_rags[r];
     g->frozen = 0;
     rag_wake(g);
@@ -1261,6 +1281,138 @@ void npc_ragdoll_freeze(int r, int frozen) {
         for (int b = 0; b < g->nb; b++) g->prev[b] = g->p[b];
     } else {
         rag_wake(g);
+    }
+}
+
+// --- Multiplayer ragdolls ---------------------------------------------------------------------------
+// The host sends each ragdoll's points and rotations at death once (RagInfo, repeated now and then in
+// case it's lost), and a client builds the same skeleton from them with rag_build. After that the host
+// streams the points (RagPose) and the client glides its copy to them.
+
+void npc_ragdolls_set_remote(int on) {
+    g_rag_remote = on;
+}
+
+int npc_ragdoll_gen(int r) {
+    return npc_ragdoll_active(r) ? g_rag_gen[r] : 0;
+}
+
+int npc_ragdoll_awake(int r) {
+    return npc_ragdoll_active(r) && (!g_rags[r].asleep || g_rags[r].held) && !g_rags[r].frozen;
+}
+
+static int16_t q8(float v) { // a point relative to the ragdoll's origin, in 1/8 units
+    float s = v * 8.0f;
+    return (int16_t)(s > 32767.0f ? 32767 : s < -32768.0f ? -32768 : (int)lrintf(s));
+}
+
+void npc_ragdoll_net_info(int r, RagInfo *out) {
+    const Ragdoll *g = &g_rags[r];
+    memset(out, 0, sizeof(*out));
+    out->slot = (uint8_t)r;
+    out->gen = g_rag_gen[r];
+    out->type = (uint8_t)g->type;
+    out->nb = (uint8_t)(g->nb < RAG_NET_MAX_BONES ? g->nb : RAG_NET_MAX_BONES);
+    out->spawned = (uint8_t)g->spawned;
+    vec3 o = g->p0[0];
+    out->origin[0] = o.x, out->origin[1] = o.y, out->origin[2] = o.z;
+    // The rotations at death are a rotation times the character's (uniform) size
+    const float *R0 = g->rot0[0];
+    out->size = sqrtf(R0[0] * R0[0] + R0[3] * R0[3] + R0[6] * R0[6]);
+    float inv = out->size > 1e-6f ? 1.0f / out->size : 1.0f;
+    for (int b = 0; b < out->nb; b++) {
+        vec3 d = v3_sub(g->p0[b], o);
+        out->pos[b][0] = q8(d.x), out->pos[b][1] = q8(d.y), out->pos[b][2] = q8(d.z);
+        // Rotation matrix (rows) to a quaternion
+        const float *m = g->rot0[b];
+        float a = m[0] * inv, e = m[4] * inv, i = m[8] * inv, w, x, y, z;
+        float tr = a + e + i;
+        if (tr > 0.0f) {
+            float s = sqrtf(tr + 1.0f) * 2.0f;
+            w = 0.25f * s, x = (m[7] - m[5]) * inv / s, y = (m[2] - m[6]) * inv / s, z = (m[3] - m[1]) * inv / s;
+        } else if (a > e && a > i) {
+            float s = sqrtf(1.0f + a - e - i) * 2.0f;
+            w = (m[7] - m[5]) * inv / s, x = 0.25f * s, y = (m[1] + m[3]) * inv / s, z = (m[2] + m[6]) * inv / s;
+        } else if (e > i) {
+            float s = sqrtf(1.0f + e - a - i) * 2.0f;
+            w = (m[2] - m[6]) * inv / s, x = (m[1] + m[3]) * inv / s, y = 0.25f * s, z = (m[5] + m[7]) * inv / s;
+        } else {
+            float s = sqrtf(1.0f + i - a - e) * 2.0f;
+            w = (m[3] - m[1]) * inv / s, x = (m[2] + m[6]) * inv / s, y = (m[5] + m[7]) * inv / s, z = 0.25f * s;
+        }
+        out->rot[b][0] = (int16_t)lrintf(x * 32767.0f), out->rot[b][1] = (int16_t)lrintf(y * 32767.0f);
+        out->rot[b][2] = (int16_t)lrintf(z * 32767.0f), out->rot[b][3] = (int16_t)lrintf(w * 32767.0f);
+        float sc = g->scale[b] * 32.0f;
+        out->scale[b] = (uint8_t)(sc > 255.0f ? 255 : sc < 0.0f ? 0 : (int)lrintf(sc));
+        out->stump[b] = g->stump[b];
+    }
+}
+
+int npc_ragdoll_net_pose(int r, RagPose *out) {
+    const Ragdoll *g = &g_rags[r];
+    out->slot = (uint8_t)r;
+    out->gen = g_rag_gen[r];
+    out->nb = (uint8_t)(g->nb < RAG_NET_MAX_BONES ? g->nb : RAG_NET_MAX_BONES);
+    out->flags = (uint8_t)(g->frozen ? 1 : 0);
+    vec3 o = g->p[0];
+    out->origin[0] = o.x, out->origin[1] = o.y, out->origin[2] = o.z;
+    for (int b = 0; b < out->nb; b++) {
+        vec3 d = v3_sub(g->p[b], o);
+        out->pos[b][0] = q8(d.x), out->pos[b][1] = q8(d.y), out->pos[b][2] = q8(d.z);
+    }
+    return (int)(offsetof(RagPose, pos) + (size_t)out->nb * sizeof(out->pos[0]));
+}
+
+void npc_ragdoll_net_set_info(const RagInfo *in) {
+    if (!g_ragbones || in->slot >= MAX_RAGDOLLS || in->type >= g_num_models || in->nb == 0) return;
+    Ragdoll *g = &g_rags[in->slot];
+    int nb = in->nb < RAG_MAX_BONES ? in->nb : RAG_MAX_BONES;
+    if (!g->active || g_rag_gen[in->slot] != in->gen || g->type != in->type) {
+        const NpcModel *md = &g_models[in->type];
+        if ((int)md->num_bones < nb) return; // a different NPC pack from the host's
+        memset(g, 0, sizeof(*g));
+        g->active = 1;
+        g->type = in->type;
+        g->nb = nb;
+        g->spawned = in->spawned;
+        g->light_age = 1000;
+        vec3 o = v3(in->origin[0], in->origin[1], in->origin[2]);
+        for (int b = 0; b < nb; b++) {
+            g->p[b] = g->prev[b] = g->p0[b] = g_rag_target[in->slot][b] =
+                v3_add(o, v3(in->pos[b][0] / 8.0f, in->pos[b][1] / 8.0f, in->pos[b][2] / 8.0f));
+            float x = in->rot[b][0] / 32767.0f, y = in->rot[b][1] / 32767.0f, z = in->rot[b][2] / 32767.0f,
+                  w = in->rot[b][3] / 32767.0f, s = in->size;
+            float *R = g->rot0[b];
+            R[0] = (1 - 2 * (y * y + z * z)) * s, R[1] = 2 * (x * y - w * z) * s, R[2] = 2 * (x * z + w * y) * s;
+            R[3] = 2 * (x * y + w * z) * s, R[4] = (1 - 2 * (x * x + z * z)) * s, R[5] = 2 * (y * z - w * x) * s;
+            R[6] = 2 * (x * z - w * y) * s, R[7] = 2 * (y * z + w * x) * s, R[8] = (1 - 2 * (x * x + y * y)) * s;
+            g->aim[b] = -1;
+        }
+        rag_build(g, g_ragbones + md->first_rag);
+        g_rag_gen[in->slot] = in->gen;
+    }
+    // Size (inflator) and sawblade cuts can change any time
+    for (int b = 0; b < nb; b++) {
+        g->scale[b] = in->scale[b] / 32.0f;
+        g->stump[b] = in->stump[b];
+    }
+}
+
+void npc_ragdoll_net_set_pose(const RagPose *in) {
+    if (in->slot >= MAX_RAGDOLLS) return;
+    Ragdoll *g = &g_rags[in->slot];
+    if (!g->active || g_rag_gen[in->slot] != in->gen) return; // its info hasn't arrived yet
+    int nb = in->nb < g->nb ? in->nb : g->nb;
+    vec3 o = v3(in->origin[0], in->origin[1], in->origin[2]);
+    for (int b = 0; b < nb; b++) {
+        g_rag_target[in->slot][b] = v3_add(o, v3(in->pos[b][0] / 8.0f, in->pos[b][1] / 8.0f, in->pos[b][2] / 8.0f));
+    }
+    g->frozen = in->flags & 1;
+}
+
+void npc_ragdoll_net_keep(uint8_t active_mask, const uint8_t *gens) {
+    for (int r = 0; r < MAX_RAGDOLLS; r++) {
+        if (g_rags[r].active && (!(active_mask & (1u << r)) || gens[r] != g_rag_gen[r])) g_rags[r].active = 0;
     }
 }
 
@@ -1413,6 +1565,20 @@ static void rag_step(Ragdoll *g, Map *m, float dt, PhysWorld *phys, const CmBox 
 void npc_ragdolls_update(Map *m, float dt, PhysWorld *phys) {
     if (!g_ragbones) return;
     if (dt > 1.0f / 30.0f) dt = 1.0f / 30.0f;
+    if (g_rag_remote) {
+        float k = clampf(dt * 15.0f, 0.0f, 1.0f);
+        for (int r = 0; r < MAX_RAGDOLLS; r++) {
+            Ragdoll *g = &g_rags[r];
+            if (!g->active) continue;
+            g->age += dt;
+            for (int b = 0; b < g->nb; b++) {
+                vec3 d = v3_sub(g_rag_target[r][b], g->p[b]);
+                g->p[b] = v3_len(d) > 200.0f ? g_rag_target[r][b] : v3_mad(g->p[b], d, k);
+                g->prev[b] = g->p[b];
+            }
+        }
+        return;
+    }
     CmBox boxes[RAG_MAX_BOXES];
     for (int r = 0; r < MAX_RAGDOLLS; r++) {
         Ragdoll *g = &g_rags[r];

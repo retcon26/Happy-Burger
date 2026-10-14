@@ -119,6 +119,15 @@ def cmd_npcs(args):
         build_npcs(nlist, args.gmod, os.path.join(args.out, f"npcs{'' if t == 'high' else '.' + t}.pnpc"), t)
 
 
+def cmd_vmodels(args):
+    import os
+
+    from .vmbuild import build_from_list
+
+    os.makedirs(args.out, exist_ok=True)
+    build_from_list(args.list, args.gmod, args.out, ["high", "low"] if args.tier == "both" else [args.tier])
+
+
 def cmd_extras(args):
     import os
 
@@ -184,6 +193,13 @@ def main(argv=None):
     pn.add_argument("--tier", choices=["high", "low", "ps2", "both"], default="both")
     pn.add_argument("--gmod", default=DEFAULT_GMOD)
     pn.set_defaults(func=cmd_npcs)
+
+    pv = sub.add_parser("vmodels", help="build the animated first-person weapons (props.txt's vm models)")
+    pv.add_argument("--list", default="props.txt")
+    pv.add_argument("-o", "--out", default="../psp/data")
+    pv.add_argument("--tier", choices=["high", "low", "both"], default="both")
+    pv.add_argument("--gmod", default=DEFAULT_GMOD)
+    pv.set_defaults(func=cmd_vmodels)
 
     px = sub.add_parser("extras", help="build the extra props (thousands of models from the Source games, loaded on demand)")
     px.add_argument("--props", default="props.txt", help="the core prop list (its models are left out)")

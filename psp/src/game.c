@@ -17,6 +17,7 @@
 #include "menu.h"
 #include "net.h"
 #include "npc.h"
+#include "vmodel.h"
 #include "physics.h"
 #include "proplib.h"
 #include "propx.h"
@@ -261,6 +262,10 @@ enum {
     CMD_EXPLODE,    // i0 body
     CMD_TOGGLE,     // i0 body: switch its thrusters and hoverballs
     CMD_SLIDER,     // i0 a, i1 b, f: pa[3] pb[3]
+    CMD_RAG_SPAWN,  // i0 NPC type, f: pos[3] yaw
+    CMD_RAG_REMOVE, // i0 ragdoll
+    CMD_RAG_FREEZE, // i0 ragdoll, i1 frozen
+    CMD_RAG_INFLATE, // i0 ragdoll, i1 bone, f0 factor
 };
 #define MAX_OUTQ 8
 
@@ -280,6 +285,7 @@ typedef struct {
     float yaw, pitch;
     int weapon, flags;
     int held, held_prev; // physics gun target body, or -1
+    int held_rag, held_bone; // or a ragdoll, by one of its bones
     vec3 hold_pos;
     quat hold_rot;
     float health;
@@ -305,6 +311,8 @@ static struct {
     int num_spawnable;
     int vm_model[WEAPON_COUNT];
     int vm_c[WEAPON_COUNT];      // first-person model with arms, or -1
+    int vm_anim[WEAPON_COUNT];   // its animated version (vmodel.c), or -1
+    int vm_last_weapon;          // the weapon whose draw animation last played
     int gibs[8][8], num_gibs[8]; // broken-piece models per break group (props named _gib<group>)
     vec3 vm_muzzle[WEAPON_COUNT]; // its muzzle in view space (x forward, y left, z up)
     PhysWorld phys;
@@ -458,6 +466,9 @@ static int god_mode(void) {
 }
 static void send_cmd(int kind, int i0, int i1, uint32_t u, const float *f, int nf);
 static void net_leave(void);
+static void vm_event(int kind);
+static void vm_tick(float dt);
+static void spawn_ragdoll(int type, vec3 pos, float yaw);
 static void damage_player(float amount);
 static vec3 view_forward(void);
 static void blood_clear(void);
@@ -559,7 +570,12 @@ static void load_shared(void) {
     if (proplib_load(&G.props, "data/props", perr, sizeof(perr)) == 0) {
         G.props_loaded = 1;
         G.num_spawnable = 0;
-        for (int w = 0; w < WEAPON_COUNT; w++) G.vm_model[w] = G.vm_c[w] = -1;
+        for (int w = 0; w < WEAPON_COUNT; w++) G.vm_model[w] = G.vm_c[w] = G.vm_anim[w] = -1;
+        // Animated first-person weapons when the pack has them
+        if (vmodels_load() == 0) {
+            for (int w = 0; w < WEAPON_COUNT; w++) G.vm_anim[w] = vmodel_find(k_weapon_vms[w]);
+        }
+        G.vm_last_weapon = -1;
         for (int i = 0; i < G.props.num_models; i++) {
             const PpakModel *md = &G.props.models[i];
             for (int w = 0; w < WEAPON_COUNT; w++) {
@@ -933,9 +949,12 @@ void game_command(const char *line) {
     } else if (sscanf(line, "rag %d %f", &i, &x) == 2) { // rag TYPE DISTANCE: a ragdoll in front of the player
         vec3 f = view_forward();
         f.z = 0.0f;
-        npc_ragdoll_spawn(i, v3_add(G.player.origin, v3_scale(v3_norm(f), x)), G.yaw + 180.0f);
+        spawn_ragdoll(i, v3_add(G.player.origin, v3_scale(v3_norm(f), x)), G.yaw + 180.0f);
     } else if (sscanf(line, "weapon %d", &i) == 1 && i >= 0 && i < WEAPON_COUNT) {
         G.weapon = (Weapon)i;
+    } else if (sscanf(line, "vmloop %d", &i) == 1) { // loops one first-person animation (VM_*), for tests
+        G.vm_last_weapon = (int)G.weapon;
+        if (G.vm_anim[G.weapon] >= 0) vmodel_play(G.vm_anim[G.weapon], i, 1);
     } else if (strncmp(line, "killall", 7) == 0) { // every NPC dies, knocked away from the player
         for (int n = 0; n < MAX_NPCS; n++) npc_damage_dir(n, 10000.0f, v3_scale(view_forward(), 400.0f));
     }
@@ -1273,6 +1292,21 @@ static void expire_pieces(float dt) {
     }
 }
 
+// A ragdoll at pos facing yaw: on the host (or alone) here, with undo; a client asks the host
+static void spawn_ragdoll(int type, vec3 pos, float yaw) {
+    if (is_client()) {
+        float f[4] = {pos.x, pos.y, pos.z, yaw};
+        send_cmd(CMD_RAG_SPAWN, type, 0, 0, f, 4);
+        play(G.snd.spawn, 0.6f);
+        return;
+    }
+    int r = npc_ragdoll_spawn(type, pos, yaw);
+    if (r >= 0) {
+        undo_push(RAGDOLL_ID_BASE + r);
+        play(G.snd.spawn, 0.6f);
+    }
+}
+
 static void spawn_from_menu(int model) {
     Aim a = aim_trace(SPAWN_RANGE);
     if (model >= GRID_NPC) {
@@ -1281,12 +1315,7 @@ static void spawn_from_menu(int model) {
         vec3 above = v3_mad(a.point, a.normal, 8.0f);
         cm_trace_line(&G.map, above, v3_add(above, v3(0, 0, -512)), MASK_PLAYERSOLID, NULL, 0, &tr);
         if (model >= GRID_RAG) {
-            // Ragdolls are simulated on each PSP for itself, so this one is ours alone
-            int r = npc_ragdoll_spawn(model - GRID_RAG, v3_add(tr.endpos, v3(0, 0, 4)), G.yaw + 180.0f);
-            if (r >= 0) {
-                if (!is_client()) undo_push(RAGDOLL_ID_BASE + r);
-                play(G.snd.spawn, 0.6f);
-            }
+            spawn_ragdoll(model - GRID_RAG, v3_add(tr.endpos, v3(0, 0, 4)), G.yaw + 180.0f);
             return;
         }
         if (is_client()) {
@@ -1343,6 +1372,7 @@ static void physgun_ragdoll(const InputState *in, float dt) {
     }
     if (in->pressed & PSP_CTRL_LTRIGGER) {
         npc_ragdoll_freeze(G.held_rag, 1);
+        if (is_client()) send_cmd(CMD_RAG_FREEZE, G.held_rag, 1, 0, NULL, 0);
         physgun_release(1);
         play(G.snd.freeze, 0.7f);
         toast("Frozen");
@@ -1352,6 +1382,7 @@ static void physgun_ragdoll(const InputState *in, float dt) {
     if (in->held & PSP_CTRL_DOWN) G.hold_dist -= 300.0f * dt;
     G.hold_dist = clampf(G.hold_dist, PHYSGUN_MIN_DIST, PHYSGUN_MAX_DIST);
     vec3 target = v3_mad(player_eye(&G.player), view_forward(), G.hold_dist);
+    G.net_hold_pos = target; // a client's host drags it (the state it sends says where)
     npc_ragdoll_drag(G.held_rag, G.held_bone, target, dt);
 }
 
@@ -1449,6 +1480,7 @@ static void launch_body(int i, float speed_50kg) {
     b->held = 0;
     phys_wake(&G.phys, i);
     b->vel = vel;
+    vm_event(VM_FIRE); // the gravity gun's punt
 }
 
 // Holds the carried prop (G.held) by its centre, gap units beyond its own size in front of the eye,
@@ -1640,12 +1672,17 @@ static void toolgun_fire(void) {
     G.beam_time = 0.15f;
     G.kick = 2.5f;
     play(G.snd.tool, 0.6f);
+    vm_event(VM_FIRE);
     Body *b = a.body >= 0 ? &G.phys.bodies[a.body] : NULL;
     switch (G.tool) {
     case TOOL_REMOVER:
         if (a.rag >= 0) {
             play(G.snd.remove, 0.6f);
-            npc_ragdoll_remove(a.rag); // ragdolls are local to each PSP
+            if (is_client()) {
+                send_cmd(CMD_RAG_REMOVE, a.rag, 0, 0, NULL, 0);
+            } else {
+                npc_ragdoll_remove(a.rag);
+            }
         } else if (a.npc >= 0) {
             play(G.snd.remove, 0.6f);
             if (is_client()) {
@@ -1664,9 +1701,10 @@ static void toolgun_fire(void) {
         break;
     case TOOL_INFLATOR:
     case TOOL_DEFLATOR:
-        // Ragdolls are each PSP's own, so this needs no network message
         if (a.rag >= 0) {
-            float s = npc_ragdoll_inflate(a.rag, a.bone, G.tool == TOOL_INFLATOR ? 1.25f : 0.8f);
+            float factor = G.tool == TOOL_INFLATOR ? 1.25f : 0.8f;
+            float s = npc_ragdoll_inflate(a.rag, a.bone, factor); // a client shows it now; the host confirms
+            if (is_client()) send_cmd(CMD_RAG_INFLATE, a.rag, a.bone, 0, &factor, 1);
             char msg[32];
             snprintf(msg, sizeof(msg), "Size %.0f%%", s * 100.0f);
             notify(msg, NOTE_HINT);
@@ -1994,9 +2032,91 @@ static void add_tracer(vec3 a, vec3 b) {
     G.next_tracer = (G.next_tracer + 1) % 8;
 }
 
+// --- PvP -----------------------------------------------------------------------------------------
+// In multiplayer, bullets and the crowbar hurt the other players, as in GMod. The host keeps everyone's
+// health, so only it applies the damage; on a client a hit just shows blood.
+
+static int ray_box(vec3 o, vec3 d, vec3 lo, vec3 hi, float max_t, float *t_out) {
+    const float oo[3] = {o.x, o.y, o.z}, dd[3] = {d.x, d.y, d.z}, l[3] = {lo.x, lo.y, lo.z}, h[3] = {hi.x, hi.y, hi.z};
+    float tmin = 0.0f, tmax = max_t;
+    for (int k = 0; k < 3; k++) {
+        if (fabsf(dd[k]) < 1e-6f) {
+            if (oo[k] < l[k] || oo[k] > h[k]) return 0;
+            continue;
+        }
+        float t1 = (l[k] - oo[k]) / dd[k], t2 = (h[k] - oo[k]) / dd[k];
+        if (t1 > t2) {
+            float tt = t1;
+            t1 = t2;
+            t2 = tt;
+        }
+        if (t1 > tmin) tmin = t1;
+        if (t2 < tmax) tmax = t2;
+        if (tmin > tmax) return 0;
+    }
+    *t_out = tmin;
+    return 1;
+}
+
+// The first player (by slot) along the ray within max_t, other than exclude (the shooter), or -1
+static int player_raycast(vec3 o, vec3 d, float max_t, int exclude, float *t_out) {
+    if (G.role == ROLE_OFFLINE) return -1;
+    int best = -1;
+    for (int s = 0; s < NET_MAX_PLAYERS; s++) {
+        if (s == exclude) continue;
+        vec3 feet;
+        int ducked;
+        if (s == G.my_slot) {
+            if (G.dead_time > 0.0f || G.player.noclip) continue;
+            feet = G.player.origin;
+            ducked = G.player.ducked;
+        } else {
+            const Peer *p = &G.peers[s];
+            if (!p->active || p->health <= 0.0f || (p->flags & (PF_NOCLIP | PF_DEAD))) continue;
+            feet = p->pos;
+            ducked = (p->flags & PF_DUCKED) != 0;
+        }
+        float t;
+        if (ray_box(o, d, v3_add(feet, v3(-16, -16, 0)), v3_add(feet, v3(16, 16, ducked ? 36.0f : 72.0f)), max_t, &t)) {
+            max_t = t;
+            best = s;
+        }
+    }
+    if (best >= 0) *t_out = max_t;
+    return best;
+}
+
+static const char *player_name(int s) {
+    return s == G.my_slot ? net_nickname() : G.peers[s].name;
+}
+
+// Host: a player shot another
+static void pvp_damage(int victim, int attacker, float amount) {
+    if (god_mode()) return;
+    int was_alive, dead;
+    if (victim == G.my_slot) {
+        was_alive = G.dead_time <= 0.0f;
+        damage_player(amount);
+        dead = G.dead_time > 0.0f;
+    } else {
+        Peer *p = &G.peers[victim];
+        was_alive = p->health > 0.0f;
+        p->health = fmaxf(0.0f, p->health - amount);
+        dead = p->health <= 0.0f;
+    }
+    if (was_alive && dead) {
+        char msg[40]; // two 15-character names fit; notifications hold 48
+        snprintf(msg, sizeof(msg), "%.15s killed %.15s", player_name(attacker), player_name(victim));
+        int acting = G.acting;
+        G.acting = 0; // notify() leaves out remote players' actions; this one is for the host to see
+        notify(msg, NOTE_HINT);
+        G.acting = acting;
+    }
+}
+
 // One bullet (or crowbar swing) along dir. With world set it also hits props and NPCs (single
 // player / host); a multiplayer client only shoves its own ragdolls and leaves the rest to the host.
-// Returns what it hit: 0 nothing, 1 the world, 2 a prop, 3 an NPC, 4 a ragdoll.
+// Returns what it hit: 0 nothing, 1 the world, 2 a prop, 3 an NPC, 4 a ragdoll, 5 a player.
 static int fire_bullet(vec3 eye, vec3 dir, const WeaponStats *ws, int world, int sound, vec3 *end) {
     Trace tr;
     cm_trace_line(&G.map, eye, v3_mad(eye, dir, ws->range), MASK_PROPSOLID, NULL, 0, &tr);
@@ -2022,6 +2142,14 @@ static int fire_bullet(vec3 eye, vec3 dir, const WeaponStats *ws, int world, int
         idx = r;
         bone = rb;
     }
+    // Players: the shooter is the player whose command this is (host), else this PSP's own
+    int shooter = G.acting ? G.acting : G.my_slot;
+    int pl = player_raycast(eye, dir, best, shooter, &t);
+    if (pl >= 0) {
+        best = t;
+        kind = 5;
+        idx = pl;
+    }
     vec3 hit = v3_mad(eye, dir, best);
     *end = hit;
     int melee = ws->clip == 0;
@@ -2039,6 +2167,8 @@ static int fire_bullet(vec3 eye, vec3 dir, const WeaponStats *ws, int world, int
         }
     } else if (kind == 3 && world) {
         npc_damage_dir(idx, ws->damage, v3_scale(dir, ws->force));
+    } else if (kind == 5 && world) {
+        pvp_damage(idx, shooter, ws->damage);
     } else if (kind == 4) {
         npc_ragdoll_push(idx, bone, v3_scale(dir, ws->force * 1.5f));
     }
@@ -2049,19 +2179,44 @@ static int fire_bullet(vec3 eye, vec3 dir, const WeaponStats *ws, int world, int
     return kind;
 }
 
+// Plays an animation on the first-person weapon in hand (when it has animated models)
+static void vm_event(int kind) {
+    if (G.vm_anim[G.weapon] >= 0) vmodel_play(G.vm_anim[G.weapon], kind, 0);
+}
+
+// Each frame: the draw animation when the weapon changes, and the physics guns' hold loop
+static void vm_tick(float dt) {
+    int vm = G.vm_anim[G.weapon];
+    if ((int)G.weapon != G.vm_last_weapon) {
+        G.vm_last_weapon = (int)G.weapon;
+        if (vm >= 0) vmodel_play(vm, VM_DRAW, 0);
+    }
+    if (vm >= 0 && (G.weapon == WEAPON_PHYSGUN || G.weapon == WEAPON_GRAVGUN)) {
+        int holding = !G.use_carry && (G.held >= 0 || G.held_rag >= 0);
+        int k = vmodel_playing();
+        if (holding && k != VM_RELOAD && k != VM_DRAW) vmodel_play(vm, VM_RELOAD, 1); // c_physcannon's hold
+        if (!holding && k == VM_RELOAD) vmodel_play(vm, VM_IDLE, 0);
+    }
+    vmodel_update(dt);
+}
+
 // A whole shot: every pellet, from eye along f. effects: tracers (only the shooter sees them).
-static void shoot(int weapon, vec3 eye, vec3 f, uint32_t seed, int world, int effects) {
+// Returns what the first pellet hit (fire_bullet's kinds).
+static int shoot(int weapon, vec3 eye, vec3 f, uint32_t seed, int world, int effects) {
     const WeaponStats *ws = &k_ws[weapon];
     vec3 r = v3_cross(f, v3(0, 0, 1));
     r = v3_len(r) > 1e-3f ? v3_norm(r) : v3(1, 0, 0);
     vec3 u = v3_cross(r, f);
+    int first = 0;
     for (int p = 0; p < ws->pellets; p++) {
         float sx = spread_rand(&seed) * ws->spread, sy = spread_rand(&seed) * ws->spread;
         vec3 d = v3_norm(v3_add(f, v3_add(v3_scale(r, sx), v3_scale(u, sy))));
         vec3 end;
-        fire_bullet(eye, d, ws, world, p == 0, &end);
+        int kind = fire_bullet(eye, d, ws, world, p == 0, &end);
+        if (p == 0) first = kind;
         if (effects && ws->clip) add_tracer(gun_muzzle(), end);
     }
+    return first;
 }
 
 static void start_reload(void) {
@@ -2069,6 +2224,8 @@ static void start_reload(void) {
     if (!ws->clip || G.clip[G.weapon] >= ws->clip || G.ammo[G.weapon] <= 0 || G.reload_left > 0.0f) return;
     G.reload_left = ws->reload;
     play(G.weapon == WEAPON_SHOTGUN ? G.snd.pump : G.snd.reload, 0.6f);
+    // The shotgun loads shell by shell: start, then a loop of shells (gun_update), then the finish
+    vm_event(G.weapon == WEAPON_SHOTGUN && vmodel_has(G.vm_anim[G.weapon], VM_RELOAD_START) ? VM_RELOAD_START : VM_RELOAD);
 }
 
 static void gun_update(const InputState *in, float dt) {
@@ -2076,12 +2233,22 @@ static void gun_update(const InputState *in, float dt) {
     const WeaponStats *ws = &k_ws[w];
     if (G.reload_left > 0.0f) {
         G.reload_left -= dt;
+        int vm = G.vm_anim[w];
+        if (w == WEAPON_SHOTGUN && vm >= 0 && vmodel_has(vm, VM_RELOAD_START)) {
+            float end_len = vmodel_length(vm, VM_RELOAD_END);
+            int k = vmodel_playing();
+            if (G.reload_left > end_len && k == VM_IDLE) vmodel_play(vm, VM_RELOAD, 1); // the start is done
+            if (G.reload_left <= end_len && k == VM_RELOAD) vmodel_play(vm, VM_RELOAD_END, 0);
+        }
         if (G.reload_left <= 0.0f) {
             int take = ws->clip - G.clip[w];
             if (take > G.ammo[w]) take = G.ammo[w];
             G.clip[w] += take;
             G.ammo[w] -= take;
-            if (w == WEAPON_SHOTGUN) play(G.snd.pump, 0.6f);
+            if (w == WEAPON_SHOTGUN) {
+                play(G.snd.pump, 0.6f);
+                vm_event(VM_PUMP);
+            }
         }
         return;
     }
@@ -2109,7 +2276,8 @@ static void gun_update(const InputState *in, float dt) {
     if (ws->clip) G.muzzle_time = 0.05f;
     uint32_t seed = sceKernelGetSystemTimeLow();
     vec3 eye = player_eye(&G.player), f = view_forward();
-    shoot(w, eye, f, seed, !is_client(), 1);
+    int hit = shoot(w, eye, f, seed, !is_client(), 1);
+    vm_event(ws->clip ? VM_FIRE : hit ? VM_ALT : VM_FIRE); // the crowbar: a hit, or a swing through air
     if (is_client()) {
         float v[6] = {eye.x, eye.y, eye.z, f.x, f.y, f.z};
         send_cmd(CMD_SHOOT, w, (int)seed, 0, v, 6);
@@ -2482,7 +2650,20 @@ typedef struct {
     uint32_t tick;
     NetPlayer players[NET_MAX_PLAYERS];
     NpcNet npcs[MAX_NPCS];
+    uint8_t rag_mask;               // the ragdoll slots in use
+    uint8_t rag_gen[MAX_RAGDOLLS];  // and which ragdoll each holds (npc_ragdoll_gen)
 } PkPlayers;
+
+typedef struct {
+    NetHeader h;
+    RagInfo i;
+} PkRagInfo;
+
+typedef struct {
+    NetHeader h;
+    RagPose p; // only p.nb bones are sent
+} PkRagPose;
+_Static_assert(sizeof(PkPlayers) <= 1400 && sizeof(PkRagInfo) <= 1400, "packets must fit one datagram");
 
 static uint8_t model_byte(int type) {
     return type >= 0 && type < NET_NO_MODEL ? (uint8_t)type : NET_NO_MODEL;
@@ -2493,7 +2674,9 @@ typedef struct {
     float pos[3];
     float yaw, pitch;
     uint8_t weapon, flags, ncmds, model;
-    int16_t held, pad2;
+    int16_t held;
+    int8_t held_rag;   // the ragdoll its physics gun holds, or -1...
+    uint8_t held_bone; // ...by this bone (hold_pos is where)
     float hold_pos[3];
     float hold_rot[4];
     NetCmd cmds[MAX_OUTQ];
@@ -2714,6 +2897,20 @@ static void exec_cmd(int slot, const NetCmd *c) {
     case CMD_DAMAGE:
         if (p->health > 0.0f && !g_settings.god_mode) p->health = fmaxf(0.0f, p->health - c->f[0]);
         break;
+    case CMD_RAG_SPAWN: {
+        int r = npc_ragdoll_spawn(i, v3(c->f[0], c->f[1], c->f[2]), c->f[3]);
+        if (r >= 0) undo_push(RAGDOLL_ID_BASE + r);
+        break;
+    }
+    case CMD_RAG_REMOVE:
+        npc_ragdoll_remove(i);
+        break;
+    case CMD_RAG_FREEZE:
+        npc_ragdoll_freeze(i, c->i1);
+        break;
+    case CMD_RAG_INFLATE:
+        npc_ragdoll_inflate(i, c->i1, clampf(c->f[0], 0.5f, 2.0f));
+        break;
     case CMD_SHOOT:
         if (is_gun(i)) {
             vec3 eye = v3(c->f[0], c->f[1], c->f[2]);
@@ -2812,6 +3009,8 @@ static void host_receive(void) {
             p->flags = cs->flags;
             p->model = cs->model == NET_NO_MODEL ? -1 : cs->model;
             p->held = body_valid(cs->held) ? cs->held : -1;
+            p->held_rag = npc_ragdoll_active(cs->held_rag) ? cs->held_rag : -1;
+            p->held_bone = cs->held_bone;
             p->hold_pos = v3(cs->hold_pos[0], cs->hold_pos[1], cs->hold_pos[2]);
             p->hold_rot = q_norm((quat){cs->hold_rot[0], cs->hold_rot[1], cs->hold_rot[2], cs->hold_rot[3]});
             int n = cs->ncmds;
@@ -2925,7 +3124,38 @@ static void host_send_players(void) {
     pk.tick = G.tick;
     for (int s = 0; s < NET_MAX_PLAYERS; s++) pack_player(&pk.players[s], s);
     for (int i = 0; i < MAX_NPCS; i++) npc_net_get(i, &pk.npcs[i]);
+    for (int r = 0; r < MAX_RAGDOLLS; r++) {
+        pk.rag_gen[r] = (uint8_t)npc_ragdoll_gen(r);
+        if (pk.rag_gen[r]) pk.rag_mask |= (uint8_t)(1u << r);
+    }
     net_send(NULL, &pk, sizeof(pk));
+}
+
+// Each ragdoll's building info as soon as it's new (then once a second, in case that was lost), and its
+// points every snapshot while it moves (once a second when it's still)
+static void host_send_ragdolls(void) {
+    static PkRagInfo info;
+    static PkRagPose pose;
+    static uint8_t sent_gen[MAX_RAGDOLLS];
+    for (int r = 0; r < MAX_RAGDOLLS; r++) {
+        int gen = npc_ragdoll_gen(r);
+        if (!gen) {
+            sent_gen[r] = 0;
+            continue;
+        }
+        int turn = (int)(G.tick % 20u) == r * 3; // this ragdoll's slot in the once-a-second round
+        if (sent_gen[r] != gen || turn) {
+            info.h = net_header(PK_RAGINFO);
+            npc_ragdoll_net_info(r, &info.i);
+            net_send(NULL, &info, sizeof(info));
+            sent_gen[r] = (uint8_t)gen;
+        }
+        if (npc_ragdoll_awake(r) || (int)(G.tick % 20u) == r * 3 + 1) {
+            pose.h = net_header(PK_RAGPOSE);
+            int n = npc_ragdoll_net_pose(r, &pose.p);
+            net_send(NULL, &pose, (int)sizeof(NetHeader) + n);
+        }
+    }
 }
 
 static void host_send_ents(void) {
@@ -2999,6 +3229,7 @@ static void host_update(float dt) {
             physgun_drive(p->held, p->hold_pos, p->hold_rot);
             p->held_prev = p->held;
         }
+        if (p->held_rag >= 0) npc_ragdoll_drag(p->held_rag, p->held_bone, p->hold_pos, dt);
         npc_puppet_set(s, p->health > 0.0f, p->model, p->pos, p->yaw, dt);
     }
 }
@@ -3025,6 +3256,7 @@ static void host_send(float dt) {
         G.tick++;
         host_send_players();
         host_send_bodies();
+        host_send_ragdolls();
     }
     G.ents_timer -= dt;
     if (G.ents_timer <= 0.0f && G.map.num_ents) {
@@ -3039,6 +3271,7 @@ static void host_send(float dt) {
 }
 
 static void client_apply_players(const PkPlayers *pk) {
+    npc_ragdoll_net_keep(pk->rag_mask, pk->rag_gen);
     for (int s = 0; s < NET_MAX_PLAYERS; s++) {
         const NetPlayer *np = &pk->players[s];
         if (s == G.my_slot) {
@@ -3153,6 +3386,8 @@ static int client_update(float dt) {
         PkBodies bd;
         PkEnts en;
         PkRopes rp;
+        PkRagInfo ri;
+        PkRagPose rpo;
         uint8_t raw[1500];
     } pk;
     uint8_t from[6];
@@ -3174,6 +3409,15 @@ static int client_update(float dt) {
             break;
         case PK_ROPES:
             if (len >= (int)offsetof(PkRopes, r)) client_apply_ropes(&pk.rp, len);
+            break;
+        case PK_RAGINFO:
+            if (len >= (int)sizeof(PkRagInfo)) npc_ragdoll_net_set_info(&pk.ri.i);
+            break;
+        case PK_RAGPOSE:
+            if (len >= (int)(sizeof(NetHeader) + offsetof(RagPose, pos)) &&
+                len >= (int)(sizeof(NetHeader) + offsetof(RagPose, pos) + pk.rpo.p.nb * sizeof(pk.rpo.p.pos[0]))) {
+                npc_ragdoll_net_set_pose(&pk.rpo.p);
+            }
             break;
         case PK_LEAVE:
             snprintf(G.exit_msg, sizeof(G.exit_msg), "The host ended the game");
@@ -3203,6 +3447,8 @@ static int client_update(float dt) {
         cs.model = model_byte(player_model());
         cs.flags = (uint8_t)((G.player.noclip ? PF_NOCLIP : 0) | (G.player.ducked ? PF_DUCKED : 0) | (G.dead_time > 0.0f ? PF_DEAD : 0));
         cs.held = (int16_t)((carries_props(G.weapon) || G.use_carry) && G.held >= 0 ? G.held : -1);
+        cs.held_rag = (int8_t)(G.held_rag >= 0 ? G.held_rag : -1);
+        cs.held_bone = (uint8_t)G.held_bone;
         cs.hold_pos[0] = G.net_hold_pos.x;
         cs.hold_pos[1] = G.net_hold_pos.y;
         cs.hold_pos[2] = G.net_hold_pos.z;
@@ -3244,6 +3490,7 @@ static void net_leave(void) {
     net_stop();
     G.role = ROLE_OFFLINE;
     npcs_clear();
+    npc_ragdolls_set_remote(0);
 }
 
 void game_host(void) {
@@ -3269,6 +3516,7 @@ void game_join(int slot, const uint8_t host_mac[6]) {
     G.respawn_pending = 0;
     G.server_god = 0;
     npcs_clear();
+    npc_ragdolls_set_remote(1);
     for (int i = 0; i < MAX_BODIES; i++) {
         G.net_tpos[i] = G.phys.bodies[i].pos;
         G.net_trot[i] = G.phys.bodies[i].rot;
@@ -3419,6 +3667,7 @@ GameResult game_update(const InputState *in, float dt) {
     G.beam_time -= dt;
     G.switch_time -= dt;
     G.kick *= 1.0f - clampf(dt * 12.0f, 0.0f, 1.0f);
+    vm_tick(dt);
     MoveCmd cmd = {0};
 
     if (G.paused) {
@@ -4092,9 +4341,13 @@ static void draw_viewmodel(void) {
         PropLight l;
         make_light(&l, amb, 1, glow ? 0xFFFFE0C0 : 0xFFFFFFFF);
         l.ambient_abgr = scale_abgr(amb, 1.6f);
-        proplib_begin();
-        proplib_draw(&G.props, cmodel, &m, &l);
-        proplib_end();
+        if (G.vm_anim[G.weapon] >= 0) {
+            vmodel_draw(G.vm_anim[G.weapon], &m, &l); // animated (draw, fire, reload...)
+        } else {
+            proplib_begin();
+            proplib_draw(&G.props, cmodel, &m, &l);
+            proplib_end();
+        }
         camera_apply(&G.cam);
     } else {
         draw_world_viewmodel(model, f, r, u, amb, glow);

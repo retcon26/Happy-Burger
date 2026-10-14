@@ -15,6 +15,7 @@ while IFS= read -r line; do
   python3 -m bspconv convert "$line"
 done < maps.txt
 python3 -m bspconv props
+python3 -m bspconv vmodels
 python3 -m bspconv sounds
 python3 -m bspconv ui
 bash ../psp/build.sh

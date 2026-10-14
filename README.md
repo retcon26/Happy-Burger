@@ -1,6 +1,6 @@
 # PSP Sandbox
 
-A Garry's Mod–style sandbox for the PSP, by Retcon. Current version: **1.2.0** (shown in the main menu's corner,
+A Garry's Mod–style sandbox for the PSP, by Retcon. Current version: **1.3.0** (shown in the main menu's corner,
 set in `psp/src/version.h`).
 
 - **`psp/`**: the engine, written from scratch in C for the PSP. It draws with the GE (the PSP's graphics chip)
@@ -168,8 +168,9 @@ gm_construct's files, so it takes no extra space.
 
 ## Multiplayer
 
-Up to 4 players. The host runs the physics, NPCs and doors. Pick Multiplayer > Host Game or Join Game. Everyone
-needs the same version (the menu's corner shows it).
+Up to 4 players. The host runs the physics, NPCs, ragdolls and doors. Pick Multiplayer > Host Game or Join Game.
+Everyone needs the same version (the menu's corner shows it). Guns and the crowbar hurt other players (not with God
+mode on), and everyone sees the same ragdolls: the host simulates them and sends their poses.
 
 - **PSP:** ad-hoc wifi between PSPs (or PPSSPP instances with ad-hoc networking set up).
 - **PS2:** over a network adapter on the same local network (a fat PS2 with the adapter, a slim PS2, or PCSX2).
@@ -215,6 +216,7 @@ also run the steps on their own:
 | Props and weapon models | `tools/bspconv.sh props` | `tools/props.txt` |
 | Extra props from the other games | `tools/bspconv.sh extras` | the installed games |
 | NPCs and ragdolls | `tools/bspconv.sh npcs` | `tools/npcs.txt` |
+| Animated first-person weapons | `tools/bspconv.sh vmodels` | `tools/props.txt` (its `vm` models) |
 | Sounds | `tools/bspconv.sh sounds` | `tools/sounds.txt` |
 | Fonts, spawn icons, map thumbnails | `tools/bspconv.sh ui` | the lists above |
 | PSP EBOOT | `psp/build.sh` | `psp/src/` |
@@ -222,6 +224,10 @@ also run the steps on their own:
 
 The NPC step writes three packs: `npcs.pnpc` (full detail), `npcs.low.pnpc` (PSP-1000) and `npcs.ps2.pnpc` (the
 PS2's: low detail but with the ragdoll-only characters).
+
+The weapons step bakes GMod's `c_` weapon models, with the player's arms bone-merged on, into `vmodels.pvmd` (full
+detail) and `vmodels.low.pvmd` (PSP-1000 and PS2): their draw, idle, fire and reload animations, so the weapon in
+your hands moves. Without the pack the game shows the still models from the prop pack instead.
 
 ## What gets converted
 
@@ -262,6 +268,7 @@ PS2's: low detail but with the ragdoll-only characters).
 
 | Version | Changes |
 |---|---|
+| 1.3.0 | Animated first-person weapons; guns and the crowbar hurt other players in multiplayer; everyone sees the same ragdolls; PS2: props, NPCs and ragdolls on VU1 (about twice the frame rate) |
 | 1.2.0 | NPC guns held properly; sawblades cut zombies in half; the Zombine and Zombie Torso as NPCs |
 | 1.1.0 | Camera tool |
 | 1.0.1 | Fixes for ragdoll crashes on real PSPs |
@@ -282,8 +289,8 @@ PS2's: low detail but with the ragdoll-only characters).
 - [x] Multiplayer (PSP ad-hoc, PS2 LAN), up to 4, host-authoritative
 - [x] PS2 port, with map geometry on the VU1 coprocessor
 - [x] Camera tool; Poser tools (Inflator, Deflator); unlimited ammo and HEV suit options
-- [ ] PS2 speed: props and NPCs on VU1 too
-- [ ] Animated first-person weapons; PvP damage; synced ragdolls
+- [x] PS2 speed: props and NPCs on VU1 too
+- [x] Animated first-person weapons; PvP damage; synced ragdolls
 - [ ] **Team Fortress 2 content (coming soon):** TF2's maps, props and characters through the converter, like the
         other Source games
 - [ ] **Drivable vehicles:** HL2's Jeep and Airboat, with GMod's seat for sitting on your own contraptions

@@ -8,7 +8,8 @@
 // NPCs and doors; clients send their position, aim and actions).
 
 #define NET_MAX_PLAYERS 4
-#define NET_VERSION 3 // 2: rope packets name the joint type (sliders); 3: player models
+#define NET_VERSION 4 // 2: rope packets name the joint type (sliders); 3: player models;
+                      // 4: the host's ragdolls sent to clients, and their physics gun holds
 
 typedef enum { NET_OFF, NET_CONNECTING, NET_READY, NET_FAILED } NetState;
 
@@ -39,6 +40,8 @@ enum {
     PK_ENTS,       // host -> all: doors, buttons, lights
     PK_ROPES,      // host -> all: rope constraints, for drawing
     PK_LEAVE,      // either way: goodbye
+    PK_RAGINFO,    // host -> all: a ragdoll's skeleton, from its pose at death
+    PK_RAGPOSE,    // host -> all: a ragdoll's points
 };
 
 typedef struct {
