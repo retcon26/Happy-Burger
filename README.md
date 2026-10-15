@@ -1,6 +1,6 @@
 # PSP Sandbox
 
-A Garry's Mod–style sandbox for the PSP, by Retcon. Current version: **1.5.2** (shown in the main menu's corner,
+A Garry's Mod–style sandbox for the PSP, by Retcon. Current version: **1.6.0** (shown in the main menu's corner,
 set in `psp/src/version.h`).
 
 - **`psp/`**: the engine, written from scratch in C for the PSP. It draws with the GE (the PSP's graphics chip)
