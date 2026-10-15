@@ -30,7 +30,7 @@ contain it are for your own use. Don't share them.
   in about 160 spawnlists. The extra ones load from the memory stick only when spawned.
 - **48 NPCs and 98 ragdolls**, including Team Fortress 2's nine mercenaries on both teams (also as player
   models), mingebags, and characters from Counter-Strike: Source and Half-Life: Source.
-- **9 weapons and 17 tool gun tools**, blood and bullet holes, a flashlight, an HEV suit, Lua addons and
+- **9 weapons and 24 tool gun tools**, blood and bullet holes, a flashlight, an HEV suit, Lua addons and
   4-player multiplayer with voice chat.
 - **Drivable vehicles:** HL2's Jeep and Airboat, and seats to sit on your own contraptions (R switches all their
   thrusters and hoverballs). Spawn them from the Vehicles category; Use gets in and out.
@@ -108,18 +108,27 @@ Tool gun tools (the Tools list scrolls):
 | | Weight | Steps the prop's mass through 1, 10, 50, 250 and 1000 kg. |
 | Constraints | Ball Socket | Pick a prop, then what to attach it to: they share that point but swivel freely. |
 | | Elastic | Pick two points: a stretchy band that pulls them together. |
+| | Hydraulic | Pick two points: a ram holds them apart. Use pushes it out to twice its length and pulls it back. |
 | | Rope | Pick two points: they can't move further apart than the rope. |
 | | Slider | Pick two points: the prop slides along the line between them. |
 | | Weld | Pick a prop, then a second prop (or the world): joined rigidly. |
-| Mechanics | Explosive | Blows the prop up: nearby props fly, NPCs and you get hurt. |
+| | Winch | Pick two points: a rope that Use reels in, then lets out. |
+| Mechanics | Button | Pick the prop it switches, then where the button goes. Use on the button switches everything joined to that prop. |
+| | Emitter | Puts out sparks, smoke or fire (L picks which). |
+| | Explosive | Blows the prop up: nearby props fly, NPCs and you get hurt. |
 | | Hoverball | Holds the prop at the height where you put it. |
 | | Thruster | Pushes the prop the way you shot it in. |
+| | Wheel | Puts a tyre on the prop, on an axle with a motor. The motor drives the way you faced when you put it on, so put all the wheels on from behind the cart. |
 | Poser | Inflator | Makes the ragdoll body part you aim at bigger (up to 4x). |
 | | Deflator | Makes it smaller (down to 0.2x). |
 | Render | Camera | R places a camera facing where you look; L switches your view through each camera and back to you. Cameras are props: move them with the physics gun or weld them to a car. |
 | | Colour | Paints the prop. |
+| | Lamp | A lamp that lights the world where it points, in the colour picked in the Tools panel. |
+| | Light | A small light that lights everything round it, in the colour picked. |
 
-Use (D-pad Right) on a prop switches its thrusters and hoverballs on and off.
+Use (D-pad Right) on a prop switches what's on it on and off: thrusters, hoverballs, wheel motors, winches,
+hydraulics, lamps, lights and emitters. Sitting in a seat, R switches all of them on the contraption. The two
+nearest lamps or lights that are on light the world, on top of your flashlight.
 
 ## Spawn menu
 
@@ -166,6 +175,18 @@ Use (D-pad Right) on a prop switches its thrusters and hoverballs on and off.
   and freezes them.
 - **Options > NPC thinking** freezes them in place (GMod's `ai_disabled`), and **NPCs ignore players** stops them
   targeting or following you (`ai_ignoreplayers`).
+
+## Workshop
+
+Main menu > Workshop turns things on and off, like GMod's addon list. It has three tabs; L and R switch between
+them, X switches the highlighted entry, and Triangle switches the whole tab:
+
+- **Maps:** maps that are off aren't offered in Start New Game or Host Game.
+- **Addons:** the Lua addons in `data/lua/autorun`. Ones that are off don't run.
+- **Custom:** characters from your GMod Workshop downloads (`game=workshop` in `tools/npcs.txt`). Ones that are
+  off leave the spawn menu's Workshop list and the player models.
+
+What's off is saved to `data/workshop.cfg`.
 
 ## Achievements
 
@@ -341,9 +362,9 @@ your hands moves. Without the pack the game shows the still models from the prop
 
 | Version | Changes |
 |---|---|
+| 1.6.1 | More tools: Wheel, Winch, Hydraulic, Lamp, Light, Button and Emitter; Main menu > Workshop turns maps, Lua addons and custom characters on and off |
 | 1.6.0 | TF2's mercenaries in RED and BLU teams that fight each other (never you), with their own guns, gun sounds and voice lines |
 | 1.5.3 | Doors: TF2's spawn doors open and close, with their models; HL2's model doors swing open; Mingebag NPCs; Multiplayer > Profile (name, player model, player and physics gun colours) and name tags; achievements (playtime, playing with others, playing on a real PSP by model, and more) |
-| 1.5.2 | Spawn menu: the other games' spawnlists grouped under a header per game; a Recent list; a badge on drivable vehicles and seats; all four grid columns fit |
 
 ## Roadmap
 

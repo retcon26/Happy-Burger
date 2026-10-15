@@ -54,7 +54,11 @@ Tool Gun
   The top-left box shows what the tool does and what to press next.
   Tools: Remover, Colour, Balloon, Duplicator, Weld, Rope, Ball Socket, Elastic,
          No-Collide, Weight, Thruster, Hoverball, Explosive, Slider,
-         Inflator, Deflator (resize ragdoll body parts), Camera
+         Inflator, Deflator (resize ragdoll body parts), Camera, Wheel,
+         Winch, Hydraulic, Lamp, Light, Button, Emitter (L: change effect)
+  Use (D-pad Right) on a prop switches its thrusters, hoverballs, wheel
+  motors, winches, hydraulics, lamps, lights and emitters. Use on a button
+  switches the whole contraption it was linked to.
 
 Camera tool (Tool Gun)       PSP                        PS2
   Place a camera             R                          R1
@@ -110,6 +114,13 @@ MULTIPLAYER > PROFILE
   Name: X opens the on-screen keyboard (empty = the PSP's nickname).
   Player model, Player colour (tints your model and name tag) and
   Physics gun colour: X or Right / Left to change. Circle to go back.
+
+
+WORKSHOP (main menu)
+  Turns maps, Lua addons and custom (Workshop) characters on and off.
+  L / R: tab (Maps, Addons, Custom)   Up / Down: choose
+  Left / Right: a page at a time      X: on / off
+  Triangle: the whole tab on / off    Circle: back (saved)
 
 
 ACHIEVEMENTS (main menu)

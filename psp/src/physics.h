@@ -62,7 +62,11 @@ typedef struct {
 // Weld: fixed together. Rope: can't move further apart. Ball socket: share a point but turn freely.
 // Elastic: a spring that pulls back towards its rest length. Slider: a's anchor slides along a line
 // through b's (and can't turn relative to b), like GMod's Slider.
-enum { JOINT_WELD, JOINT_ROPE, JOINT_BALL, JOINT_ELASTIC, JOINT_SLIDER };
+// Axis (the Wheel tool): share a point and turn only about one axis, with a motor Use switches.
+// Rod (the Hydraulic tool): a fixed distance apart, which Use moves between two lengths.
+// A rope with a winch (rate > 0) reels in or lets out when Use switches it.
+enum { JOINT_WELD, JOINT_ROPE, JOINT_BALL, JOINT_ELASTIC, JOINT_SLIDER, JOINT_AXIS, JOINT_ROD };
+enum { WINCH_STOP, WINCH_IN, WINCH_OUT };
 
 typedef struct {
     int active;
@@ -70,8 +74,13 @@ typedef struct {
     int a, b;      // body indices; b = -1 means the world
     vec3 la, lb;   // anchors in each body's local space (lb is a world point when b = -1)
     quat rel;      // weld, slider: a's orientation relative to b's, at creation
-    float length;  // rope: maximum length; elastic: rest length
-    vec3 axis;     // slider: the line's direction, in b's local space (world when b = -1)
+    float length;  // rope: maximum length; elastic: rest length; rod: its length now
+    vec3 axis;     // slider: the line's direction, in b's local space (world when b = -1); axis: b's axle
+    vec3 axis_a;   // axis: a's axle, in a's local space
+    int on;        // axis: motor running; rod: extended; rope: WINCH_* (winches only)
+    float motor;   // axis: the motor's speed (rad/s, + turns a forward about its axle)
+    float rate;    // rod, winch: how fast the length changes (u/s); 0 for a plain rope
+    float len_min, len_max; // rod, winch: the lengths it moves between
 } Joint;
 
 // Things attached to a prop that push it: a thruster pushes along its direction (in the prop's own frame),
@@ -118,7 +127,17 @@ int phys_elastic(PhysWorld *w, int a, vec3 world_a, int b, vec3 world_b, float r
 // The prop(s) can only slide along the line through the two points, keeping their relative angle
 int phys_slider(PhysWorld *w, int a, vec3 world_a, int b, vec3 world_b);
 
+// Wheel: a turns about world_axis through world_anchor, relative to b; its motor (off at first) spins at
+// motor rad/s. Hydraulic: a rod between the points, Use moves it between their distance and
+// stretch times it. Winch: a rope that reels in and lets out at rate u/s.
+int phys_axis(PhysWorld *w, int a, int b, vec3 world_anchor, vec3 world_axis, float motor);
+int phys_hydraulic(PhysWorld *w, int a, vec3 world_a, int b, vec3 world_b, float stretch, float rate);
+int phys_winch(PhysWorld *w, int a, vec3 world_a, int b, vec3 world_b, float rate);
+// Switches the wheel motors, hydraulics and winches on a body (Use); returns how many there are
+int phys_toggle_joints(PhysWorld *w, int body);
+int phys_toggle_joint(PhysWorld *w, int j); // one joint; 1 if it was one Use switches
 // Thrusters and hoverballs. Returns the force index or -1 when full.
+
 int phys_add_force(PhysWorld *w, int type, int body, vec3 world_pos, vec3 world_dir, float strength);
 // Switches every thruster and hoverball on a body; returns how many it has (0: none)
 int phys_toggle_forces(PhysWorld *w, int body);

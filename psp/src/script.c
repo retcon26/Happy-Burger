@@ -9,6 +9,8 @@
 
 #include "game.h"
 #include "ui.h"
+#include "workshop.h"
+
 
 static lua_State *L;
 static float g_time;
@@ -203,7 +205,7 @@ void script_start(const char *map_name) {
         memset(&ent, 0, sizeof(ent));
         while (sceIoDread(d, &ent) > 0) {
             size_t n = strlen(ent.d_name);
-            if (n > 4 && strcmp(ent.d_name + n - 4, ".lua") == 0) {
+            if (n > 4 && strcmp(ent.d_name + n - 4, ".lua") == 0 && workshop_enabled(WS_ADDON, ent.d_name)) {
                 char path[128];
                 snprintf(path, sizeof(path), "data/lua/autorun/%s", ent.d_name);
                 run_file(path);

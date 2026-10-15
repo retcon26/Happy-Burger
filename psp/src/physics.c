@@ -20,6 +20,7 @@
 #define WATER_DENSITY 0.0164f // kg per cubic inch
 #define WATER_DRAG 1.5f
 #define JOINT_BETA 0.2f
+#define WHEEL_TORQUE 600000.0f // kg u^2/s^2: drives a heavy cart, as long as its wheels grip
 
 // Options > Physics quality: solver passes per step, and how many steps a slow frame may catch up
 static int g_iterations = 6;
@@ -369,7 +370,8 @@ static int welded(const PhysWorld *w, int a, int b) {
         const Joint *jt = &w->joints[j];
         // Welded and ball-socketed props touch at the joint, so they don't collide with each other;
         // slider props usually rest on each other and would grind
-        if (jt->active && (jt->type == JOINT_WELD || jt->type == JOINT_BALL || jt->type == JOINT_SLIDER) &&
+        if (jt->active && (jt->type == JOINT_WELD || jt->type == JOINT_BALL || jt->type == JOINT_SLIDER ||
+                           jt->type == JOINT_AXIS) &&
             ((jt->a == a && jt->b == b) || (jt->a == b && jt->b == a)))
             return 1;
     }
@@ -490,6 +492,17 @@ static void solve_joints(PhysWorld *w, float dt) {
         vec3 dv = v3_sub(point_velocity(a, ra), point_velocity(b, rb));
 
         if (jt->type == JOINT_ELASTIC) continue; // a spring force, applied once per step (apply_springs)
+        if (jt->type == JOINT_ROD) {
+            // A hydraulic: the anchors stay exactly jt->length apart, pushing as well as pulling
+            float len = v3_len(err);
+            if (len < 1e-3f) continue;
+            vec3 n = v3_scale(err, 1.0f / len);
+            float lambda = -effective_mass(a, b, ra, rb, n) * (v3_dot(dv, n) + JOINT_BETA / dt * (len - jt->length));
+            vec3 p = v3_scale(n, lambda);
+            apply_impulse(a, ra, p);
+            if (b) apply_impulse(b, rb, v3_scale(p, -1.0f));
+            continue;
+        }
         if (jt->type == JOINT_ROPE) {
             float len = v3_len(err);
             if (len <= jt->length || len < 1e-3f) continue;
@@ -531,6 +544,33 @@ static void solve_joints(PhysWorld *w, float dt) {
                 if (b) apply_impulse(b, rb, v3_scale(p, -1.0f));
             }
             if (jt->type == JOINT_BALL) continue; // a ball socket stops here: it turns freely
+        }
+        if (jt->type == JOINT_AXIS) {
+            // A wheel, part 2: a's axle stays lined up with b's (it only turns about it), then the motor
+            vec3 na = q_rotate(a->rot, jt->axis_a);
+            vec3 nb = b ? q_rotate(b->rot, jt->axis) : jt->axis;
+            vec3 aerr = v3_cross(nb, na); // how far a's axle has tipped away from b's
+            vec3 t1 = v3_norm(v3_cross(nb, fabsf(nb.z) < 0.9f ? v3(0, 0, 1) : v3(1, 0, 0)));
+            vec3 t2 = v3_cross(nb, t1);
+            for (int k = 0; k < 3; k++) {
+                vec3 t = k == 0 ? t1 : k == 1 ? t2 : nb;
+                float kk = v3_dot(t, apply_inv_inertia(a, t)) + v3_dot(t, apply_inv_inertia(b, t));
+                if (kk <= 1e-9f) continue;
+                vec3 dw = v3_sub(is_static(a) ? v3(0, 0, 0) : a->angvel, (b && !is_static(b)) ? b->angvel : v3(0, 0, 0));
+                float lambda;
+                if (k < 2) {
+                    lambda = -(v3_dot(dw, t) + JOINT_BETA / dt * v3_dot(aerr, t)) / kk;
+                } else {
+                    // The motor: drives a's spin about the axle towards its speed, with limited torque
+                    if (!jt->on) continue;
+                    float most = WHEEL_TORQUE * dt / (float)g_iterations;
+                    lambda = clampf((jt->motor - v3_dot(dw, t)) / kk, -most, most);
+                }
+                vec3 l = v3_scale(t, lambda);
+                apply_angular_impulse(a, l);
+                if (b) apply_angular_impulse(b, v3_scale(l, -1.0f));
+            }
+            continue;
         }
         // Weld and slider, part 2: relative orientation stays fixed
         quat qb = b ? b->rot : q_identity();
@@ -655,6 +695,42 @@ static void apply_forces(PhysWorld *w, float dt) {
     }
 }
 
+// Hydraulics move towards their extended or retracted length; winches reel in or let out until they
+// reach the end. Either keeps its props awake while it moves; a running wheel motor does too.
+static void update_joint_lengths(PhysWorld *w, float dt) {
+    for (int j = 0; j < MAX_JOINTS; j++) {
+        Joint *jt = &w->joints[j];
+        if (!jt->active) continue;
+        int moving = 0;
+        if (jt->type == JOINT_ROD) {
+            float target = jt->on ? jt->len_max : jt->len_min;
+            float step = jt->rate * dt;
+            if (fabsf(target - jt->length) > 0.01f) {
+                jt->length += clampf(target - jt->length, -step, step);
+                moving = 1;
+            }
+        } else if (jt->type == JOINT_ROPE && jt->rate > 0.0f && jt->on != WINCH_STOP) {
+            jt->length += (jt->on == WINCH_IN ? -jt->rate : jt->rate) * dt;
+            if (jt->length <= jt->len_min || jt->length >= jt->len_max) {
+                jt->length = clampf(jt->length, jt->len_min, jt->len_max);
+                jt->on = WINCH_STOP;
+            }
+            moving = 1;
+        } else if (jt->type == JOINT_AXIS && jt->on) {
+            moving = 1;
+        }
+        if (!moving) continue;
+        Body *a = &w->bodies[jt->a];
+        if (a->asleep) phys_wake(w, jt->a);
+        a->powered = 1;
+        if (jt->b >= 0) {
+            Body *b = &w->bodies[jt->b];
+            if (b->asleep) phys_wake(w, jt->b);
+            b->powered = 1;
+        }
+    }
+}
+
 // Elastic joints: a damped spring that only pulls (like a rubber band) once stretched past its rest length
 static void apply_springs(PhysWorld *w, float dt) {
     for (int j = 0; j < MAX_JOINTS; j++) {
@@ -705,6 +781,7 @@ static void step_once(PhysWorld *w, Map *m, float dt) {
     if (g_step_hook) g_step_hook(w, m, dt);
     apply_forces(w, dt);
     apply_springs(w, dt);
+    update_joint_lengths(w, dt);
     for (int i = 0; i < MAX_BODIES; i++) {
         Body *b = &w->bodies[i];
         if (!b->active || is_static(b)) continue;
@@ -877,7 +954,69 @@ int phys_slider(PhysWorld *w, int a, vec3 world_a, int b, vec3 world_b) {
     return j;
 }
 
+int phys_axis(PhysWorld *w, int a, int b, vec3 world_anchor, vec3 world_axis, float motor) {
+    int j = phys_weld(w, a, b, world_anchor);
+    if (j < 0) return -1;
+    Joint *jt = &w->joints[j];
+    jt->type = JOINT_AXIS;
+    world_axis = v3_norm(world_axis);
+    jt->axis_a = q_rotate_inv(w->bodies[a].rot, world_axis);
+    jt->axis = b >= 0 ? q_rotate_inv(w->bodies[b].rot, world_axis) : world_axis;
+    jt->motor = motor;
+    return j;
+}
+
+int phys_hydraulic(PhysWorld *w, int a, vec3 world_a, int b, vec3 world_b, float stretch, float rate) {
+    float len = v3_len(v3_sub(world_a, world_b));
+    int j = phys_rope(w, a, world_a, b, world_b, len);
+    if (j < 0) return -1;
+    Joint *jt = &w->joints[j];
+    jt->type = JOINT_ROD;
+    jt->len_min = len;
+    jt->len_max = len * stretch;
+    jt->rate = rate;
+    return j;
+}
+
+int phys_winch(PhysWorld *w, int a, vec3 world_a, int b, vec3 world_b, float rate) {
+    float len = v3_len(v3_sub(world_a, world_b));
+    int j = phys_rope(w, a, world_a, b, world_b, len);
+    if (j < 0) return -1;
+    Joint *jt = &w->joints[j];
+    jt->rate = rate;
+    jt->len_min = 8.0f;
+    jt->len_max = len * 3.0f > len + 512.0f ? len * 3.0f : len + 512.0f;
+    jt->on = WINCH_STOP;
+    return j;
+}
+
+int phys_toggle_joint(PhysWorld *w, int j) {
+    Joint *jt = &w->joints[j];
+    if (!jt->active) return 0;
+    if (jt->type == JOINT_AXIS || jt->type == JOINT_ROD) {
+        jt->on = !jt->on;
+    } else if (jt->type == JOINT_ROPE && jt->rate > 0.0f) {
+        jt->on = jt->on == WINCH_IN ? WINCH_OUT : WINCH_IN; // reel in, then let out, then in...
+    } else {
+        return 0;
+    }
+    phys_wake(w, jt->a);
+    if (jt->b >= 0) phys_wake(w, jt->b);
+    return 1;
+}
+
+int phys_toggle_joints(PhysWorld *w, int body) {
+    int n = 0;
+    for (int j = 0; j < MAX_JOINTS; j++) {
+        const Joint *jt = &w->joints[j];
+        if (jt->active && (jt->a == body || jt->b == body)) n += phys_toggle_joint(w, j);
+    }
+    return n;
+}
+
+
 int phys_add_force(PhysWorld *w, int type, int body, vec3 world_pos, vec3 world_dir, float strength) {
+
     if (body < 0 || body >= MAX_BODIES || !w->bodies[body].active) return -1;
     for (int f = 0; f < MAX_FORCES; f++) {
         Force *fc = &w->forces[f];

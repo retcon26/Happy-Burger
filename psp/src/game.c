@@ -12,6 +12,8 @@
 #include "audio.h"
 #include "camera.h"
 #include "pak.h"
+#include "workshop.h"
+
 #include "ents.h"
 #include "gfx.h"
 #include "mem.h"
@@ -114,6 +116,13 @@ typedef enum {
     TOOL_INFLATOR,
     TOOL_DEFLATOR,
     TOOL_CAMERA,
+    TOOL_WHEEL,
+    TOOL_WINCH,
+    TOOL_HYDRAULIC,
+    TOOL_LAMP,
+    TOOL_LIGHT,
+    TOOL_BUTTON,
+    TOOL_EMITTER,
     TOOL_COUNT
 } Tool;
 
@@ -161,7 +170,8 @@ static int is_gun(int w) {
 }
 static const char *k_tool_names[TOOL_COUNT] = {"Remover",     "Colour",  "Balloon",  "Duplicator", "Weld",
                                                "Rope",        "Ball Socket", "Elastic", "No-Collide", "Weight",
-                                               "Thruster",    "Hoverball", "Explosive", "Slider",  "Inflator",   "Deflator", "Camera"};
+                                               "Thruster",    "Hoverball", "Explosive", "Slider",  "Inflator",   "Deflator", "Camera",
+                                               "Wheel",       "Winch",     "Hydraulic", "Lamp",    "Light",      "Button",   "Emitter"};
 // GMod-style tool descriptions: what it does, then what the trigger does
 static const char *k_tool_desc[TOOL_COUNT] = {
     "Removes props", "Changes the colour of props", "Ties balloons to props", "Copies and pastes props",
@@ -172,6 +182,10 @@ static const char *k_tool_desc[TOOL_COUNT] = {
     "Blows a prop up", "Lets a prop slide along the line between two points",
     "Makes a part of a ragdoll bigger", "Makes a part of a ragdoll smaller",
     "Places cameras you can look through",
+    "Puts a motorised wheel on a prop (Use switches it)", "Ties two points with a rope you can reel in (Use)",
+    "Joins two points with a ram that pushes out (Use)", "Places a lamp that lights where it points (Use)",
+    "Places a light in the colour you picked (Use)", "Places a button that switches a contraption",
+    "Places an emitter of sparks, smoke or fire (Use)",
 };
 static const char *k_tool_help[TOOL_COUNT] = {
     "R: Remove an object", "R: Apply the selected colour", "R: Add a balloon", "R: Copy a prop / paste it",
@@ -182,18 +196,22 @@ static const char *k_tool_help[TOOL_COUNT] = {
     "R: Explode a prop", "R: Pick a point, then a second point",
     "R: Inflate the ragdoll part you aim at", "R: Deflate the ragdoll part you aim at",
     "R: Place a camera    L: Switch view",
+    "R: Add a wheel (its motor drives the way you face)", "R: Pick a point, then a second point",
+    "R: Pick a point, then a second point", "R: Place a lamp (in the colour you picked)",
+    "R: Place a light (in the colour you picked)", "R: Pick the prop it switches, then the spot",
+    "R: Place an emitter    L: Change effect",
 };
 // The tools panel, grouped like GMod's
 static const struct {
     const char *heading;
-    Tool tools[5];
+    Tool tools[8];
     int count;
 } k_tool_groups[] = {
     {"Construction", {TOOL_BALLOON, TOOL_DUPLICATOR, TOOL_NOCOLLIDE, TOOL_REMOVER, TOOL_WEIGHT}, 5},
-    {"Constraints", {TOOL_BALLSOCKET, TOOL_ELASTIC, TOOL_ROPE, TOOL_SLIDER, TOOL_WELD}, 5},
-    {"Mechanics", {TOOL_EXPLOSIVE, TOOL_HOVERBALL, TOOL_THRUSTER}, 3},
+    {"Constraints", {TOOL_BALLSOCKET, TOOL_ELASTIC, TOOL_HYDRAULIC, TOOL_ROPE, TOOL_SLIDER, TOOL_WELD, TOOL_WINCH}, 7},
+    {"Mechanics", {TOOL_BUTTON, TOOL_EMITTER, TOOL_EXPLOSIVE, TOOL_HOVERBALL, TOOL_THRUSTER, TOOL_WHEEL}, 6},
     {"Poser", {TOOL_INFLATOR, TOOL_DEFLATOR}, 2},
-    {"Render", {TOOL_CAMERA, TOOL_COLOUR}, 2},
+    {"Render", {TOOL_CAMERA, TOOL_COLOUR, TOOL_LAMP, TOOL_LIGHT}, 4},
 };
 #define NUM_TOOL_GROUPS (int)(sizeof(k_tool_groups) / sizeof(k_tool_groups[0]))
 static const char *k_pause_items[] = {"Resume Game", "Options",    "Toggle Noclip", "Freeze All Props",
@@ -272,6 +290,8 @@ enum {
     CMD_RAG_FREEZE, // i0 ragdoll, i1 frozen
     CMD_RAG_INFLATE, // i0 ragdoll, i1 bone, f0 factor
     CMD_SEAT_TOGGLE, // i0 seat: switch the thrusters and hoverballs of everything joined to it
+    CMD_TOOL,        // i0 body aimed at, i1 Tool (wheel...emitter); u: first pick's body + 1 | colour << 16 |
+                     // emitter effect << 24; f: point, surface normal, then view direction or the first pick
 };
 #define MAX_OUTQ 8
 
@@ -599,6 +619,10 @@ static int player_prop_count(void) {
 
 static void npc_shot(const char *weapon, vec3 from, vec3 to);
 static void minge_act(int npc, int action, vec3 at, vec3 target);
+static void devices_clear(void);
+static void toolgun_fire(void);
+static void test_use_aim(void);
+static void test_use_body(int body);
 
 static void load_shared(void) {
     if (G.props_loaded) return;
@@ -708,10 +732,17 @@ static void load_shared(void) {
     G.npcs_loaded = npcs_load() == 0 && npc_type_count() > 0;
     npc_set_shot_handler(npc_shot);
     npc_set_minge_handler(minge_act);
-    // Options > Player model: the NPC pack's characters marked as player models
+    game_refresh_player_models();
+}
+
+// Options > Player model: the NPC pack's characters marked as player models (Workshop ones only while
+// they're switched on in Main menu > Workshop)
+void game_refresh_player_models(void) {
     g_pm_count = 0;
     for (int t = 0; t < npc_type_count() && g_pm_count < MAX_PLAYER_MODELS; t++) {
-        if (npc_type_player_model(t)) g_pm_types[g_pm_count++] = t;
+        if (npc_type_player_model(t) && (!npc_type_workshop(t) || workshop_enabled(WS_CUSTOM, npc_type_name(t)))) {
+            g_pm_types[g_pm_count++] = t;
+        }
     }
     settings_set_player_models(g_pm_count, player_model_name);
 }
@@ -914,7 +945,9 @@ int game_start(const char *map_name, char *err, int err_len) {
 
     ents_init(&G.map);
     phys_init(&G.phys);
+    devices_clear();
     memset(G.impact_cooldown, 0, sizeof(G.impact_cooldown));
+
     blood_clear();
     const PmapSpawn *sp = &G.map.spawns[0];
     player_spawn(&G.player, v3(sp->x, sp->y, sp->z));
@@ -1051,8 +1084,22 @@ void game_command(const char *line) {
         g_test_steer = y;
     } else if (sscanf(line, "autowalk %f", &x) == 1) { // hold the stick forward (or back), for walking into doors
         g_test_walk = x;
+    } else if (sscanf(line, "look %f %f", &x, &y) == 2) { // look YAW PITCH
+        G.yaw = x;
+        G.pitch = y;
+    } else if (sscanf(line, "turn %f %f", &x, &y) == 2) { // turn DYAW PITCH: yaw from where it faces now
+        G.yaw += x;
+        G.pitch = y;
+
+    } else if (strncmp(line, "toolfire", 8) == 0) { // the tool gun's R, at what's in front
+        toolgun_fire();
+    } else if (strncmp(line, "useaim", 6) == 0) { // Use on the prop in front (thrusters, wheels, lamps...)
+        test_use_aim();
+    } else if (strncmp(line, "usetest", 7) == 0) { // Use on the prop "spawnat" made
+        if (g_test_body >= 0) test_use_body(g_test_body);
     } else if (strncmp(line, "use", 3) == 0) { // presses Use on what's in front (doors, buttons)
         ents_use(&G.map, player_eye(&G.player), view_forward());
+
 
     } else if (strncmp(line, "mute", 4) == 0) {
 
@@ -1281,12 +1328,233 @@ static void do_explode(int i) {
     }
 }
 
-static int toggle_forces(int i) {
-    return phys_toggle_forces(&G.phys, i);
+static int body_valid(int i);
+
+// --- Devices: lamps, lights, buttons and emitters ---------------------------------------------------
+// Each sits on a prop (its own model, welded to what it was put on, or frozen in place on the world).
+// The host owns them and sends them to clients (PK_DEVICES); everyone draws their light and particles.
+enum { DEV_LAMP = 1, DEV_LIGHT, DEV_BUTTON, DEV_EMITTER };
+enum { EMIT_SPARKS, EMIT_SMOKE, EMIT_FIRE, EMIT_COUNT };
+static const char *const k_emit_names[EMIT_COUNT] = {"Sparks", "Smoke", "Fire"};
+#define MAX_DEVICES 24
+#define LAMP_RANGE 900.0f
+#define LIGHT_RANGE 320.0f
+#define WHEEL_SPEED 15.0f // rad/s: about 250 u/s on the Wheel tool's tyre
+typedef struct {
+    int type; // DEV_*, 0 = free
+    int body;
+    int on;
+    vec3 lpos, ldir; // in the body's frame
+    int colour;      // palette index (lamps, lights)
+    int effect;      // EMIT_*
+    int target;      // button: the prop whose contraption it switches
+    float emit_acc, press; // emitter: particles owed; button: pressed-in time left
+} Device;
+static Device g_dev[MAX_DEVICES];
+static int g_emit_effect; // the Emitter tool's effect (L changes it)
+
+#define MAX_PARTICLES 160
+typedef struct {
+    vec3 pos, vel;
+    float life, max_life, size;
+    int effect;
+} Particle;
+static Particle g_parts[MAX_PARTICLES];
+
+static void devices_clear(void) {
+    memset(g_dev, 0, sizeof(g_dev));
+    memset(g_parts, 0, sizeof(g_parts));
 }
 
-// From a seat: every thruster and hoverball on whatever is welded, roped or hinged to it (GMod wires
-// them to the seat's keys; here R switches them all). Returns how many there are.
+static int device_add(int type, int body, vec3 world_pos, vec3 world_dir, int colour, int effect, int target) {
+    for (int d = 0; d < MAX_DEVICES; d++) {
+        Device *v = &g_dev[d];
+        if (v->type) continue;
+        const Body *b = &G.phys.bodies[body];
+        memset(v, 0, sizeof(*v));
+        v->type = type;
+        v->body = body;
+        v->on = type != DEV_BUTTON;
+        v->lpos = q_rotate_inv(b->rot, v3_sub(world_pos, b->pos));
+        v->ldir = q_rotate_inv(b->rot, world_dir);
+        v->colour = colour;
+        v->effect = effect;
+        v->target = target;
+        return d;
+    }
+    return -1;
+}
+
+static void device_frame(const Device *v, vec3 *pos, vec3 *dir) {
+    const Body *b = &G.phys.bodies[v->body];
+    *pos = v3_add(b->pos, q_rotate(b->rot, v->lpos));
+    *dir = q_rotate(b->rot, v->ldir);
+}
+
+static int body_has_device(int body) {
+    for (int d = 0; d < MAX_DEVICES; d++) {
+        if (g_dev[d].type && g_dev[d].body == body) return 1;
+    }
+    return 0;
+}
+
+// The rotation turning +Z onto n (Wheel, Light, Button and Emitter models stand on +Z)
+static quat quat_z_to(vec3 n) {
+    vec3 z = v3(0, 0, 1);
+    float c = v3_dot(z, n);
+    if (c < -0.999f) return q_axis_angle(v3(1, 0, 0), PI);
+    vec3 axis = v3_cross(z, n);
+    float s = v3_len(axis);
+    if (s < 1e-5f) return q_identity();
+    return q_axis_angle(v3_scale(axis, 1.0f / s), atan2f(s, c));
+}
+
+// A device's own model on a surface: welded to the prop it's on, or frozen on the world
+static int place_part(const char *model_name, quat rot, int body, vec3 p, vec3 n) {
+    int m = prop_named(model_name);
+    if (m < 0) {
+        toast("No model for that tool in the prop pack");
+        return -1;
+    }
+    int i = spawn_prop(m, p, n, rot, 0xFFFFFFFF);
+    if (i < 0) return -1;
+    if (body >= 0 && body_valid(body)) {
+        phys_weld(&G.phys, i, body, p);
+    } else {
+        G.phys.bodies[i].frozen = 1;
+    }
+    return i;
+}
+
+// Host (and single player): the Wheel, Winch, Hydraulic, Lamp, Light, Button and Emitter tools.
+// body/p/n: what was aimed at; sbody/v: the first pick of the two-click tools, or the view direction.
+static void tool_apply(int tool, int body, vec3 p, vec3 n, int sbody, vec3 v, int colour, int effect) {
+    if (body >= 0 && !body_valid(body)) body = -1;
+    if (sbody >= 0 && !body_valid(sbody)) sbody = -1;
+    colour = colour >= 0 && colour < PALETTE_SIZE ? colour : 0;
+    switch (tool) {
+    case TOOL_WHEEL: {
+        if (body < 0) {
+            toast("Put wheels on a prop");
+            return;
+        }
+        int w = place_part("_wheel", quat_z_to(n), -1, p, n);
+        if (w < 0) return;
+        G.phys.bodies[w].frozen = 0;
+        // Its motor turns it so it rolls the way you were facing (spin = up x forward)
+        vec3 f = v3_norm(v3(v.x, v.y, 0.0f));
+        float sign = v3_dot(v3_cross(v3(0, 0, 1), f), n) >= 0.0f ? 1.0f : -1.0f;
+        if (phys_axis(&G.phys, w, body, G.phys.bodies[w].pos, n, sign * WHEEL_SPEED) < 0) {
+            remove_body(w);
+            toast("Too many constraints");
+            return;
+        }
+        play(G.snd.weld, 0.6f);
+        toast("Wheel added (Use switches its motor)");
+        return;
+    }
+    case TOOL_WINCH:
+    case TOOL_HYDRAULIC: {
+        if (sbody < 0 && body < 0) {
+            toast("It needs a prop on at least one end");
+            return;
+        }
+        if (sbody == body || v3_len(v3_sub(p, v)) < 8.0f) {
+            toast("Pick two different points");
+            return;
+        }
+        int ok = tool == TOOL_WINCH ? phys_winch(&G.phys, sbody, v, body, p, 120.0f) >= 0
+                                    : phys_hydraulic(&G.phys, sbody, v, body, p, 2.0f, 80.0f) >= 0;
+        if (!ok) {
+            toast("Too many constraints");
+            return;
+        }
+        play(G.snd.weld, 0.6f);
+        toast(tool == TOOL_WINCH ? "Winch added (Use: reel in / out)" : "Hydraulic added (Use: push / pull)");
+        return;
+    }
+    case TOOL_LAMP:
+    case TOOL_LIGHT:
+    case TOOL_EMITTER: {
+        // The lamp's model shines along its Y axis; the light's and the emitter's stand on Z
+        quat rot = tool == TOOL_LAMP ? q_mul(quat_z_to(n), q_axis_angle(v3(1, 0, 0), PI * 0.5f)) : quat_z_to(n);
+        int i = place_part(tool == TOOL_LAMP ? "_lamp" : tool == TOOL_LIGHT ? "_light" : "_emitter", rot, body, p, n);
+        if (i < 0) return;
+        const Body *b = &G.phys.bodies[i];
+        int type = tool == TOOL_LAMP ? DEV_LAMP : tool == TOOL_LIGHT ? DEV_LIGHT : DEV_EMITTER;
+        vec3 at = tool == TOOL_LIGHT ? b->pos : v3_mad(b->pos, n, 6.0f);
+        if (device_add(type, i, at, n, colour, effect % EMIT_COUNT, -1) < 0) {
+            remove_body(i);
+            toast("Too many lamps, lights, buttons and emitters");
+            return;
+        }
+        play(G.snd.weld, 0.6f);
+        toast(tool == TOOL_LAMP ? "Lamp placed (Use switches it)" : tool == TOOL_LIGHT ? "Light placed (Use switches it)"
+                                                                                      : "Emitter placed (Use switches it)");
+        return;
+    }
+    case TOOL_BUTTON: {
+        if (sbody < 0) {
+            toast("Pick the prop it switches first");
+            return;
+        }
+        int i = place_part("_button", quat_z_to(n), body, p, n);
+        if (i < 0) return;
+        if (device_add(DEV_BUTTON, i, G.phys.bodies[i].pos, n, colour, 0, sbody) < 0) {
+            remove_body(i);
+            toast("Too many lamps, lights, buttons and emitters");
+            return;
+        }
+        play(G.snd.weld, 0.6f);
+        toast("Button placed (Use it to switch)");
+        return;
+    }
+    default:
+        return;
+    }
+}
+
+// What Use switches on a prop: its thrusters and hoverballs, the wheel motors, winches and hydraulics on
+// it, its lamps, lights and emitters; a button switches the contraption it was linked to.
+static int toggle_contraption(int seat);
+static int toggle_forces(int i) {
+    int n = phys_toggle_forces(&G.phys, i) + phys_toggle_joints(&G.phys, i);
+    for (int d = 0; d < MAX_DEVICES; d++) {
+        Device *v = &g_dev[d];
+        if (!v->type || v->body != i) continue;
+        n++;
+        if (v->type == DEV_BUTTON) {
+            static int snd = -2;
+            if (snd == -2) snd = snd_find("button");
+            play_at(snd, G.phys.bodies[i].pos, 0.8f);
+            v->press = 0.3f;
+            if (body_valid(v->target)) toggle_contraption(v->target);
+        } else {
+            v->on = !v->on;
+        }
+    }
+    return n;
+}
+
+static void test_use_aim(void) {
+    Aim a = aim_trace(1500.0f);
+    if (a.body >= 0) toggle_forces(a.body);
+}
+
+static void test_use_body(int body) {
+    char msg[48];
+    int n = toggle_forces(body);
+    int joints = 0;
+    for (int j = 0; j < MAX_JOINTS; j++) joints += G.phys.joints[j].active;
+    snprintf(msg, sizeof(msg), "usetest body %d: %d switched, %d joints", body, n, joints);
+    toast(msg);
+}
+
+
+
+// From a seat or a button: everything that switches on whatever is welded, roped or hinged to it (GMod
+
+// wires them to keys; here one press switches them all). Returns how many there are.
 static int toggle_contraption(int seat) {
     unsigned char seen[MAX_BODIES];
     int queue[MAX_BODIES], head = 0, tail = 0, n = 0;
@@ -1296,6 +1564,13 @@ static int toggle_contraption(int seat) {
     while (head < tail) {
         int i = queue[head++];
         n += phys_toggle_forces(&G.phys, i);
+        for (int d = 0; d < MAX_DEVICES; d++) {
+            Device *v = &g_dev[d];
+            if (v->type && v->type != DEV_BUTTON && v->body == i) {
+                v->on = !v->on;
+                n++;
+            }
+        }
         for (int j = 0; j < MAX_JOINTS; j++) {
             const Joint *jt = &G.phys.joints[j];
             if (!jt->active) continue;
@@ -1306,8 +1581,14 @@ static int toggle_contraption(int seat) {
             }
         }
     }
+    // Each wheel motor, winch and hydraulic once, though both its props are in the contraption
+    for (int j = 0; j < MAX_JOINTS; j++) {
+        const Joint *jt = &G.phys.joints[j];
+        if (jt->active && (seen[jt->a] || (jt->b >= 0 && seen[jt->b]))) n += phys_toggle_joint(&G.phys, j);
+    }
     return n;
 }
+
 
 static quat yaw_quat(float yaw_deg) {
     return q_axis_angle(v3(0, 0, 1), yaw_deg * DEG2RAD);
@@ -2036,6 +2317,40 @@ static void toolgun_fire(void) {
             do_explode(a.body);
         }
         break;
+    case TOOL_WHEEL:
+    case TOOL_LAMP:
+    case TOOL_LIGHT:
+    case TOOL_EMITTER:
+    case TOOL_WINCH:
+    case TOOL_HYDRAULIC:
+    case TOOL_BUTTON: {
+        int two = G.tool == TOOL_WINCH || G.tool == TOOL_HYDRAULIC || G.tool == TOOL_BUTTON;
+        if (two && !G.stage) {
+            // The first pick: one end, or (Button) the prop it will switch
+            if (G.tool == TOOL_BUTTON ? !b : (!b && !a.hit_world)) {
+                if (G.tool == TOOL_BUTTON) toast("Pick the prop it switches");
+                break;
+            }
+            G.stage = 1;
+            G.stage_body = a.body;
+            G.stage_point = a.point;
+            toast(G.tool == TOOL_BUTTON ? "Now pick where the button goes" : "Now pick the other end");
+            break;
+        }
+        G.stage = 0;
+        if (!b && !a.hit_world) break;
+        vec3 v = two ? G.stage_point : view_forward();
+        int sbody = two ? G.stage_body : -1;
+        if (is_client()) {
+            float f[9] = {a.point.x, a.point.y, a.point.z, a.normal.x, a.normal.y, a.normal.z, v.x, v.y, v.z};
+            uint32_t u = (uint32_t)((sbody + 1) & 0xFFFF) | ((uint32_t)G.colour_sel << 16) | ((uint32_t)g_emit_effect << 24);
+            send_cmd(CMD_TOOL, a.body, G.tool, u, f, 9);
+            play(G.snd.weld, 0.6f);
+        } else {
+            tool_apply(G.tool, a.body, a.point, a.normal, sbody, v, G.colour_sel, g_emit_effect);
+        }
+        break;
+    }
     default:
         break;
     }
@@ -2735,14 +3050,16 @@ static int rag_cat(void) {
     return G.npcs_loaded && npc_ragdolls_available() ? G.props.num_categories + 1 + (npc_cat() >= 0) : -1;
 }
 
+// A Workshop character that's switched on (Main menu > Workshop)
+static int workshop_char_on(int t) {
+    return npc_type_workshop(t) && workshop_enabled(WS_CUSTOM, npc_type_name(t));
+}
+
 // Workshop: characters from your GMod Workshop addons, as ragdolls (and player models in Options)
 static int ws_cat(void) {
-    static int any = -1;
-    if (any < 0 && G.npcs_loaded) {
-        any = 0;
-        for (int t = 0; t < npc_type_count(); t++) any |= npc_type_workshop(t);
-    }
-    return G.npcs_loaded && any > 0 ? G.props.num_categories + 1 + (npc_cat() >= 0) + (rag_cat() >= 0) : -1;
+    int any = 0;
+    for (int t = 0; G.npcs_loaded && t < npc_type_count() && !any; t++) any = workshop_char_on(t);
+    return any ? G.props.num_categories + 1 + (npc_cat() >= 0) + (rag_cat() >= 0) : -1;
 }
 
 static int extra_row0(void) {
@@ -2906,7 +3223,7 @@ static int grid_items(int *out) {
         // Workshop's are only under Workshop, as ragdolls.
         int npcs = G.cat == npc_cat(), ws = G.cat == ws_cat();
         for (int t = 0; t < npc_type_count() && n < MAX_SPAWNABLE; t++) {
-            if (npc_type_workshop(t) != ws || (npcs && npc_type_ragdoll_only(t))) continue;
+            if (npc_type_workshop(t) != ws || (ws && !workshop_char_on(t)) || (npcs && npc_type_ragdoll_only(t))) continue;
             out[n++] = (npcs ? GRID_NPC : GRID_RAG) + t;
         }
         return n;
@@ -3322,6 +3639,18 @@ typedef struct {
     uint8_t data[ENTS_PER_PACKET * 4];
 } PkEnts;
 
+// Lamps, lights, buttons and emitters, for clients to draw (and know which props they can Use)
+typedef struct {
+    uint8_t type, body, on, effect, colour, target, pad[2]; // target: NET_WORLD for none
+    float lpos[3], ldir[3];
+} NetDevice;
+
+typedef struct {
+    NetHeader h;
+    uint8_t count, pad[3];
+    NetDevice d[MAX_DEVICES];
+} PkDevices;
+
 // Ropes, elastics and sliders, for clients to draw
 #define NET_WORLD 255 // NetRope.b: tied to the world
 typedef struct {
@@ -3501,6 +3830,13 @@ static void exec_cmd(int slot, const NetCmd *c) {
         break;
     case CMD_TOGGLE:
         if (b) toggle_forces(i);
+        break;
+    case CMD_TOOL:
+        if (c->i1 >= TOOL_WHEEL && c->i1 < TOOL_COUNT) {
+            tool_apply(c->i1, b ? i : -1, v3(c->f[0], c->f[1], c->f[2]), v3_norm(v3(c->f[3], c->f[4], c->f[5])),
+                       (int)(c->u & 0xFFFF) - 1, v3(c->f[6], c->f[7], c->f[8]), (int)((c->u >> 16) & 0xFF),
+                       (int)((c->u >> 24) & 0xFF));
+        }
         break;
     case CMD_SEAT_TOGGLE:
         if (b) toggle_contraption(i);
@@ -3817,7 +4153,9 @@ static void host_send_ropes(void) {
     pk.h = net_header(PK_ROPES);
     for (int j = 0; j < MAX_JOINTS && pk.count < MAX_NET_ROPES; j++) {
         const Joint *jt = &G.phys.joints[j];
-        if (!jt->active || (jt->type != JOINT_ROPE && jt->type != JOINT_ELASTIC && jt->type != JOINT_SLIDER)) continue;
+        if (!jt->active || (jt->type != JOINT_ROPE && jt->type != JOINT_ELASTIC && jt->type != JOINT_SLIDER &&
+                            jt->type != JOINT_ROD))
+            continue;
         NetRope *r = &pk.r[pk.count++];
         r->a = (uint8_t)jt->a;
         r->b = jt->b >= 0 ? (uint8_t)jt->b : NET_WORLD;
@@ -3831,6 +4169,53 @@ static void host_send_ropes(void) {
         r->length = jt->length;
     }
     net_send(NULL, &pk, (int)offsetof(PkRopes, r) + pk.count * (int)sizeof(NetRope));
+}
+
+static void host_send_devices(void) {
+    static PkDevices pk;
+    memset(&pk, 0, offsetof(PkDevices, d));
+    pk.h = net_header(PK_DEVICES);
+    for (int d = 0; d < MAX_DEVICES; d++) {
+        const Device *v = &g_dev[d];
+        if (!v->type) continue;
+        NetDevice *o = &pk.d[pk.count++];
+        o->type = (uint8_t)v->type;
+        o->body = (uint8_t)v->body;
+        o->on = (uint8_t)v->on;
+        o->effect = (uint8_t)v->effect;
+        o->colour = (uint8_t)v->colour;
+        o->target = v->target >= 0 ? (uint8_t)v->target : NET_WORLD;
+        o->lpos[0] = v->lpos.x;
+        o->lpos[1] = v->lpos.y;
+        o->lpos[2] = v->lpos.z;
+        o->ldir[0] = v->ldir.x;
+        o->ldir[1] = v->ldir.y;
+        o->ldir[2] = v->ldir.z;
+    }
+    net_send(NULL, &pk, (int)offsetof(PkDevices, d) + pk.count * (int)sizeof(NetDevice));
+}
+
+static void client_apply_devices(const PkDevices *pk, int len) {
+    int cnt = pk->count;
+    int fits = (len - (int)offsetof(PkDevices, d)) / (int)sizeof(NetDevice);
+    if (cnt > fits) cnt = fits;
+    float acc[MAX_DEVICES];
+    for (int d = 0; d < MAX_DEVICES; d++) acc[d] = g_dev[d].emit_acc;
+    memset(g_dev, 0, sizeof(g_dev));
+    for (int k = 0; k < cnt && k < MAX_DEVICES; k++) {
+        const NetDevice *o = &pk->d[k];
+        if (!body_valid(o->body) || o->type < DEV_LAMP || o->type > DEV_EMITTER) continue;
+        Device *v = &g_dev[k];
+        v->type = o->type;
+        v->body = o->body;
+        v->on = o->on;
+        v->effect = o->effect % EMIT_COUNT;
+        v->colour = o->colour % PALETTE_SIZE;
+        v->target = o->target == NET_WORLD ? -1 : o->target;
+        v->lpos = v3(o->lpos[0], o->lpos[1], o->lpos[2]);
+        v->ldir = v3(o->ldir[0], o->ldir[1], o->ldir[2]);
+        v->emit_acc = acc[k];
+    }
 }
 
 static int num_players(void) {
@@ -3909,6 +4294,7 @@ static void host_send(float dt) {
     if (G.ropes_timer <= 0.0f) {
         G.ropes_timer = ROPES_INTERVAL;
         host_send_ropes();
+        host_send_devices();
     }
 }
 
@@ -4010,7 +4396,8 @@ static void client_apply_ropes(const PkRopes *pk, int len) {
         if (!body_valid(r->a) || (ob >= 0 && !body_valid(ob))) continue;
         Joint *jt = &G.phys.joints[k];
         jt->active = 1;
-        jt->type = r->type == JOINT_ELASTIC || r->type == JOINT_SLIDER ? r->type : JOINT_ROPE;
+        jt->type = r->type == JOINT_ELASTIC || r->type == JOINT_SLIDER || r->type == JOINT_ROD ? r->type : JOINT_ROPE;
+
         jt->a = r->a;
         jt->b = ob;
         jt->la = v3(r->la[0], r->la[1], r->la[2]);
@@ -4054,6 +4441,9 @@ static int client_update(float dt) {
             break;
         case PK_ROPES:
             if (len >= (int)offsetof(PkRopes, r)) client_apply_ropes(&pk.rp, len);
+            break;
+        case PK_DEVICES:
+            if (len >= (int)offsetof(PkDevices, d)) client_apply_devices((const PkDevices *)pk.raw, len);
             break;
         case PK_RAGINFO:
             if (len >= (int)sizeof(PkRagInfo)) npc_ragdoll_net_set_info(&pk.ri.i);
@@ -4558,9 +4948,67 @@ static void achievements_tick(float dt) {
     }
 }
 
+static float rand01(void) {
+    return (float)(rand() & 0xFFFF) / 65535.0f;
+}
+
+// Devices each frame (host and clients): gone with their prop, buttons popping back out, emitters
+// puffing out particles, and the particles moving on
+static void devices_update(float dt) {
+
+
+    for (int d = 0; d < MAX_DEVICES; d++) {
+        Device *v = &g_dev[d];
+        if (!v->type) continue;
+        if (v->body < 0 || v->body >= MAX_BODIES || !G.phys.bodies[v->body].active) {
+            v->type = 0;
+            continue;
+        }
+        if (v->press > 0.0f) v->press -= dt;
+        if (v->type != DEV_EMITTER || !v->on) continue;
+        static const float rates[EMIT_COUNT] = {40.0f, 10.0f, 30.0f};
+        v->emit_acc += rates[v->effect % EMIT_COUNT] * dt;
+        vec3 pos, dir;
+        device_frame(v, &pos, &dir);
+        while (v->emit_acc >= 1.0f) {
+            v->emit_acc -= 1.0f;
+            Particle *p = NULL;
+            for (int k = 0; k < MAX_PARTICLES && !p; k++) {
+                if (g_parts[k].life <= 0.0f) p = &g_parts[k];
+            }
+            if (!p) break;
+            vec3 jitter = v3(rand01() - 0.5f, rand01() - 0.5f, rand01() - 0.5f);
+            p->effect = v->effect % EMIT_COUNT;
+            p->pos = pos;
+            if (p->effect == EMIT_SPARKS) {
+                p->vel = v3_add(v3_scale(dir, 80.0f + 160.0f * rand01()), v3_scale(jitter, 240.0f));
+                p->max_life = 0.4f + 0.4f * rand01();
+                p->size = 1.2f;
+            } else if (p->effect == EMIT_SMOKE) {
+                p->vel = v3_add(v3_add(v3_scale(dir, 40.0f), v3_scale(jitter, 30.0f)), v3(0, 0, 30.0f));
+                p->max_life = 2.0f + rand01();
+                p->size = 6.0f;
+            } else {
+                p->vel = v3_add(v3_add(v3_scale(dir, 60.0f), v3_scale(jitter, 50.0f)), v3(0, 0, 60.0f));
+                p->max_life = 0.35f + 0.3f * rand01();
+                p->size = 7.0f;
+            }
+            p->life = p->max_life;
+        }
+    }
+    for (int k = 0; k < MAX_PARTICLES; k++) {
+        Particle *p = &g_parts[k];
+        if (p->life <= 0.0f) continue;
+        p->life -= dt;
+        if (p->effect == EMIT_SPARKS) p->vel.z -= 600.0f * dt; // sparks fall
+        p->pos = v3_mad(p->pos, p->vel, dt);
+    }
+}
+
 GameResult game_update(const InputState *in, float dt) {
     phys_set_quality(g_settings.physics);
     achievements_tick(dt);
+    devices_update(dt);
     for (int i = 0; i < MAX_NOTES; i++) G.notes[i].time += dt;
     if (g_haunt.on && !G.paused) haunt_update(dt);
     G.hurt_flash -= dt;
@@ -4724,10 +5172,15 @@ GameResult game_update(const InputState *in, float dt) {
             int vehicle = use_aim.body >= 0 && use_aim.dist < 160.0f &&
                           vehicle_kind(&G.phys.bodies[use_aim.body]) != VEH_NONE;
             int has_forces = !vehicle && use_aim.body >= 0 && !is_client() && toggle_forces(use_aim.body);
+            // A client knows the lamps, buttons... (PK_DEVICES): those are used, not picked up
+            int client_device = !vehicle && use_aim.body >= 0 && is_client() && body_has_device(use_aim.body);
             if (vehicle) {
                 vehicle_enter(use_aim.body);
                 use_aim.body = -1;
             } else if (has_forces) {
+                play(G.snd.menu_move, 0.5f);
+            } else if (client_device) {
+                send_cmd(CMD_TOGGLE, use_aim.body, 0, 0, NULL, 0);
                 play(G.snd.menu_move, 0.5f);
             } else if (use_pressed && use_pickup()) {
                 // carrying it now (use_carry_update)
@@ -4764,6 +5217,13 @@ GameResult game_update(const InputState *in, float dt) {
                 } else if (G.weapon == WEAPON_TOOLGUN) {
                     if (in->pressed & PSP_CTRL_RTRIGGER) toolgun_fire();
                     if (G.tool == TOOL_CAMERA && (in->pressed & PSP_CTRL_LTRIGGER)) camera_switch();
+                    if (G.tool == TOOL_EMITTER && (in->pressed & PSP_CTRL_LTRIGGER)) {
+                        g_emit_effect = (g_emit_effect + 1) % EMIT_COUNT;
+                        char msg[32];
+                        snprintf(msg, sizeof(msg), "Emitter: %s", k_emit_names[g_emit_effect]);
+                        toast(msg);
+                        play(G.snd.menu_move, 0.5f);
+                    }
                 } else {
                     gun_update(in, dt);
                 }
@@ -5006,6 +5466,112 @@ static void draw_lines(const ColVert *pts, int n, int strip) {
     sceGumDrawArray(strip ? GU_LINE_STRIP : GU_LINES, COLVERT_FMT, n, 0, v);
 }
 
+// A soft round blob facing the camera at c, radius s: a fan of segs triangles, col in the middle fading
+// to nothing at the rim. Writes segs * 3 vertices.
+static int glow(ColVert *v, vec3 c, vec3 r, vec3 u, float s, unsigned int col, int segs) {
+    unsigned int rim = col & 0x00FFFFFFu;
+    for (int k = 0; k < segs; k++) {
+        float a0 = (float)k * (2.0f * PI / (float)segs), a1 = (float)(k + 1) * (2.0f * PI / (float)segs);
+        vec3 p0 = v3_add(c, v3_add(v3_scale(r, cosf(a0) * s), v3_scale(u, sinf(a0) * s)));
+        vec3 p1 = v3_add(c, v3_add(v3_scale(r, cosf(a1) * s), v3_scale(u, sinf(a1) * s)));
+        v[k * 3 + 0] = (ColVert){col, c.x, c.y, c.z};
+        v[k * 3 + 1] = (ColVert){rim, p0.x, p0.y, p0.z};
+        v[k * 3 + 2] = (ColVert){rim, p1.x, p1.y, p1.z};
+    }
+    return segs * 3;
+}
+
+// Lamps' and lights' glows and the emitters' particles: glowing ones added on, smoke blended over
+static void draw_devices(void) {
+    float cy = cosf(G.cam.yaw * DEG2RAD), sy = sinf(G.cam.yaw * DEG2RAD);
+    float cp = cosf(G.cam.pitch * DEG2RAD), sp = sinf(G.cam.pitch * DEG2RAD);
+    vec3 r = v3(sy, -cy, 0.0f), u = v3(-cy * sp, -sy * sp, cp);
+    int n = 0;
+    for (int d = 0; d < MAX_DEVICES; d++) n += g_dev[d].type && g_dev[d].on && g_dev[d].type <= DEV_LIGHT;
+    for (int k = 0; k < MAX_PARTICLES; k++) n += g_parts[k].life > 0.0f;
+    if (!n) return;
+    sceGuDepthMask(GU_TRUE);
+    sceGuEnable(GU_BLEND);
+    for (int pass = 0; pass < 2; pass++) {
+        // Pass 0: smoke (alpha blended); pass 1: glows, sparks and fire (added)
+        ColVert *v = sceGuGetMemory(sizeof(ColVert) * (18 * MAX_PARTICLES + 24 * MAX_DEVICES));
+        int nv = 0;
+        if (pass == 0) {
+            sceGuBlendFunc(GU_ADD, GU_SRC_ALPHA, GU_ONE_MINUS_SRC_ALPHA, 0, 0);
+        } else {
+            sceGuBlendFunc(GU_ADD, GU_SRC_ALPHA, GU_FIX, 0, 0xFFFFFFFF);
+            for (int d = 0; d < MAX_DEVICES; d++) {
+                const Device *dv = &g_dev[d];
+                if (!dv->type || !dv->on || dv->type > DEV_LIGHT) continue;
+                vec3 pos, dir;
+                device_frame(dv, &pos, &dir);
+                unsigned int c = k_palette[dv->colour % PALETTE_SIZE] & 0x00FFFFFFu;
+                nv += glow(v + nv, pos, r, u, dv->type == DEV_LAMP ? 10.0f : 14.0f, 0xE0000000u | c, 8);
+            }
+        }
+        for (int k = 0; k < MAX_PARTICLES; k++) {
+            const Particle *p = &g_parts[k];
+            if (p->life <= 0.0f || (p->effect == EMIT_SMOKE) != (pass == 0)) continue;
+            float t = 1.0f - p->life / p->max_life; // 0 new .. 1 gone
+            unsigned int a = (unsigned int)(255.0f * (1.0f - t)), col;
+            float s = p->size;
+            if (p->effect == EMIT_SMOKE) {
+                s = p->size * (1.0f + 2.5f * t);
+                col = ((a * 0x90u / 255u) << 24) | 0x707070u;
+            } else if (p->effect == EMIT_FIRE) {
+                s = p->size * (1.0f - 0.6f * t);
+                unsigned int g = (unsigned int)(200.0f * (1.0f - t)); // yellow to red
+                col = (a << 24) | (0x10u << 16) | (g << 8) | 0xFFu;
+            } else {
+                col = (a << 24) | 0x60D0FFu;
+            }
+            nv += glow(v + nv, p->pos, r, u, s * 1.4f, col, 6);
+
+        }
+        if (nv) sceGumDrawArray(GU_TRIANGLES, COLVERT_FMT, nv, 0, v);
+    }
+    sceGuDisable(GU_BLEND);
+    sceGuDepthMask(GU_FALSE);
+}
+
+#ifndef PS2
+// The two lamps or lights nearest the camera that are on light the world (GE lights 2 and 3)
+static void devices_lights(void) {
+    int pick[2] = {-1, -1};
+    float best[2] = {1e9f, 1e9f};
+    vec3 eye = v3(G.cam.pos.x, G.cam.pos.y, G.cam.pos.z);
+    for (int d = 0; d < MAX_DEVICES; d++) {
+        const Device *v = &g_dev[d];
+        if (!v->type || !v->on || v->type > DEV_LIGHT) continue;
+        vec3 pos, dir;
+        device_frame(v, &pos, &dir);
+        float dist = v3_len(v3_sub(pos, eye));
+        if (dist > 2500.0f) continue;
+        if (dist < best[0]) {
+            best[1] = best[0];
+            pick[1] = pick[0];
+            best[0] = dist;
+            pick[0] = d;
+        } else if (dist < best[1]) {
+            best[1] = dist;
+            pick[1] = d;
+        }
+    }
+    for (int k = 0; k < 2; k++) {
+        if (pick[k] < 0) {
+            gfx_world_light(k, 0, 0, NULL, NULL, 0, 0.0f);
+            continue;
+        }
+        const Device *v = &g_dev[pick[k]];
+        vec3 pos, dir;
+        device_frame(v, &pos, &dir);
+        float p[3] = {pos.x, pos.y, pos.z}, dd[3] = {dir.x, dir.y, dir.z};
+        gfx_world_light(k, 1, v->type == DEV_LAMP, p, dd, k_palette[v->colour % PALETTE_SIZE],
+                        v->type == DEV_LAMP ? LAMP_RANGE : LIGHT_RANGE);
+    }
+}
+#endif
+
 static void draw_balloons_and_ropes(void) {
     // A balloon is a little coloured octahedron on a string.
     static const float oct[6][3] = {{0, 0, 1}, {0, 0, -1}, {1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}};
@@ -5034,9 +5600,19 @@ static void draw_balloons_and_ropes(void) {
     }
     for (int j = 0; j < MAX_JOINTS; j++) {
         const Joint *jt = &G.phys.joints[j];
-        if (!jt->active || (jt->type != JOINT_ROPE && jt->type != JOINT_ELASTIC && jt->type != JOINT_SLIDER)) continue;
+        if (!jt->active || (jt->type != JOINT_ROPE && jt->type != JOINT_ELASTIC && jt->type != JOINT_SLIDER &&
+                            jt->type != JOINT_ROD))
+            continue;
         vec3 a, b;
         phys_joint_anchors(&G.phys, jt, &a, &b);
+        if (jt->type == JOINT_ROD) {
+            // A hydraulic: a dark ram, drawn twice to look thicker
+            for (int k = 0; k < 2; k++) {
+                ColVert ram[2] = {{0xFF404850, a.x, a.y, a.z + k * 0.8f}, {0xFF909898, b.x, b.y, b.z + k * 0.8f}};
+                draw_lines(ram, 2, 0);
+            }
+            continue;
+        }
         // Sag the rope a little when it's slack; elastic is a straight red band, a slider a grey rod
         float slack = jt->type == JOINT_ROPE ? clampf(jt->length - v3_len(v3_sub(a, b)), 0.0f, 200.0f) : 0.0f;
         unsigned int col = jt->type == JOINT_ROPE ? 0xFF305070 : jt->type == JOINT_ELASTIC ? 0xFF2020C0 : 0xFFA0A0A0;
@@ -5870,6 +6446,7 @@ void game_render(float fps) {
         float e[3] = {G.cam.pos.x, G.cam.pos.y, G.cam.pos.z}, fw[3] = {f.x, f.y, f.z};
         gu_flashlight(g_flashlight && G.dead_time <= 0.0f, e, fw);
     }
+    devices_lights();
     map_draw(&G.map, &G.cam, &G.ds);
     draw_props();
     npcs_draw(&G.map, &G.cam);
@@ -5878,11 +6455,16 @@ void game_render(float fps) {
 #endif
     sceGuDisable(GU_TEXTURE_2D);
     draw_balloons_and_ropes();
+    draw_devices();
     draw_beams();
     draw_blood();
     if (G.dead_time <= 0.0f && !third_person() && G.cam_view < 0 && G.veh < 0) draw_viewmodel();
 
     gu_flashlight(0, NULL, NULL); // the menu's background map shouldn't inherit it
+#ifndef PS2
+    gfx_world_light(0, 0, 0, NULL, NULL, 0, 0.0f);
+    gfx_world_light(1, 0, 0, NULL, NULL, 0, 0.0f);
+#endif
     map_set_view_limit(1e9f);     // nor the draw distance
 
     ui_begin();

@@ -82,6 +82,35 @@ void gfx_present(int vsync) {
 #define FLASH_ABGR 0xFFD0F0FFu // warm white
 static int g_flash_on;
 
+// Lamps and lights (the Lamp and Light tools) on GE lights 2 and 3, the same way as the flashlight
+static struct {
+    int on;
+    unsigned int abgr;
+} g_extra[2];
+
+void gfx_world_light(int k, int on, int spot, const float pos[3], const float dir[3], unsigned int abgr, float range) {
+    if (k < 0 || k > 1) return;
+    g_extra[k].on = on;
+    if (!on) {
+        sceGuDisable(GU_LIGHT2 + k);
+        return;
+    }
+    g_extra[k].abgr = abgr;
+    ScePspFVector3 p = {pos[0], pos[1], pos[2]};
+    if (spot) {
+        ScePspFVector3 d = {-dir[0], -dir[1], -dir[2]}; // pointing back at the light, as for the flashlight
+        sceGuLight(2 + k, GU_SPOTLIGHT, GU_AMBIENT_AND_DIFFUSE, &p);
+        sceGuLightSpot(2 + k, &d, 4.0f, 0.8f);
+    } else {
+        sceGuLight(2 + k, GU_POINTLIGHT, GU_AMBIENT_AND_DIFFUSE, &p);
+    }
+    sceGuLightAtt(2 + k, 1.0f, 0.0f, 6.0f / (range * range)); // about a seventh as bright at range
+}
+
+static int extras_on(void) {
+    return g_extra[0].on || g_extra[1].on;
+}
+
 void gu_flashlight(int on, const float eye[3], const float fwd[3]) {
     g_flash_on = on;
     if (!on) {
@@ -96,33 +125,53 @@ void gu_flashlight(int on, const float eye[3], const float fwd[3]) {
 }
 
 void gfx_flash_world_begin(void) {
-    if (!g_flash_on) return;
-    sceGuLightColor(1, GU_AMBIENT, FLASH_ABGR);
-    sceGuLightColor(1, GU_DIFFUSE, 0xFF000000u); // no normals to angle it by
+    if (!g_flash_on && !extras_on()) return;
+    if (g_flash_on) {
+        sceGuLightColor(1, GU_AMBIENT, FLASH_ABGR);
+        sceGuLightColor(1, GU_DIFFUSE, 0xFF000000u); // no normals to angle it by
+        sceGuEnable(GU_LIGHT1);
+    }
+    for (int k = 0; k < 2; k++) {
+        if (!g_extra[k].on) continue;
+        sceGuLightColor(2 + k, GU_AMBIENT, g_extra[k].abgr);
+        sceGuLightColor(2 + k, GU_DIFFUSE, 0xFF000000u);
+        sceGuEnable(GU_LIGHT2 + k);
+    }
     sceGuColorMaterial(GU_AMBIENT);
     sceGuAmbient(0xFFFFFFFFu); // baked vertex colour passes through unchanged
     sceGuDisable(GU_LIGHT0);
-    sceGuEnable(GU_LIGHT1);
     sceGuEnable(GU_LIGHTING);
 }
 
 void gfx_flash_world_end(void) {
-    if (!g_flash_on) return;
+    if (!g_flash_on && !extras_on()) return;
     sceGuDisable(GU_LIGHTING);
     sceGuDisable(GU_LIGHT1);
+    sceGuDisable(GU_LIGHT2);
+    sceGuDisable(GU_LIGHT3);
     sceGuColorMaterial(0);
 }
 
 void gfx_flash_lit_begin(void) {
-    if (!g_flash_on) return;
-    sceGuLightColor(1, GU_AMBIENT, 0xFF000000u);
-    sceGuLightColor(1, GU_DIFFUSE, FLASH_ABGR);
-    sceGuEnable(GU_LIGHT1);
+    if (g_flash_on) {
+        sceGuLightColor(1, GU_AMBIENT, 0xFF000000u);
+        sceGuLightColor(1, GU_DIFFUSE, FLASH_ABGR);
+        sceGuEnable(GU_LIGHT1);
+    }
+    for (int k = 0; k < 2; k++) {
+        if (!g_extra[k].on) continue;
+        sceGuLightColor(2 + k, GU_AMBIENT, 0xFF000000u);
+        sceGuLightColor(2 + k, GU_DIFFUSE, g_extra[k].abgr);
+        sceGuEnable(GU_LIGHT2 + k);
+    }
 }
 
 void gfx_flash_lit_end(void) {
     sceGuDisable(GU_LIGHT1);
+    sceGuDisable(GU_LIGHT2);
+    sceGuDisable(GU_LIGHT3);
 }
+
 
 void gfx_set_fog(float near_dist, float far_dist, unsigned int abgr) {
     if (far_dist <= near_dist) {

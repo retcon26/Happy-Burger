@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "achieve.h"
+#include "workshop.h"
 #include "audio.h"
 #include "game.h"
 #include "gfx.h"
@@ -102,6 +103,9 @@ static int run_autoload(char *status, int status_len) {
         if (strcmp(nm, "menu") == 0 && sscanf(line, "%*s %31s", page) == 1 && strcmp(page, "profile") == 0) {
             menu_show_profile(); // "menu profile": Multiplayer > Profile
         }
+        if (strcmp(nm, "menu") == 0 && sscanf(line, "%*s %31s", page) == 1 && strcmp(page, "workshop") == 0) {
+            menu_show_workshop();
+        }
         if (strcmp(nm, "menu") == 0 && sscanf(line, "%*s %31s", page) == 1 && strcmp(page, "achievements") == 0) {
             menu_show_achievements();
         }
@@ -137,6 +141,7 @@ int main(int argc, char *argv[]) {
     hud_init();
     settings_load();
     achieve_init();
+    workshop_load();
     ui_load();
     draw_loading(NULL);
     audio_init();

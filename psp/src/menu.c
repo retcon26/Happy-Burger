@@ -8,6 +8,9 @@
 #include "achieve.h"
 #include "audio.h"
 #include "camera.h"
+#include "game.h"
+#include "workshop.h"
+
 #include "gfx.h"
 #include "map.h"
 #include "mem.h"
@@ -20,7 +23,7 @@
 #define MAX_MAPS 320
 #define BG_ABGR 0xFF201810
 
-typedef enum { PAGE_MAIN, PAGE_NEWGAME, PAGE_OPTIONS, PAGE_MULTI, PAGE_JOIN, PAGE_PROFILE, PAGE_ACHIEVEMENTS } Page;
+typedef enum { PAGE_MAIN, PAGE_NEWGAME, PAGE_OPTIONS, PAGE_MULTI, PAGE_JOIN, PAGE_PROFILE, PAGE_ACHIEVEMENTS, PAGE_WORKSHOP } Page;
 #define MAX_HOSTS 8
 
 // Map browser categories, by name prefix like GMod's New Game screen
@@ -40,7 +43,7 @@ static const struct {
 #define NUM_CATS (int)(sizeof(k_cats) / sizeof(k_cats[0]))
 #define GRID_COLS 3
 
-static const char *k_main_items[] = {"Start New Game", "Multiplayer", "Achievements", "Options"};
+static const char *k_main_items[] = {"Start New Game", "Multiplayer", "Workshop", "Achievements", "Options"};
 #define NUM_MAIN_ITEMS (int)(sizeof(k_main_items) / sizeof(k_main_items[0]))
 static const char *k_multi_items[] = {"Host Game", "Join Game", "Profile", "Back"};
 #define NUM_MULTI_ITEMS 4
@@ -87,7 +90,7 @@ static const char *display_name(const char *map) {
 static int maps_in_cat(int cat, int *out) {
     int n = 0;
     for (int i = 0; i < M.num_maps; i++) {
-        if (map_category(M.maps[i]) == cat) out[n++] = i;
+        if (map_category(M.maps[i]) == cat && workshop_enabled(WS_MAP, M.maps[i])) out[n++] = i; // Workshop: off maps hidden
     }
     return n;
 }
@@ -129,6 +132,12 @@ void menu_close(void) {
 
 void menu_show_achievements(void) {
     M.page = PAGE_ACHIEVEMENTS;
+    M.sel = 3;
+}
+
+void menu_show_workshop(void) {
+    workshop_open(M.maps, M.num_maps);
+    M.page = PAGE_WORKSHOP;
     M.sel = 2;
 }
 
@@ -158,6 +167,15 @@ MenuResult menu_update(const InputState *in, float dt, char *map_out, int map_ou
         if (profile_update(in)) M.page = PAGE_MULTI;
         return MENU_STAY;
     }
+    if (M.page == PAGE_WORKSHOP) {
+        if (workshop_update(in)) {
+            M.page = PAGE_MAIN;
+            M.map_sel = 0;
+            M.scroll = 0;
+            game_refresh_player_models(); // custom characters switched on or off
+        }
+        return MENU_STAY;
+    }
     if (M.page == PAGE_ACHIEVEMENTS) {
         if (achievements_update(in)) M.page = PAGE_MAIN;
         return MENU_STAY;
@@ -183,6 +201,8 @@ MenuResult menu_update(const InputState *in, float dt, char *map_out, int map_ou
                 M.page = PAGE_MULTI;
                 M.multi_sel = 0;
             } else if (M.sel == 2) {
+                menu_show_workshop();
+            } else if (M.sel == 3) {
                 M.page = PAGE_ACHIEVEMENTS;
             } else {
                 M.page = PAGE_OPTIONS;
@@ -448,6 +468,8 @@ void menu_render(float fps) {
     } else if (M.page == PAGE_PROFILE) {
         draw_logo();
         profile_draw(150, 60, 300, 186);
+    } else if (M.page == PAGE_WORKSHOP) {
+        workshop_draw(40, 20, 400, 228);
     } else if (M.page == PAGE_ACHIEVEMENTS) {
         achievements_draw(40, 20, 400, 228);
     } else if (M.page == PAGE_JOIN) {

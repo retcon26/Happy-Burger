@@ -13,6 +13,8 @@ typedef enum {
 // Loads the packs every map uses (props, NPCs, sounds' names). Optional: game_start does it too, but
 // doing it once at startup keeps them out of the way of the big per-map allocations.
 void game_preload(void);
+// Rebuilds Options > Player model (after Main menu > Workshop switches characters on or off)
+void game_refresh_player_models(void);
 int game_start(const char *map_name, char *err, int err_len);
 // Multiplayer, right after game_start: host this game over ad-hoc, or join one (from the lobby)
 void game_host(void);

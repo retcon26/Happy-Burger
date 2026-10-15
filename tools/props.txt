@@ -224,3 +224,10 @@ models/weapons/c_357.mdl                          | _vm_357          | hidden vm
 models/weapons/c_smg1.mdl                         | _vm_smg1         | hidden vm
 models/weapons/c_shotgun.mdl                      | _vm_shotgun      | hidden vm
 models/dav0r/camera.mdl                           | _camera          | hidden shape=box
+# The Wheel, Lamp, Light, Button and Emitter tools' models (GMod's own)
+models/props_phx/normal_tire.mdl                  | _wheel           | hidden shape=cylinder
+models/lamps/torch.mdl                            | _lamp            | hidden shape=box
+models/maxofs2d/light_tubular.mdl                 | _light           | hidden shape=box
+models/maxofs2d/button_05.mdl                     | _button          | hidden shape=box
+models/props_lab/tpplug.mdl                       | _emitter         | hidden shape=box
+

@@ -20,6 +20,9 @@ void gfx_present(int vsync);
 
 // Flashlight: a spotlight from eye along fwd, applied to everything drawn while it's on.
 void gu_flashlight(int on, const float eye[3], const float fwd[3]);
+// Lamps and lights (k 0 or 1, on GE lights 2 and 3): a spotlight along dir, or a point light, lighting
+// what's within about range. Set every frame; lit like the flashlight between the begin/end calls below.
+void gfx_world_light(int k, int on, int spot, const float pos[3], const float dir[3], unsigned int abgr, float range);
 // Around the world's draw (baked vertex colours), and around lit models (props, NPCs).
 void gfx_flash_world_begin(void);
 void gfx_flash_world_end(void);
