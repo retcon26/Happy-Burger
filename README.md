@@ -285,8 +285,7 @@ your hands moves. Without the pack the game shows the still models from the prop
 | Version | Changes |
 |---|---|
 | 1.5.2 | Spawn menu: the other games' spawnlists grouped under a header per game; a Recent list; a badge on drivable vehicles and seats; all four grid columns fit |
-| 1.5.1 | Voice chat
- in multiplayer: hold D-pad Up to talk (PSP-3000's built-in mic, or a headset) |
+| 1.5.1 | Voice chat in multiplayer: hold D-pad Up to talk (PSP-3000's built-in mic, or a headset) |
 | 1.5.0 | Drivable Jeep and Airboat; seats for riding your contraptions; bullet holes; blood and holes with HL2's decal textures, no more flicker |
 | 1.4.0 | Team Fortress 2: 22 maps, its nine mercenaries as NPCs, ragdolls and player models, and about 390 of its props |
 | 1.3.0 | Animated first-person weapons; guns and the crowbar hurt other players in multiplayer; everyone sees the same ragdolls; PS2: props, NPCs and ragdolls on VU1 (about twice the frame rate) |
