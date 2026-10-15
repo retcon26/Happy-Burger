@@ -104,6 +104,11 @@ void phys_wake(PhysWorld *w, int i);
 void phys_step(PhysWorld *w, Map *m, float dt);
 // 1 low, 2 medium, 3 high (default): fewer solver passes and catch-up steps are cheaper but softer
 void phys_set_quality(int q);
+// Called at the start of every fixed step, before gravity and contacts (vehicles: suspension and engines)
+void phys_set_step_hook(void (*hook)(PhysWorld *w, Map *m, float dt));
+// An impulse (kg u/s) at a world point, and how fast that point of the body is moving
+void phys_apply_impulse(Body *b, vec3 world_point, vec3 impulse);
+vec3 phys_point_velocity(const Body *b, vec3 world_point);
 
 // Joints. b = -1 attaches to the world. Return the joint index or -1.
 int phys_weld(PhysWorld *w, int a, int b, vec3 world_anchor);

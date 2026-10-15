@@ -8,8 +8,8 @@
 // NPCs and doors; clients send their position, aim and actions).
 
 #define NET_MAX_PLAYERS 4
-#define NET_VERSION 4 // 2: rope packets name the joint type (sliders); 3: player models;
-                      // 4: the host's ragdolls sent to clients, and their physics gun holds
+#define NET_VERSION 5 // 2: rope packets name the joint type (sliders); 3: player models;
+                      // 4: the host's ragdolls sent to clients, and their physics gun holds; 5: vehicles
 
 typedef enum { NET_OFF, NET_CONNECTING, NET_READY, NET_FAILED } NetState;
 
@@ -42,6 +42,7 @@ enum {
     PK_LEAVE,      // either way: goodbye
     PK_RAGINFO,    // host -> all: a ragdoll's skeleton, from its pose at death
     PK_RAGPOSE,    // host -> all: a ragdoll's points
+    PK_VOICE,      // client -> host -> all others (or host -> all): a frame of voice chat
 };
 
 typedef struct {

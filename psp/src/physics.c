@@ -686,8 +686,23 @@ static void apply_springs(PhysWorld *w, float dt) {
     }
 }
 
+static void (*g_step_hook)(PhysWorld *w, Map *m, float dt);
+
+void phys_set_step_hook(void (*hook)(PhysWorld *w, Map *m, float dt)) {
+    g_step_hook = hook;
+}
+
+void phys_apply_impulse(Body *b, vec3 world_point, vec3 impulse) {
+    apply_impulse(b, v3_sub(world_point, b->pos), impulse);
+}
+
+vec3 phys_point_velocity(const Body *b, vec3 world_point) {
+    return point_velocity(b, v3_sub(world_point, b->pos));
+}
+
 static void step_once(PhysWorld *w, Map *m, float dt) {
     for (int i = 0; i < MAX_BODIES; i++) w->bodies[i].powered = 0;
+    if (g_step_hook) g_step_hook(w, m, dt);
     apply_forces(w, dt);
     apply_springs(w, dt);
     for (int i = 0; i < MAX_BODIES; i++) {

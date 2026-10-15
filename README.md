@@ -1,6 +1,6 @@
 # PSP Sandbox
 
-A Garry's Mod–style sandbox for the PSP, by Retcon. Current version: **1.4.0** (shown in the main menu's corner,
+A Garry's Mod–style sandbox for the PSP, by Retcon. Current version: **1.5.1** (shown in the main menu's corner,
 set in `psp/src/version.h`).
 
 - **`psp/`**: the engine, written from scratch in C for the PSP. It draws with the GE (the PSP's graphics chip)
@@ -27,10 +27,13 @@ contain it are for your own use. Don't share them.
   Source and Team Fortress 2 maps, plus **gm_construct_13** (see [Maps](#maps)).
 - **About 3,200 props:** 186 hand-picked ones in 10 spawnlists, plus about 3,000 more pulled automatically from
   HL2 and its episodes, CS:S, DoD:S, Portal, Portal 2, Left 4 Dead 1 and 2, Fistful of Frags, Black Mesa and TF2,
-  in 136 spawnlists. The extra ones load from the memory stick only when spawned.
+  in about 160 spawnlists. The extra ones load from the memory stick only when spawned.
 - **38 NPCs and 88 ragdolls**, including Team Fortress 2's nine mercenaries (also as player models) and
   characters from Counter-Strike: Source and Half-Life: Source.
-- **9 weapons and 17 tool gun tools**, blood, a flashlight, an HEV suit, Lua addons and 4-player multiplayer.
+- **9 weapons and 17 tool gun tools**, blood and bullet holes, a flashlight, an HEV suit, Lua addons and
+  4-player multiplayer with voice chat.
+- **Drivable vehicles:** HL2's Jeep and Airboat, and seats to sit on your own contraptions (R switches all their
+  thrusters and hoverballs). Spawn them from the Vehicles category; Use gets in and out.
 
 ## Targets
 
@@ -172,7 +175,12 @@ gm_construct's files, so it takes no extra space.
 
 Up to 4 players. The host runs the physics, NPCs, ragdolls and doors. Pick Multiplayer > Host Game or Join Game.
 Everyone needs the same version (the menu's corner shows it). Guns and the crowbar hurt other players (not with God
-mode on), and everyone sees the same ragdolls: the host simulates them and sends their poses.
+mode on), and everyone sees the same ragdolls: the host simulates them and sends their poses. Vehicles work for
+everyone: the host drives them for whoever is inside.
+
+**Voice chat (PSP):** hold D-pad Up to talk (a quick tap still undoes). It uses the PSP-3000's built-in
+microphone, or a headset's on a PSP-2000. The mic is only switched on while you hold Up. Speech is sent as
+4-bit ADPCM at 11 kHz (about 5.5 KB/s), and the host passes it on to everyone else.
 
 - **PSP:** ad-hoc wifi between PSPs (or PPSSPP instances with ad-hoc networking set up).
 - **PS2:** over a network adapter on the same local network (a fat PS2 with the adapter, a slim PS2, or PCSX2).
@@ -264,13 +272,21 @@ your hands moves. Without the pack the game shows the still models from the prop
 - **Player and NPCs** collide with props' real rotated shapes. If a prop is pushed into you, you can walk out of it.
 - **World traces** follow the BSP tree along the path, so long traces never miss walls.
 - **Ragdolls:** verlet ragdolls with braced joints that collide with the world and props.
-- **Blood:** shots and hits on flesh spray drops and leave splats. Pause > Clean Up Props clears them.
+- **Blood and bullet holes:** shots and hits on flesh spray drops and leave HL2's blood splats; bullets leave
+  holes in walls and props (on props they move with it), by the prop's material. They're drawn like HL2's
+  modulate decals (the surface times the texture), so they're lit with the surface, and are lifted off it by more
+  the further away they are, so the PSP's 16-bit depth buffer doesn't make them flicker. Splats that would hang
+  over an edge are made smaller. Pause > Clean Up Props clears them.
+- **Vehicles:** one rigid body each. The Jeep rides on four raycast wheels with springs, grip, steering and
+  all-wheel drive; the Airboat on four floats that also sit on water, pushed by its fan and turned by its rudders.
 
 ## Versions
 
 | Version | Changes |
 |---|---|
-| 1.4.0 | Team Fortress 2: 22 maps, its nine mercenaries as NPCs, ragdolls and player models, and about 450 of its props |
+| 1.5.1 | Voice chat in multiplayer: hold D-pad Up to talk (PSP-3000's built-in mic, or a headset) |
+| 1.5.0 | Drivable Jeep and Airboat; seats for riding your contraptions; bullet holes; blood and holes with HL2's decal textures, no more flicker |
+| 1.4.0 | Team Fortress 2: 22 maps, its nine mercenaries as NPCs, ragdolls and player models, and about 390 of its props |
 | 1.3.0 | Animated first-person weapons; guns and the crowbar hurt other players in multiplayer; everyone sees the same ragdolls; PS2: props, NPCs and ragdolls on VU1 (about twice the frame rate) |
 | 1.2.0 | NPC guns held properly; sawblades cut zombies in half; the Zombine and Zombie Torso as NPCs |
 | 1.1.0 | Camera tool |
@@ -295,7 +311,8 @@ your hands moves. Without the pack the game shows the still models from the prop
 - [x] PS2 speed: props and NPCs on VU1 too
 - [x] Animated first-person weapons; PvP damage; synced ragdolls
 - [x] Team Fortress 2's maps, props and characters
-- [ ] **Drivable vehicles:** HL2's Jeep and Airboat, with GMod's seat for sitting on your own contraptions
+- [x] Drivable Jeep and Airboat; seats for contraptions; bullet holes and decals; voice chat
+
 - [ ] **Save and load:** builds saved to the memory stick or memory card and loaded back on any map, and Options
       saved on the PS2 too
 - [ ] **More tools:** Wheel, Winch, Hydraulic, Lamp, Light, Button and Emitter

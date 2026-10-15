@@ -20,3 +20,8 @@ int snd_play_at(int id, vec3 pos, float vol);
 int snd_loop(int id, float vol);
 void snd_stop(int handle);
 void snd_set_listener(vec3 pos, float yaw_deg);
+// Voice chat: other players' speech (11025 Hz mono), one stream each (0..3). It starts playing once a
+// little has built up, to ride out the network's hiccups.
+void audio_stream_push(int stream, const short *pcm, int n);
+// Whether a stream is playing now (for the HUD's "talking" list)
+int audio_stream_active(int stream);

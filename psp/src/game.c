@@ -18,6 +18,8 @@
 #include "net.h"
 #include "npc.h"
 #include "vmodel.h"
+#include "vehicle.h"
+#include "voice.h"
 #include "physics.h"
 #include "proplib.h"
 #include "propx.h"
@@ -235,7 +237,7 @@ static int carries_props(int w) {
 // --- Multiplayer types ---------------------------------------------------------------------------
 
 enum { ROLE_OFFLINE, ROLE_HOST, ROLE_CLIENT };
-enum { PF_NOCLIP = 1, PF_DUCKED = 2, PF_DEAD = 4, PF_GOD = 8 }; // PF_GOD: the host has God mode on
+enum { PF_NOCLIP = 1, PF_DUCKED = 2, PF_DEAD = 4, PF_GOD = 8, PF_VEHICLE = 16 }; // PF_GOD: the host has God mode on
 // Actions clients ask the host to do
 enum {
     CMD_SPAWN = 1,  // i0 model, f: pos[3] normal[3] rot[4], u tint
@@ -266,6 +268,7 @@ enum {
     CMD_RAG_REMOVE, // i0 ragdoll
     CMD_RAG_FREEZE, // i0 ragdoll, i1 frozen
     CMD_RAG_INFLATE, // i0 ragdoll, i1 bone, f0 factor
+    CMD_SEAT_TOGGLE, // i0 seat: switch the thrusters and hoverballs of everything joined to it
 };
 #define MAX_OUTQ 8
 
@@ -291,6 +294,9 @@ typedef struct {
     float health;
     int model;       // NPC type of their player model, or -1
     float prop_hurt; // host: until a flying prop can hurt them again
+    int veh;         // the vehicle or seat (body) they're in, or -1
+    float veh_throttle, veh_steer;
+    int veh_brake;
     float heard; // seconds since the last packet
     uint32_t nonce;
     uint16_t last_cmd;
@@ -346,6 +352,17 @@ static struct {
     // Tool gun
     float beam_time;
     int use_carry; // G.held is being carried with the use key, not a weapon
+    // Driving (vehicle.c): the vehicle or seat we're in, or -1
+    int veh;
+    float veh_yaw;            // its heading last frame (the view turns with it)
+    float veh_throttle, veh_steer;
+    int veh_brake;
+    int veh_snd;              // engine loop, or -1
+    // Voice chat (voice.c): hold D-pad Up to talk in multiplayer (a quick tap still undoes)
+    float talk_hold;
+    int up_undo;              // this frame's Up means undo
+    uint8_t voice_seq;
+    float voice_heard[NET_MAX_PLAYERS]; // seconds since each player's last voice frame
     vec3 blast_pos; // last explosion, for its flash
     float blast_time;
     int tool_scroll; // first row shown in the spawn menu's tools list
@@ -407,6 +424,7 @@ static struct {
         int pickup, drop, hold, dryfire, freeze, tool, spawn, undo, menu_move, menu_select, step_concrete, step_water,
             land, splash, remove, weld, impact[NUM_SURF];
         int fire[WEAPON_COUNT], crowbar_hit, reload, pump, empty, bullet_impact, bullet_flesh;
+        int jeep_engine, airboat_engine, vehicle_enter, vehicle_exit;
     } snd;
 
     // Multiplayer (see the Multiplayer section). Slot 0 is the host.
@@ -465,6 +483,13 @@ static int god_mode(void) {
     return is_client() ? G.server_god : g_settings.god_mode;
 }
 static void send_cmd(int kind, int i0, int i1, uint32_t u, const float *f, int nf);
+static int prop_named(const char *name);
+static void vehicle_enter(int body);
+static int shoot(int weapon, vec3 eye, vec3 f, uint32_t seed, int world, int effects);
+static vec3 view_right(void);
+// autoload.txt test commands: the last prop "spawnat" made, and "autodrive"'s held stick
+static int g_test_body = -1, g_test_drive;
+static float g_test_throttle, g_test_steer;
 static void net_leave(void);
 static void vm_event(int kind);
 static void vm_tick(float dt);
@@ -473,6 +498,7 @@ static void damage_player(float amount);
 static vec3 view_forward(void);
 static void blood_clear(void);
 static void blood_spray(vec3 hit, vec3 dir, int amount);
+static void bullet_hole(vec3 eye, vec3 dir, vec3 hit, int body);
 
 // GMod-style notification in the bottom right
 static void notify(const char *msg, int kind) {
@@ -651,7 +677,23 @@ static void load_shared(void) {
     G.snd.empty = snd_find("empty");
     G.snd.bullet_impact = snd_find("bullet_impact");
     G.snd.bullet_flesh = snd_find("bullet_flesh");
+    G.snd.jeep_engine = snd_find("jeep_engine");
+    G.snd.airboat_engine = snd_find("airboat_engine");
+    G.snd.vehicle_enter = snd_find("vehicle_enter");
+    G.snd.vehicle_exit = snd_find("vehicle_exit");
     G.hold_sound = -1;
+    G.veh = -1;
+    G.veh_snd = -1;
+    // Drivable vehicles and seats (vehicle.c): which spawnable props they are
+    {
+        static const char *seat_names[] = {"Jeep Seat", "Airboat Seat", "Office Seat"};
+        static const float seat_eyes[] = {37.0f, 33.0f, 52.0f};
+        int seats[3];
+        for (int k = 0; k < 3; k++) seats[k] = G.props_loaded ? prop_named(seat_names[k]) : -1;
+        vehicles_set_models(G.props_loaded ? prop_named("Jeep") : -1, G.props_loaded ? prop_named("Airboat") : -1, seats,
+                            seat_eyes, 3);
+        vehicles_init();
+    }
     G.npcs_loaded = npcs_load() == 0 && npc_type_count() > 0;
     npc_set_shot_handler(npc_shot);
     // Options > Player model: the NPC pack's characters marked as player models
@@ -866,6 +908,8 @@ int game_start(const char *map_name, char *err, int err_len) {
     G.hurt_flash = 0.0f;
     G.held_rag = -1;
     G.cam_view = -1;
+    if (G.veh_snd >= 0) snd_stop(G.veh_snd);
+    G.veh = G.veh_snd = -1;
     refill_ammo();
     npcs_clear();
     // Single player until game_host / game_join say otherwise
@@ -907,6 +951,7 @@ void game_end(void) {
 
 static int spawn_prop(int model, vec3 at, vec3 normal, quat rot, unsigned int tint);
 static quat yaw_quat(float yaw_deg);
+static quat spawn_rot(int model);
 
 void game_command(const char *line) {
     int i;
@@ -942,6 +987,31 @@ void game_command(const char *line) {
         G.player.noclip = 1;
     } else if (strncmp(line, "noai", 4) == 0) { // NPCs stand still (Options > NPC thinking off), for looking at them
         g_settings.npc_think = 0;
+    } else if (sscanf(line, "spawnat %f %n", &x, &i) == 1) { // spawnat DISTANCE PROP NAME: in front of the player
+        const char *name = line + i;
+        char nm[32];
+        snprintf(nm, sizeof(nm), "%s", name);
+        nm[strcspn(nm, "\r\n")] = 0;
+        int model = G.props_loaded ? prop_named(nm) : -1;
+        vec3 f = view_forward();
+        f.z = 0.0f;
+        f = v3_norm(f);
+        if (model >= 0) g_test_body = spawn_prop(model, v3_mad(G.player.origin, f, x), v3(0, 0, 1), spawn_rot(model), 0xFFFFFFFF);
+    } else if (sscanf(line, "shots %d", &i) == 1) { // fires the weapon in hand i times, fanned across the view
+        vec3 eye = player_eye(&G.player), f = view_forward(), r = view_right();
+        for (int k = 0; k < i; k++) {
+            vec3 d = v3_norm(v3_add(f, v3_add(v3_scale(r, 0.25f * ((float)(k % 5) / 2.0f - 1.0f)),
+                                               v3(0, 0, 0.12f * ((float)(k / 5) - 1.0f)))));
+            shoot(G.weapon, eye, d, (uint32_t)k, 1, 1);
+        }
+    } else if (strncmp(line, "thirdperson", 11) == 0) {
+        g_settings.third_person = 1;
+    } else if (strncmp(line, "drive", 5) == 0) { // get into what spawnat made
+        if (g_test_body >= 0) vehicle_enter(g_test_body);
+    } else if (sscanf(line, "autodrive %f %f", &x, &y) == 2) { // hold the stick: throttle, steer
+        g_test_drive = 1;
+        g_test_throttle = x;
+        g_test_steer = y;
     } else if (strncmp(line, "mute", 4) == 0) {
         g_settings.sound = 0;
     } else if (strncmp(line, "host", 4) == 0) {
@@ -1172,9 +1242,47 @@ static int toggle_forces(int i) {
     return phys_toggle_forces(&G.phys, i);
 }
 
+// From a seat: every thruster and hoverball on whatever is welded, roped or hinged to it (GMod wires
+// them to the seat's keys; here R switches them all). Returns how many there are.
+static int toggle_contraption(int seat) {
+    unsigned char seen[MAX_BODIES];
+    int queue[MAX_BODIES], head = 0, tail = 0, n = 0;
+    memset(seen, 0, sizeof(seen));
+    seen[seat] = 1;
+    queue[tail++] = seat;
+    while (head < tail) {
+        int i = queue[head++];
+        n += phys_toggle_forces(&G.phys, i);
+        for (int j = 0; j < MAX_JOINTS; j++) {
+            const Joint *jt = &G.phys.joints[j];
+            if (!jt->active) continue;
+            int other = jt->a == i ? jt->b : jt->b == i ? jt->a : -1;
+            if (other >= 0 && !seen[other] && G.phys.bodies[other].active) {
+                seen[other] = 1;
+                queue[tail++] = other;
+            }
+        }
+    }
+    return n;
+}
+
 static quat yaw_quat(float yaw_deg) {
     return q_axis_angle(v3(0, 0, 1), yaw_deg * DEG2RAD);
 }
+
+// How a new prop is turned: facing you, except vehicles and seats, which point the way you look so
+// you can get straight in (the Jeep and Airboat face -Y in their models, seats +X)
+static quat spawn_rot(int model) {
+    Body probe;
+    memset(&probe, 0, sizeof(probe));
+    probe.active = 1;
+    probe.model = model;
+    int kind = vehicle_kind(&probe);
+    if (kind == VEH_JEEP || kind == VEH_AIRBOAT) return yaw_quat(G.yaw + 90.0f);
+    if (kind == VEH_SEAT) return yaw_quat(G.yaw);
+    return yaw_quat(G.yaw + 180.0f);
+}
+
 
 static int prop_named(const char *name);
 
@@ -1337,7 +1445,7 @@ static void spawn_from_menu(int model) {
     }
     vec3 n = a.body < 0 && a.hit_world ? a.normal : v3(0, 0, 1);
     // Face the player, like GMod
-    spawn_prop(model, a.point, n, yaw_quat(G.yaw + 180.0f), 0xFFFFFFFF);
+    spawn_prop(model, a.point, n, spawn_rot(model), 0xFFFFFFFF);
 }
 
 static void update_balloon_lift(Body *b) {
@@ -1905,6 +2013,10 @@ static void npc_shot(const char *weapon, vec3 from, vec3 to) {
                                               : WEAPON_SMG; // SMG and AR2
     if (g_settings.sound && G.snd.fire[w] >= 0) snd_play_at(G.snd.fire[w], from, 0.7f);
     add_tracer(from, to);
+    vec3 d = v3_sub(to, from);
+    float len = v3_len(d);
+    if (len > 1.0f) bullet_hole(from, v3_scale(d, 1.0f / len), to, -1); // a hole where it hit a wall (none if it hit someone)
+
 }
 
 // Prop pack index of a model by name (NPC weapons), remembered after the first look
@@ -1947,28 +2059,47 @@ static void draw_npc_weapons(void) {
     proplib_end();
 }
 
-// --- Blood ----------------------------------------------------------------------------------------
+// --- Blood and decals -----------------------------------------------------------------------------
 // A shot into flesh throws a spray of drops and leaves a splat on whatever is behind it, plus a
-// smaller one on the floor below.
+// smaller one on the floor below. Bullets leave holes in walls and props (on props they move with
+// it). Decals use HL2's textures (ui.pak "decal_*"), drawn the way HL2's DecalModulate draws them:
+// the surface's own colour times the texture times two, so they're lit just like the surface.
 
 #define MAX_BLOOD_DROPS 64
-#define MAX_BLOOD_DECALS 32
+#define MAX_DECALS 80
 #define BLOOD_DROP_LIFE 0.6f
-#define BLOOD_DECAL_LIFE 40.0f // seconds before a splat fades away
+#define BLOOD_DECAL_LIFE 90.0f // seconds before a splat is gone (bullet holes stay until pushed out)
+
+enum { DECAL_BLOOD, DECAL_CONCRETE, DECAL_METAL, DECAL_WOOD, DECAL_GLASS, DECAL_KINDS };
+// Texture names per kind, in ui.pak
+static const char *const k_decal_tex[DECAL_KINDS][4] = {
+    {"decal_blood1", "decal_blood2", "decal_blood3", "decal_blood4"},
+    {"decal_concrete1", "decal_concrete2", NULL, NULL},
+    {"decal_metal1", "decal_metal2", NULL, NULL},
+    {"decal_wood1", "decal_wood2", NULL, NULL},
+    {"decal_glass1", NULL, NULL, NULL},
+};
+#define DECAL_TEXTURES 16
 
 typedef struct {
     vec3 p, v;
     float life;
 } BloodDrop;
 typedef struct {
-    vec3 c, s, t; // centre (just off the surface) and the surface's two in-plane axes
+    vec3 c, s, t, n;  // centre on the surface, the surface's in-plane axes and normal (in the body's
+                      // frame when stuck to a prop)
     float r, age;
-    uint32_t seed;
-} BloodDecal;
+    int body;         // the prop it's stuck to, or -1 for the world
+    int body_model;   // ...which must still be the same prop
+    uint8_t tex, kind, active, pad;
+} Decal;
 static BloodDrop g_drops[MAX_BLOOD_DROPS];
-static BloodDecal g_decals[MAX_BLOOD_DECALS];
+static Decal g_decals[MAX_DECALS];
 static int g_next_drop, g_next_decal;
 static uint32_t g_blood_rand = 12345;
+static int g_decal_img[DECAL_TEXTURES]; // ui image per texture slot, -1 if missing
+static int g_decal_first[DECAL_KINDS], g_decal_count[DECAL_KINDS];
+static int g_decal_tex_ready;
 
 static float blood_rand(void) { // -1..1
     g_blood_rand = g_blood_rand * 1664525u + 1013904223u;
@@ -1985,16 +2116,105 @@ static void blood_clear(void) {
     memset(g_decals, 0, sizeof(g_decals));
 }
 
-static void blood_decal(vec3 at, vec3 n, float r) {
-    BloodDecal *d = &g_decals[g_next_decal];
-    g_next_decal = (g_next_decal + 1) % MAX_BLOOD_DECALS;
-    d->s = v3_norm(fabsf(n.z) < 0.9f ? v3_cross(n, v3(0, 0, 1)) : v3_cross(n, v3(1, 0, 0)));
-    d->t = v3_cross(n, d->s);
-    d->c = v3_mad(at, n, 0.6f);
+static void decal_textures(void) {
+    if (g_decal_tex_ready) return;
+    g_decal_tex_ready = 1;
+    int n = 0;
+    for (int k = 0; k < DECAL_KINDS; k++) {
+        g_decal_first[k] = n;
+        g_decal_count[k] = 0;
+        for (int j = 0; j < 4 && k_decal_tex[k][j] && n < DECAL_TEXTURES; j++) {
+            int id = ui_image_find(k_decal_tex[k][j]);
+            if (id < 0) continue;
+            g_decal_img[n++] = id;
+            g_decal_count[k]++;
+        }
+    }
+}
+
+// Does a square of half-size r around at lie flat on the surface (no corner hanging over an edge)?
+static int decal_fits(vec3 at, vec3 n, vec3 s, vec3 t, float r) {
+    for (int k = 0; k < 4; k++) {
+        vec3 corner = v3_add(at, v3_add(v3_scale(s, (k & 1) ? r : -r), v3_scale(t, (k & 2) ? r : -r)));
+        Trace tr;
+        cm_trace_line(&G.map, v3_mad(corner, n, 2.0f), v3_mad(corner, n, -3.0f), MASK_PROPSOLID, NULL, 0, &tr);
+        if (tr.fraction >= 1.0f || tr.startsolid || v3_dot(tr.normal, n) < 0.9f) return 0;
+    }
+    return 1;
+}
+
+// A decal at a world point on a surface with normal n; body >= 0 sticks it to that prop
+static void decal_add(vec3 at, vec3 n, float r, int kind, int body) {
+    decal_textures();
+    if (!g_decal_count[kind]) return;
+    vec3 s = v3_norm(fabsf(n.z) < 0.9f ? v3_cross(n, v3(0, 0, 1)) : v3_cross(n, v3(1, 0, 0)));
+    vec3 t = v3_cross(n, s);
+    // Turned at random, so neighbouring holes and splats don't look stamped
+    float a = blood_rand() * PI, ca = cosf(a), sa = sinf(a);
+    vec3 s2 = v3_add(v3_scale(s, ca), v3_scale(t, sa)), t2 = v3_cross(n, s2);
+    if (body < 0) {
+        // On the world: shrink it until it fits on its surface; a splat that can't is dropped
+        int tries = 0;
+        while (!decal_fits(at, n, s2, t2, r * 0.8f) && tries < 3) {
+            r *= 0.6f;
+            tries++;
+        }
+        if (tries == 3 && kind == DECAL_BLOOD) return;
+    }
+    Decal *d = &g_decals[g_next_decal];
+    g_next_decal = (g_next_decal + 1) % MAX_DECALS;
+    memset(d, 0, sizeof(*d));
+    d->active = 1;
+    d->kind = (uint8_t)kind;
+    d->tex = (uint8_t)(g_decal_first[kind] + (int)((blood_rand() * 0.5f + 0.5f) * (float)g_decal_count[kind] * 0.999f));
     d->r = r;
-    d->age = 0.0f;
-    d->seed = g_blood_rand;
-    blood_rand();
+    d->body = body;
+    if (body >= 0) {
+        const Body *b = &G.phys.bodies[body];
+        d->body_model = b->model;
+        d->c = q_rotate_inv(b->rot, v3_sub(at, b->pos));
+        d->n = q_rotate_inv(b->rot, n);
+        d->s = q_rotate_inv(b->rot, s2);
+        d->t = q_rotate_inv(b->rot, t2);
+    } else {
+        d->c = at;
+        d->n = n;
+        d->s = s2;
+        d->t = t2;
+    }
+}
+
+static int surface_decal(int surface) {
+    switch (surface) {
+    case SURF_METAL:
+        return DECAL_METAL;
+    case SURF_WOOD:
+    case SURF_CARDBOARD:
+        return DECAL_WOOD;
+    case SURF_GLASS:
+        return DECAL_GLASS;
+    default:
+        return DECAL_CONCRETE;
+    }
+}
+
+// A bullet hole where a shot hit the world (body < 0) or a prop
+static void bullet_hole(vec3 eye, vec3 dir, vec3 hit, int body) {
+    Trace tr;
+    if (body < 0) {
+        cm_trace_line(&G.map, v3_mad(hit, dir, -4.0f), v3_mad(hit, dir, 4.0f), MASK_PROPSOLID, NULL, 0, &tr);
+        if (tr.fraction >= 1.0f || tr.startsolid) return;
+        decal_add(tr.endpos, tr.normal, 2.6f + 0.6f * blood_rand(), DECAL_CONCRETE, -1);
+        return;
+    }
+    // The prop's real shape gives the face it was hit on
+    const Body *b = &G.phys.bodies[body];
+    CmBox box;
+    phys_body_cmbox(b, &box, 0);
+    cm_trace(&G.map, v3_mad(hit, dir, -8.0f), v3_mad(hit, dir, 8.0f), v3(0, 0, 0), v3(0, 0, 0), 0, &box, 1, &tr);
+    vec3 n = tr.fraction < 1.0f && !tr.startsolid ? tr.normal : v3_scale(dir, -1.0f);
+    (void)eye;
+    decal_add(tr.fraction < 1.0f ? tr.endpos : hit, n, 2.4f + 0.5f * blood_rand(), surface_decal(b->surface), body);
 }
 
 static void blood_spray(vec3 hit, vec3 dir, int amount) {
@@ -2009,9 +2229,10 @@ static void blood_spray(vec3 hit, vec3 dir, int amount) {
     }
     Trace tr;
     cm_trace_line(&G.map, hit, v3_mad(hit, dir, 110.0f), MASK_PROPSOLID, NULL, 0, &tr);
-    if (tr.fraction < 1.0f) blood_decal(tr.endpos, tr.normal, 9.0f + 4.0f * blood_rand());
+    if (tr.fraction < 1.0f && !tr.startsolid) decal_add(tr.endpos, tr.normal, 16.0f + 6.0f * blood_rand(), DECAL_BLOOD, -1);
     cm_trace_line(&G.map, hit, v3(hit.x, hit.y, hit.z - 160.0f), MASK_PROPSOLID, NULL, 0, &tr);
-    if (tr.fraction < 1.0f && blood_rand() > -0.3f) blood_decal(tr.endpos, tr.normal, 6.0f + 3.0f * blood_rand());
+    if (tr.fraction < 1.0f && !tr.startsolid && blood_rand() > -0.3f)
+        decal_add(tr.endpos, tr.normal, 11.0f + 4.0f * blood_rand(), DECAL_BLOOD, -1);
 }
 
 static void blood_update(float dt) {
@@ -2022,8 +2243,13 @@ static void blood_update(float dt) {
         b->v.z -= 500.0f * dt;
         b->p = v3_mad(b->p, b->v, dt);
     }
-    for (int i = 0; i < MAX_BLOOD_DECALS; i++) {
-        if (g_decals[i].r > 0.0f && (g_decals[i].age += dt) > BLOOD_DECAL_LIFE) g_decals[i].r = 0.0f;
+    for (int i = 0; i < MAX_DECALS; i++) {
+        Decal *d = &g_decals[i];
+        if (!d->active) continue;
+        d->age += dt;
+        if (d->kind == DECAL_BLOOD && d->age > BLOOD_DECAL_LIFE) d->active = 0;
+        // Gone with its prop (removed, broken, or the slot reused)
+        if (d->body >= 0 && (!G.phys.bodies[d->body].active || G.phys.bodies[d->body].model != d->body_model)) d->active = 0;
     }
 }
 
@@ -2173,6 +2399,11 @@ static int fire_bullet(vec3 eye, vec3 dir, const WeaponStats *ws, int world, int
         pvp_damage(idx, shooter, ws->damage);
     } else if (kind == 4) {
         npc_ragdoll_push(idx, bone, v3_scale(dir, ws->force * 1.5f));
+    }
+    if (!melee && kind == 1) {
+        bullet_hole(eye, dir, hit, -1);
+    } else if (!melee && kind == 2 && G.phys.bodies[idx].active) {
+        bullet_hole(eye, dir, hit, idx);
     }
     if (sound && kind) {
         int s = kind >= 3 ? G.snd.bullet_flesh : melee ? G.snd.crowbar_hit : G.snd.bullet_impact;
@@ -2644,6 +2875,8 @@ typedef struct {
     float yaw, pitch, health;
     int16_t held;
     uint16_t ack; // last command of this player's the host has run
+    int16_t veh;  // the vehicle or seat they're in, or -1
+    uint16_t pad2;
     char name[16];
 } NetPlayer;
 
@@ -2681,8 +2914,17 @@ typedef struct {
     uint8_t held_bone; // ...by this bone (hold_pos is where)
     float hold_pos[3];
     float hold_rot[4];
+    int16_t veh;           // the vehicle or seat we're in, or -1...
+    int8_t throttle, steer; // ...and how we drive it (x 127)
+    uint8_t veh_brake, vpad[3];
     NetCmd cmds[MAX_OUTQ];
 } PkCState;
+
+typedef struct {
+    NetHeader h;
+    uint8_t speaker, seq, pad[2]; // speaker: their slot (the host fills it in when relaying)
+    VoiceFrame frame;
+} PkVoice;
 
 typedef struct {
     uint8_t index, lib;
@@ -2887,6 +3129,9 @@ static void exec_cmd(int slot, const NetCmd *c) {
     case CMD_TOGGLE:
         if (b) toggle_forces(i);
         break;
+    case CMD_SEAT_TOGGLE:
+        if (b) toggle_contraption(i);
+        break;
     case CMD_UNDO:
         undo_pop(slot);
         break;
@@ -2986,6 +3231,8 @@ static void host_receive(void) {
                 p->health = 100.0f;
                 p->model = -1;
                 p->held = p->held_prev = -1;
+                p->veh = -1;
+
                 p->pos = v3(G.map.spawns[0].x, G.map.spawns[0].y, G.map.spawns[0].z);
             }
             p->heard = 0.0f;
@@ -3015,6 +3262,10 @@ static void host_receive(void) {
             p->held_bone = cs->held_bone;
             p->hold_pos = v3(cs->hold_pos[0], cs->hold_pos[1], cs->hold_pos[2]);
             p->hold_rot = q_norm((quat){cs->hold_rot[0], cs->hold_rot[1], cs->hold_rot[2], cs->hold_rot[3]});
+            p->veh = body_valid(cs->veh) && vehicle_kind(&G.phys.bodies[cs->veh]) != VEH_NONE ? cs->veh : -1;
+            p->veh_throttle = cs->throttle / 127.0f;
+            p->veh_steer = cs->steer / 127.0f;
+            p->veh_brake = cs->veh_brake;
             int n = cs->ncmds;
             int fits = (len - (int)offsetof(PkCState, cmds)) / (int)sizeof(NetCmd);
             if (n > fits) n = fits;
@@ -3024,6 +3275,13 @@ static void host_receive(void) {
                 exec_cmd(s, &cs->cmds[k]);
                 p->last_cmd = cs->cmds[k].id;
             }
+        } else if (pk.h.type == PK_VOICE && s > 0 && len >= (int)sizeof(PkVoice)) {
+            // Play it here and pass it on to everyone else
+            PkVoice *v = (PkVoice *)pk.raw;
+            v->speaker = (uint8_t)s;
+            voice_play(s, &v->frame);
+            G.voice_heard[s] = 0.0f;
+            net_send(NULL, v, sizeof(PkVoice));
         } else if (pk.h.type == PK_LEAVE && s > 0) {
             drop_peer(s, "left the game");
         }
@@ -3042,9 +3300,10 @@ static void pack_player(NetPlayer *np, int s) {
         np->pitch = G.pitch;
         np->weapon = (uint8_t)G.weapon;
         np->model = model_byte(player_model());
-        np->flags = (uint8_t)((G.player.noclip ? PF_NOCLIP : 0) | (G.player.ducked ? PF_DUCKED : 0) | (G.dead_time > 0.0f ? PF_DEAD : 0) | god);
+        np->flags = (uint8_t)((G.player.noclip ? PF_NOCLIP : 0) | (G.player.ducked ? PF_DUCKED : 0) | (G.dead_time > 0.0f ? PF_DEAD : 0) | (G.veh >= 0 ? PF_VEHICLE : 0) | god);
         np->health = G.health;
         np->held = (int16_t)G.held;
+        np->veh = (int16_t)G.veh;
         snprintf(np->name, sizeof(np->name), "%s", net_nickname());
         return;
     }
@@ -3061,6 +3320,7 @@ static void pack_player(NetPlayer *np, int s) {
     np->flags = (uint8_t)((p->flags & ~PF_GOD) | god);
     np->health = p->health;
     np->held = (int16_t)p->held;
+    np->veh = (int16_t)p->veh;
     np->ack = p->last_cmd;
     snprintf(np->name, sizeof(np->name), "%s", p->name);
 }
@@ -3232,7 +3492,7 @@ static void host_update(float dt) {
             p->held_prev = p->held;
         }
         if (p->held_rag >= 0) npc_ragdoll_drag(p->held_rag, p->held_bone, p->hold_pos, dt);
-        npc_puppet_set(s, p->health > 0.0f, p->model, p->pos, p->yaw, dt);
+        npc_puppet_set(s, p->health > 0.0f && !(p->flags & PF_VEHICLE), p->model, p->pos, p->yaw, dt);
     }
 }
 
@@ -3309,6 +3569,7 @@ static void client_apply_players(const PkPlayers *pk) {
         p->flags = np->flags;
         p->model = np->model == NET_NO_MODEL ? -1 : np->model;
         p->health = np->health;
+        p->veh = np->veh;
         snprintf(p->name, sizeof(p->name), "%.15s", np->name);
     }
     for (int i = 0; i < MAX_NPCS; i++) npc_net_set(i, &pk->npcs[i]);
@@ -3415,6 +3676,15 @@ static int client_update(float dt) {
         case PK_RAGINFO:
             if (len >= (int)sizeof(PkRagInfo)) npc_ragdoll_net_set_info(&pk.ri.i);
             break;
+        case PK_VOICE:
+            if (len >= (int)sizeof(PkVoice)) {
+                const PkVoice *v = (const PkVoice *)pk.raw;
+                if (v->speaker != G.my_slot && v->speaker < NET_MAX_PLAYERS) {
+                    voice_play(v->speaker, &v->frame);
+                    G.voice_heard[v->speaker] = 0.0f;
+                }
+            }
+            break;
         case PK_RAGPOSE:
             if (len >= (int)(sizeof(NetHeader) + offsetof(RagPose, pos)) &&
                 len >= (int)(sizeof(NetHeader) + offsetof(RagPose, pos) + pk.rpo.p.nb * sizeof(pk.rpo.p.pos[0]))) {
@@ -3447,7 +3717,7 @@ static int client_update(float dt) {
         cs.pitch = G.pitch;
         cs.weapon = (uint8_t)G.weapon;
         cs.model = model_byte(player_model());
-        cs.flags = (uint8_t)((G.player.noclip ? PF_NOCLIP : 0) | (G.player.ducked ? PF_DUCKED : 0) | (G.dead_time > 0.0f ? PF_DEAD : 0));
+        cs.flags = (uint8_t)((G.player.noclip ? PF_NOCLIP : 0) | (G.player.ducked ? PF_DUCKED : 0) | (G.dead_time > 0.0f ? PF_DEAD : 0) | (G.veh >= 0 ? PF_VEHICLE : 0));
         cs.held = (int16_t)((carries_props(G.weapon) || G.use_carry) && G.held >= 0 ? G.held : -1);
         cs.held_rag = (int8_t)(G.held_rag >= 0 ? G.held_rag : -1);
         cs.held_bone = (uint8_t)G.held_bone;
@@ -3458,6 +3728,10 @@ static int client_update(float dt) {
         cs.hold_rot[1] = G.net_hold_rot.y;
         cs.hold_rot[2] = G.net_hold_rot.z;
         cs.hold_rot[3] = G.net_hold_rot.w;
+        cs.veh = (int16_t)G.veh;
+        cs.throttle = (int8_t)(G.veh_throttle * 127.0f);
+        cs.steer = (int8_t)(G.veh_steer * 127.0f);
+        cs.veh_brake = (uint8_t)G.veh_brake;
         cs.ncmds = (uint8_t)G.outq_n;
         memcpy(cs.cmds, G.outq, sizeof(NetCmd) * G.outq_n);
         net_send(G.host_mac, &cs, (int)offsetof(PkCState, cmds) + G.outq_n * (int)sizeof(NetCmd));
@@ -3478,7 +3752,8 @@ static int client_update(float dt) {
     npcs_animate(dt);
     for (int s = 0; s < NET_MAX_PLAYERS; s++) {
         const Peer *p = &G.peers[s];
-        npc_puppet_set(s, s != G.my_slot && p->active && p->health > 0.0f, p->model, p->pos, p->yaw, dt);
+        npc_puppet_set(s, s != G.my_slot && p->active && p->health > 0.0f && !(p->flags & PF_VEHICLE), p->model, p->pos,
+                       p->yaw, dt);
     }
     return 1;
 }
@@ -3491,8 +3766,65 @@ static void net_leave(void) {
     }
     net_stop();
     G.role = ROLE_OFFLINE;
+    voice_set_talking(0);
     npcs_clear();
     npc_ragdolls_set_remote(0);
+}
+
+// Push to talk (multiplayer, with a mic): hold D-pad Up; a quick tap is still undo. In single
+// player Up undoes straight away as before. active: the game's controls are live (not a menu).
+#define TALK_HOLD 0.25f
+static void voice_update(const InputState *in, float dt, int active) {
+    G.up_undo = 0;
+    for (int s = 0; s < NET_MAX_PLAYERS; s++) G.voice_heard[s] += dt;
+    int mp = G.role != ROLE_OFFLINE && voice_available();
+    if (!active) {
+        G.talk_hold = 0.0f;
+        voice_set_talking(0);
+    } else if (!mp) {
+        G.up_undo = (in->pressed & PSP_CTRL_UP) != 0;
+    } else if (in->held & PSP_CTRL_UP) {
+        G.talk_hold += dt;
+        if (G.talk_hold >= TALK_HOLD && !voice_talking()) voice_set_talking(1);
+    } else {
+        if (G.talk_hold > 0.0f && G.talk_hold < TALK_HOLD) G.up_undo = 1;
+        G.talk_hold = 0.0f;
+        voice_set_talking(0);
+    }
+    // Send what the mic has picked up: to the host, or (the host) to everyone
+    VoiceFrame f;
+    while (voice_take_frame(&f)) {
+        if (!net_active()) continue;
+        PkVoice v;
+        v.h = net_header(PK_VOICE);
+        v.speaker = (uint8_t)G.my_slot;
+        v.seq = G.voice_seq++;
+        v.pad[0] = v.pad[1] = 0;
+        v.frame = f;
+        net_send(G.role == ROLE_CLIENT ? G.host_mac : NULL, &v, sizeof(v));
+    }
+}
+
+// Who's talking: you (a mic dot) and anyone heard in the last moment
+static void draw_voice_hud(void) {
+    if (G.role == ROLE_OFFLINE) return;
+    float y = 60.0f;
+    if (voice_talking()) {
+        ui_rrect(8, y, 74, 16, 4, 0xA0000000);
+        ui_rrect(12, y + 4, 8, 8, 4, 0xFF3030E0);
+        ui_text(FONT_SMALL, 24, y + 2, 0xFFFFFFFF, ALIGN_LEFT, "Talking");
+        y += 20.0f;
+    }
+    for (int s = 0; s < NET_MAX_PLAYERS; s++) {
+        if (s == G.my_slot || G.voice_heard[s] > 0.3f || !G.peers[s].active) continue;
+        char line[32];
+        snprintf(line, sizeof(line), "%.15s", G.peers[s].name[0] ? G.peers[s].name : "Player");
+        float w = ui_text_width(FONT_SMALL, line) + 26.0f;
+        ui_rrect(8, y, w, 16, 4, 0xA0000000);
+        ui_rrect(12, y + 4, 8, 8, 4, 0xFF40C040);
+        ui_text(FONT_SMALL, 24, y + 2, 0xFFFFFFFF, ALIGN_LEFT, line);
+        y += 20.0f;
+    }
 }
 
 void game_host(void) {
@@ -3505,6 +3837,7 @@ void game_host(void) {
         return;
     }
     notify(NET_STARTING_MSG, NOTE_HINT);
+    voice_init();
 }
 
 void game_join(int slot, const uint8_t host_mac[6]) {
@@ -3524,6 +3857,7 @@ void game_join(int slot, const uint8_t host_mac[6]) {
         G.net_trot[i] = G.phys.bodies[i].rot;
     }
     notify("Joined the game", NOTE_HINT);
+    voice_init();
 }
 
 const char *game_exit_message(void) {
@@ -3586,8 +3920,8 @@ static void prop_damage(float dt) {
         Peer *p = &G.peers[s];
         if (!local) {
             p->prop_hurt -= dt;
-            if (G.role != ROLE_HOST || !p->active || p->health <= 0.0f || (p->flags & PF_NOCLIP) || p->prop_hurt > 0.0f) continue;
-        } else if (G.dead_time > 0.0f || G.player.noclip || G.prop_hurt > 0.0f) {
+            if (G.role != ROLE_HOST || !p->active || p->health <= 0.0f || (p->flags & (PF_NOCLIP | PF_VEHICLE)) || p->prop_hurt > 0.0f) continue;
+        } else if (G.dead_time > 0.0f || G.player.noclip || G.prop_hurt > 0.0f || G.veh >= 0) {
             continue;
         }
         int bi = -1;
@@ -3609,6 +3943,153 @@ static void prop_damage(float dt) {
     }
 }
 
+// --- Vehicles and seats (vehicle.c) ----------------------------------------------------------------
+
+// Someone else is in it (the host knows its peers; a client hears it in the players snapshot)
+static int vehicle_taken(int body) {
+    for (int s = 0; s < NET_MAX_PLAYERS; s++) {
+        if (s == G.my_slot || G.role == ROLE_OFFLINE) continue;
+        const Peer *p = &G.peers[s];
+        if (p->active && p->veh == body) return 1;
+    }
+    return 0;
+}
+
+static void vehicle_enter(int body) {
+    Body *b = &G.phys.bodies[body];
+    if (vehicle_taken(body)) {
+        notify("Someone's already in it", NOTE_ERROR);
+        return;
+    }
+    if (b->frozen && vehicle_kind(b) != VEH_SEAT) {
+        notify("Unfreeze it to drive it", NOTE_ERROR);
+        return;
+    }
+    physgun_release(1);
+    G.use_carry = 0;
+    G.veh = body;
+    vec3 eye;
+    vehicle_seat(b, &eye, &G.veh_yaw);
+    G.yaw = G.veh_yaw;
+    G.pitch = 0.0f;
+    G.player.velocity = v3(0, 0, 0);
+    G.player.ducked = 0;
+    G.player.noclip = 0;
+    G.veh_throttle = G.veh_steer = 0.0f;
+    G.veh_brake = 0;
+    play(G.snd.vehicle_enter, 0.7f);
+    int kind = vehicle_kind(b);
+    int engine = kind == VEH_JEEP ? G.snd.jeep_engine : kind == VEH_AIRBOAT ? G.snd.airboat_engine : -1;
+    G.veh_snd = engine >= 0 ? snd_loop(engine, 0.35f) : -1;
+#ifdef PS2
+    notify(kind == VEH_SEAT ? "R1: thrusters on/off   Triangle: get out" : "Triangle: get out   X: handbrake", NOTE_HINT);
+#else
+    notify(kind == VEH_SEAT ? "R: thrusters on/off   Right: get out" : "Right: get out   L: handbrake", NOTE_HINT);
+#endif
+}
+
+// Gets out beside it (the first exit with room for you). force: even with no room (it's gone, or you died)
+static void vehicle_leave(int force) {
+    if (G.veh < 0) return;
+    Body *b = &G.phys.bodies[G.veh];
+    G.player.ducked = 0;
+    vec3 mn, mx;
+    player_hull(&G.player, &mn, &mx);
+    vec3 spot = G.player.origin;
+    int found = 0;
+    if (b->active) {
+        CmBox boxes[MAX_BODIES + MAX_NPCS + NET_MAX_PLAYERS];
+        int nb = build_prop_boxes(boxes, -1);
+        vec3 exits[6];
+        int n = vehicle_exits(b, exits, 6);
+        for (int k = 0; k < n && !found; k++) {
+            Trace tr;
+            cm_trace(&G.map, exits[k], exits[k], mn, mx, MASK_PLAYERSOLID, boxes, nb, &tr);
+            if (!tr.startsolid) {
+                spot = exits[k];
+                found = 1;
+            }
+        }
+    }
+    if (!found && !force) {
+        notify("No room to get out here", NOTE_ERROR);
+        return;
+    }
+    G.player.origin = spot;
+    G.player.velocity = v3(0, 0, 0);
+    G.player.on_ground = 0;
+    G.was_on_ground = 1; // no fall damage for climbing out
+    if (G.veh_snd >= 0) snd_stop(G.veh_snd);
+    G.veh_snd = -1;
+    G.veh = -1;
+    play(G.snd.vehicle_exit, 0.7f);
+}
+
+// While in it: the stick drives (or nothing, on a seat), L is the handbrake, R switches a seat's
+// contraption, the use key gets out. Looking around still works.
+static void vehicle_controls(const InputState *in, float dt) {
+    (void)dt;
+    Body *b = &G.phys.bodies[G.veh];
+    G.veh_throttle = clampf(-in->ay, -1.0f, 1.0f);
+    G.veh_steer = clampf(in->ax, -1.0f, 1.0f);
+    if (fabsf(G.veh_throttle) < 0.15f) G.veh_throttle = 0.0f; // the nub's dead zone
+    if (fabsf(G.veh_steer) < 0.15f) G.veh_steer = 0.0f;
+    if (g_test_drive) {
+        G.veh_throttle = g_test_throttle;
+        G.veh_steer = g_test_steer;
+    }
+#ifdef PS2
+    G.veh_brake = (in->held & PSP_CTRL_CROSS) != 0;
+    int toggle = in->pressed & PSP_CTRL_RTRIGGER;
+#else
+    G.veh_brake = (in->held & PSP_CTRL_LTRIGGER) != 0;
+    int toggle = in->pressed & PSP_CTRL_RTRIGGER;
+#endif
+    if (toggle && vehicle_kind(b) == VEH_SEAT) {
+        if (is_client()) {
+            send_cmd(CMD_SEAT_TOGGLE, G.veh, 0, 0, NULL, 0);
+            play(G.snd.menu_move, 0.5f);
+        } else if (toggle_contraption(G.veh)) {
+            play(G.snd.menu_move, 0.5f);
+        } else {
+            notify("No thrusters or hoverballs on it"
+, NOTE_HINT);
+        }
+    }
+    if (in->pressed & use_buttons()) vehicle_leave(0);
+}
+
+// Keeps you in the seat as it moves, and turns your view with it. Called after the physics step.
+static void vehicle_place_player(void) {
+    if (G.veh < 0) return;
+    Body *b = &G.phys.bodies[G.veh];
+    if (!b->active || vehicle_kind(b) == VEH_NONE || G.dead_time > 0.0f) {
+        vehicle_leave(1); // it was removed or undone (or you died)
+        return;
+    }
+    vec3 eye;
+    float yaw;
+    vehicle_seat(b, &eye, &yaw);
+    float turn = yaw - G.veh_yaw;
+    while (turn > 180.0f) turn -= 360.0f;
+    while (turn < -180.0f) turn += 360.0f;
+    G.yaw = fmodf(G.yaw + turn, 360.0f);
+    G.veh_yaw = yaw;
+    G.player.origin = v3_add(G.player.origin, v3_sub(eye, player_eye(&G.player)));
+    G.player.velocity = v3(0, 0, 0);
+    G.player.on_ground = 1;
+    G.was_on_ground = 1;
+}
+
+// Host: drives every occupied vehicle this frame (yours and the other players')
+static void vehicles_drive(void) {
+    if (G.veh >= 0 && !is_client()) vehicle_drive(G.veh, G.veh_throttle, G.veh_steer, G.veh_brake);
+    for (int s = 1; s < NET_MAX_PLAYERS && G.role == ROLE_HOST; s++) {
+        const Peer *p = &G.peers[s];
+        if (p->active && p->veh >= 0 && body_valid(p->veh)) vehicle_drive(p->veh, p->veh_throttle, p->veh_steer, p->veh_brake);
+    }
+}
+
 // Everything that isn't the local player: physics, NPCs, scripts, the network.
 // Returns 0 when a multiplayer game has ended for this PSP.
 static int world_step(float dt) {
@@ -3619,7 +4100,9 @@ static int world_step(float dt) {
     }
     if (G.role == ROLE_HOST) host_update(dt);
     script_think(dt);
+    vehicles_drive();
     phys_step(&G.phys, &G.map, dt);
+    vehicles_end_frame();
     prop_damage(dt);
     NpcTarget t[NET_MAX_PLAYERS];
     memset(t, 0, sizeof(t));
@@ -3647,6 +4130,8 @@ GameResult game_update(const InputState *in, float dt) {
     G.hurt_flash -= dt;
     if (G.dead_time > 0.0f && !G.paused) {
         // Dead: the world keeps going; X (or a few seconds) respawns
+        if (G.veh >= 0) vehicle_leave(1);
+        voice_update(in, dt, 1); // the dead can still talk
         G.dead_time += dt;
         if (G.dead_time > 1.0f && (in->pressed & (PSP_CTRL_CROSS | PSP_CTRL_RTRIGGER) || G.dead_time > 6.0f)) respawn();
         if (in->pressed & PSP_CTRL_START) open_pause();
@@ -3674,11 +4159,15 @@ GameResult game_update(const InputState *in, float dt) {
 
     if (G.paused) {
         // The world is frozen while paused, like single-player GMod; multiplayer keeps going
+        voice_update(in, dt, 0);
         GameResult r = pause_update(in);
         if (r != GAME_CONTINUE || G.role == ROLE_OFFLINE) return r;
     } else if (G.qmenu) {
+        voice_update(in, dt, 0);
         qmenu_update(in);
     } else {
+        voice_update(in, dt, 1);
+
         if (in->pressed & PSP_CTRL_START) {
             physgun_release(1);
             open_pause();
@@ -3739,99 +4228,109 @@ GameResult game_update(const InputState *in, float dt) {
         G.pitch = clampf(G.pitch, -89.0f, 89.0f);
         G.yaw = fmodf(G.yaw, 360.0f);
 
-        cmd.forward = -in->ay;
-        cmd.side = in->ax;
-        cmd.yaw = G.yaw;
-        cmd.pitch = G.pitch;
-        int holding = G.held >= 0 || G.held_rag >= 0;
-#ifdef PS2
-        // X jumps on the DualShock (and L1, except with the gravity gun or the Camera tool, where L1 is theirs), except with the gravity gun or the Camera tool, where L1 is theirs)
-        cmd.jump = !holding && (in->held & (G.weapon == WEAPON_GRAVGUN || camera_tool_out() ? PSP_CTRL_CROSS
-                                                                                            : PSP_CTRL_LTRIGGER | PSP_CTRL_CROSS));
-#else
-        cmd.jump = !holding && !camera_tool_out() && (in->held & PSP_CTRL_LTRIGGER); // the Camera tool's L switches view
-#endif
-        if (!camera_tool_out() || !is_camera(G.cam_view)) G.cam_view = -1; // putting the tool away ends the camera view
-        if (G.player.noclip) {
-            cmd.duck = (in->held & PSP_CTRL_DOWN) && !holding;
-        } else if ((in->pressed & PSP_CTRL_DOWN) && !holding) {
-            G.player.ducked = !G.player.ducked; // crouch is a toggle: the thumb can't hold it and steer
-        }
-        if (!G.player.noclip) cmd.duck = G.player.ducked;
-
-        // Reload (GMod's R): Circle on the DualShock, which the right stick frees up; on the PSP, hold
-        // D-pad Left (a tap still switches weapons, when it's let go)
-        int next_weapon = 0;
-#ifdef PS2
-        next_weapon = !holding && (in->pressed & PSP_CTRL_LEFT);
-        if (!holding && (in->pressed & PSP_CTRL_CIRCLE)) start_reload();
-#else
-        if (in->held & PSP_CTRL_LEFT) {
-            G.left_hold += dt;
-            if (G.left_hold >= SELECT_HOLD_TIME && !G.left_fired) {
-                G.left_fired = 1;
-                start_reload();
-            }
+        if (G.veh >= 0) {
+            vehicle_controls(in, dt); // driving: the stick steers, Use gets out
         } else {
-            next_weapon = !holding && (in->released & PSP_CTRL_LEFT) && !G.left_fired;
-            G.left_hold = 0.0f;
-            G.left_fired = 0;
-        }
-#endif
-        if (next_weapon) {
-            G.weapon = (G.weapon + 1) % WEAPON_COUNT;
-            G.reload_left = 0.0f; // switching away cancels a reload
-            G.switch_time = 0.25f;
-            G.wsel_time = 1.5f;
-            G.stage = 0;
-            play(G.snd.menu_move, 0.4f);
-        }
-        // Use key: switch a prop's thrusters and hoverballs, else pick up something light, else use
-        // whatever's there (doors, buttons). Only the host knows which props have thrusters.
-        int use_pressed = !holding && (in->pressed & use_buttons());
-        Aim use_aim;
-        use_aim.body = -1;
-        if (use_pressed) use_aim = aim_trace(1500.0f);
-        int has_forces = use_aim.body >= 0 && !is_client() && toggle_forces(use_aim.body);
-        if (has_forces) {
-            play(G.snd.menu_move, 0.5f);
-        } else if (use_pressed && use_pickup()) {
-            // carrying it now (use_carry_update)
-        } else if (use_aim.body >= 0 && is_client()) {
-            send_cmd(CMD_TOGGLE, use_aim.body, 0, 0, NULL, 0);
-            play(G.snd.menu_move, 0.5f);
-        } else if (use_pressed) {
-            vec3 eye = player_eye(&G.player), f = view_forward();
-            if (is_client()) {
-                float v[6] = {eye.x, eye.y, eye.z, f.x, f.y, f.z};
-                send_cmd(CMD_USE, 0, 0, 0, v, 6);
-            } else if (!ents_use(&G.map, eye, f) && !script_use()) {
-                play(G.snd.dryfire, 0.3f);
+            cmd.forward = -in->ay;
+            cmd.side = in->ax;
+            cmd.yaw = G.yaw;
+            cmd.pitch = G.pitch;
+            int holding = G.held >= 0 || G.held_rag >= 0;
+    #ifdef PS2
+            // X jumps on the DualShock (and L1, except with the gravity gun or the Camera tool, where L1 is theirs), except with the gravity gun or the Camera tool, where L1 is theirs)
+            cmd.jump = !holding && (in->held & (G.weapon == WEAPON_GRAVGUN || camera_tool_out() ? PSP_CTRL_CROSS
+                                                                                                : PSP_CTRL_LTRIGGER | PSP_CTRL_CROSS));
+    #else
+            cmd.jump = !holding && !camera_tool_out() && (in->held & PSP_CTRL_LTRIGGER); // the Camera tool's L switches view
+    #endif
+            if (!camera_tool_out() || !is_camera(G.cam_view)) G.cam_view = -1; // putting the tool away ends the camera view
+            if (G.player.noclip) {
+                cmd.duck = (in->held & PSP_CTRL_DOWN) && !holding;
+            } else if ((in->pressed & PSP_CTRL_DOWN) && !holding) {
+                G.player.ducked = !G.player.ducked; // crouch is a toggle: the thumb can't hold it and steer
             }
-        }
-        if (!holding && (in->pressed & PSP_CTRL_UP) && is_client()) {
-            send_cmd(CMD_UNDO, 0, 0, 0, NULL, 0);
-            play(G.snd.undo, 0.6f);
-            notify("Undone", NOTE_UNDO);
-        } else if (!holding && (in->pressed & PSP_CTRL_UP)) {
-            int r = undo_pop(0);
-            if (r) {
-                play(G.snd.undo, 0.6f);
-                notify(r == 3 ? "Undone Ragdoll" : r == 2 ? "Undone NPC" : "Undone Prop", NOTE_UNDO);
-            }
-        }
-        if (G.switch_time <= 0.0f) {
-            if (G.use_carry) {
-                use_carry_update(in, dt); // carrying with the use key takes over from the weapon
-            } else if (G.weapon == WEAPON_PHYSGUN) {
-                physgun_update(in, dt);
-            } else if (G.weapon == WEAPON_GRAVGUN || G.weapon == WEAPON_HANDS) {
-                carry_update(in, dt);
-            } else if (G.weapon == WEAPON_TOOLGUN) {
-                if (in->pressed & PSP_CTRL_RTRIGGER) toolgun_fire();
-                if (G.tool == TOOL_CAMERA && (in->pressed & PSP_CTRL_LTRIGGER)) camera_switch();
+            if (!G.player.noclip) cmd.duck = G.player.ducked;
+
+            // Reload (GMod's R): Circle on the DualShock, which the right stick frees up; on the PSP, hold
+            // D-pad Left (a tap still switches weapons, when it's let go)
+            int next_weapon = 0;
+    #ifdef PS2
+            next_weapon = !holding && (in->pressed & PSP_CTRL_LEFT);
+            if (!holding && (in->pressed & PSP_CTRL_CIRCLE)) start_reload();
+    #else
+            if (in->held & PSP_CTRL_LEFT) {
+                G.left_hold += dt;
+                if (G.left_hold >= SELECT_HOLD_TIME && !G.left_fired) {
+                    G.left_fired = 1;
+                    start_reload();
+                }
             } else {
-                gun_update(in, dt);
+                next_weapon = !holding && (in->released & PSP_CTRL_LEFT) && !G.left_fired;
+                G.left_hold = 0.0f;
+                G.left_fired = 0;
+            }
+    #endif
+            if (next_weapon) {
+                G.weapon = (G.weapon + 1) % WEAPON_COUNT;
+                G.reload_left = 0.0f; // switching away cancels a reload
+                G.switch_time = 0.25f;
+                G.wsel_time = 1.5f;
+                G.stage = 0;
+                play(G.snd.menu_move, 0.4f);
+            }
+            // Use key: switch a prop's thrusters and hoverballs, else pick up something light, else use
+            // whatever's there (doors, buttons). Only the host knows which props have thrusters.
+            int use_pressed = !holding && (in->pressed & use_buttons());
+            Aim use_aim;
+            use_aim.body = -1;
+            if (use_pressed) use_aim = aim_trace(1500.0f);
+            // A vehicle or seat within reach: get in
+            int vehicle = use_aim.body >= 0 && use_aim.dist < 160.0f &&
+                          vehicle_kind(&G.phys.bodies[use_aim.body]) != VEH_NONE;
+            int has_forces = !vehicle && use_aim.body >= 0 && !is_client() && toggle_forces(use_aim.body);
+            if (vehicle) {
+                vehicle_enter(use_aim.body);
+                use_aim.body = -1;
+            } else if (has_forces) {
+                play(G.snd.menu_move, 0.5f);
+            } else if (use_pressed && use_pickup()) {
+                // carrying it now (use_carry_update)
+            } else if (use_aim.body >= 0 && is_client()) {
+                send_cmd(CMD_TOGGLE, use_aim.body, 0, 0, NULL, 0);
+                play(G.snd.menu_move, 0.5f);
+            } else if (use_pressed) {
+                vec3 eye = player_eye(&G.player), f = view_forward();
+                if (is_client()) {
+                    float v[6] = {eye.x, eye.y, eye.z, f.x, f.y, f.z};
+                    send_cmd(CMD_USE, 0, 0, 0, v, 6);
+                } else if (!ents_use(&G.map, eye, f) && !script_use()) {
+                    play(G.snd.dryfire, 0.3f);
+                }
+            }
+            if (!holding && G.up_undo && is_client()) {
+                send_cmd(CMD_UNDO, 0, 0, 0, NULL, 0);
+                play(G.snd.undo, 0.6f);
+                notify("Undone", NOTE_UNDO);
+            } else if (!holding && G.up_undo) {
+                int r = undo_pop(0);
+                if (r) {
+                    play(G.snd.undo, 0.6f);
+                    notify(r == 3 ? "Undone Ragdoll" : r == 2 ? "Undone NPC" : "Undone Prop", NOTE_UNDO);
+                }
+            }
+            if (G.switch_time <= 0.0f) {
+                if (G.use_carry) {
+                    use_carry_update(in, dt); // carrying with the use key takes over from the weapon
+                } else if (G.weapon == WEAPON_PHYSGUN) {
+                    physgun_update(in, dt);
+                } else if (G.weapon == WEAPON_GRAVGUN || G.weapon == WEAPON_HANDS) {
+                    carry_update(in, dt);
+                } else if (G.weapon == WEAPON_TOOLGUN) {
+                    if (in->pressed & PSP_CTRL_RTRIGGER) toolgun_fire();
+                    if (G.tool == TOOL_CAMERA && (in->pressed & PSP_CTRL_LTRIGGER)) camera_switch();
+                } else {
+                    gun_update(in, dt);
+                }
             }
         }
     }
@@ -3843,9 +4342,9 @@ GameResult game_update(const InputState *in, float dt) {
 
     CmBox boxes[MAX_BODIES + MAX_NPCS + NET_MAX_PLAYERS];
     int nb = build_prop_boxes(boxes, G.held);
-    player_move(&G.player, &G.map, &cmd, boxes, nb, dt);
-    // Your body, in third person or seen from a camera
-    npc_self_set(third_person() || G.cam_view >= 0, player_model(), G.player.origin, G.yaw, dt);
+    if (G.veh < 0) player_move(&G.player, &G.map, &cmd, boxes, nb, dt); // in a vehicle, it carries you
+    // Your body, in third person or seen from a camera (not while driving: it would stand up through the roof)
+    npc_self_set((third_person() || G.cam_view >= 0) && G.veh < 0, player_model(), G.player.origin, G.yaw, dt);
 
     vec3 pmin, pmax;
     player_hull(&G.player, &pmin, &pmax);
@@ -3893,6 +4392,7 @@ GameResult game_update(const InputState *in, float dt) {
         net_leave();
         return GAME_EXIT_TO_MENU;
     }
+    vehicle_place_player(); // after the physics step, so the view rides along without lagging a frame
     return GAME_CONTINUE;
 }
 
@@ -4217,39 +4717,62 @@ static void draw_haunt(void) {
     gu_flashlight(g_flashlight && G.dead_time <= 0.0f, e, fw);
 }
 
+typedef struct {
+    float u, v;
+    unsigned int color;
+    float x, y, z;
+} DecalVert;
+#define DECALVERT_FMT (GU_TEXTURE_32BITF | GU_COLOR_8888 | GU_VERTEX_32BITF | GU_TRANSFORM_3D)
+
 static void draw_blood(void) {
     sceGumMatrixMode(GU_MODEL);
     sceGumLoadIdentity();
     sceGuEnable(GU_BLEND);
-    sceGuBlendFunc(GU_ADD, GU_SRC_ALPHA, GU_ONE_MINUS_SRC_ALPHA, 0, 0);
     sceGuDepthMask(GU_TRUE); // test against the world, don't write
     sceGuDisable(GU_CULL_FACE);
-    // Splats: a ragged fan, dark in the middle and thinning out at the edge
-    for (int i = 0; i < MAX_BLOOD_DECALS; i++) {
-        const BloodDecal *d = &g_decals[i];
-        if (d->r <= 0.0f || v3_len(v3_sub(d->c, G.cam.pos)) > 1500.0f) continue;
-        float fade = clampf((BLOOD_DECAL_LIFE - d->age) / 5.0f, 0.0f, 1.0f);
-        unsigned int mid = ((unsigned int)(fade * 230.0f) << 24) | 0x00000070;
-        unsigned int edge = ((unsigned int)(fade * 120.0f) << 24) | 0x00000058;
-        enum { SEG = 10 };
-        float rad[SEG];
-        uint32_t s = d->seed;
-        for (int k = 0; k < SEG; k++) {
-            s = s * 1664525u + 1013904223u;
-            rad[k] = d->r * (0.55f + (float)((s >> 16) & 0xFF) / 255.0f * 0.7f);
+    // Decals: surface x texture x 2 (grey leaves it alone), with no fog (it would tint the multiply)
+    decal_textures();
+    gfx_set_fog(0, 0, 0);
+    sceGuBlendFunc(GU_ADD, GU_DST_COLOR, GU_SRC_COLOR, 0, 0);
+    for (int tex = 0; tex < DECAL_TEXTURES; tex++) {
+        int n = 0;
+        for (int i = 0; i < MAX_DECALS; i++) n += g_decals[i].active && g_decals[i].tex == tex;
+        float umax, vmax;
+        if (!n || !ui_image_bind(g_decal_img[tex], &umax, &vmax)) continue;
+        DecalVert *v = sceGuGetMemory(sizeof(DecalVert) * n * 6), *o = v;
+        int drawn = 0;
+        for (int i = 0; i < MAX_DECALS; i++) {
+            const Decal *d = &g_decals[i];
+            if (!d->active || d->tex != tex) continue;
+            vec3 c = d->c, s = d->s, t = d->t, nn = d->n;
+            if (d->body >= 0) {
+                const Body *b = &G.phys.bodies[d->body];
+                c = v3_add(b->pos, q_rotate(b->rot, c));
+                s = q_rotate(b->rot, s);
+                t = q_rotate(b->rot, t);
+                nn = q_rotate(b->rot, nn);
+            }
+            float dist = v3_len(v3_sub(c, G.cam.pos));
+            if (dist > 1500.0f) continue;
+            // Lifted off the surface by more the further it is: the 16-bit depth buffer can't tell
+            // a decal from its wall far away, and a fixed gap shows close up
+            c = v3_mad(c, nn, 0.15f + dist * 0.0018f);
+            vec3 a = v3_scale(s, d->r), bb = v3_scale(t, d->r);
+            vec3 q[4] = {v3_sub(v3_sub(c, a), bb), v3_sub(v3_add(c, a), bb), v3_add(v3_add(c, a), bb), v3_add(v3_sub(c, a), bb)};
+            const float uv[4][2] = {{0, 0}, {umax, 0}, {umax, vmax}, {0, vmax}};
+            const int idx[6] = {0, 1, 2, 0, 2, 3};
+            for (int k = 0; k < 6; k++) {
+                int j = idx[k];
+                *o++ = (DecalVert){uv[j][0], uv[j][1], 0xFFFFFFFF, q[j].x, q[j].y, q[j].z};
+            }
+            drawn++;
         }
-        ColVert *v = sceGuGetMemory(sizeof(ColVert) * SEG * 3);
-        for (int k = 0; k < SEG; k++) {
-            float a0 = (float)k * (2.0f * PI / SEG), a1 = (float)(k + 1) * (2.0f * PI / SEG);
-            float r0 = rad[k], r1 = rad[(k + 1) % SEG];
-            vec3 p0 = v3_add(d->c, v3_add(v3_scale(d->s, cosf(a0) * r0), v3_scale(d->t, sinf(a0) * r0)));
-            vec3 p1 = v3_add(d->c, v3_add(v3_scale(d->s, cosf(a1) * r1), v3_scale(d->t, sinf(a1) * r1)));
-            v[k * 3] = (ColVert){mid, d->c.x, d->c.y, d->c.z};
-            v[k * 3 + 1] = (ColVert){edge, p0.x, p0.y, p0.z};
-            v[k * 3 + 2] = (ColVert){edge, p1.x, p1.y, p1.z};
-        }
-        sceGumDrawArray(GU_TRIANGLES, COLVERT_FMT, SEG * 3, 0, v);
+        if (drawn) sceGumDrawArray(GU_TRIANGLES, DECALVERT_FMT, drawn * 6, 0, v);
     }
+    sceGuDisable(GU_TEXTURE_2D);
+    sceGuTexWrap(GU_REPEAT, GU_REPEAT);
+    apply_fog();
+    sceGuBlendFunc(GU_ADD, GU_SRC_ALPHA, GU_ONE_MINUS_SRC_ALPHA, 0, 0);
     // Drops: little camera-facing diamonds
     vec3 r = view_right(), u = v3_cross(r, view_forward());
     int n = 0;
@@ -4801,7 +5324,9 @@ static int third_person(void) {
 }
 
 static vec3 third_person_camera(vec3 eye) {
-    vec3 want = v3_add(v3_mad(eye, view_forward(), -THIRD_PERSON_BACK), v3(0, 0, THIRD_PERSON_UP));
+    // Further back in a vehicle, so you see all of it
+    float back = G.veh >= 0 && vehicle_kind(&G.phys.bodies[G.veh]) != VEH_SEAT ? THIRD_PERSON_BACK * 3.0f : THIRD_PERSON_BACK;
+    vec3 want = v3_add(v3_mad(eye, view_forward(), -back), v3(0, 0, THIRD_PERSON_UP + (back - THIRD_PERSON_BACK) * 0.3f));
     Trace tr;
     cm_trace(&G.map, eye, want, v3(-4, -4, -4), v3(4, 4, 4), MASK_PLAYERSOLID, NULL, 0, &tr);
     return tr.startsolid ? eye : tr.endpos;
@@ -4860,14 +5385,17 @@ void game_render(float fps) {
     draw_balloons_and_ropes();
     draw_beams();
     draw_blood();
-    if (G.dead_time <= 0.0f && !third_person() && G.cam_view < 0) draw_viewmodel();
+    if (G.dead_time <= 0.0f && !third_person() && G.cam_view < 0 && G.veh < 0) draw_viewmodel();
+
     gu_flashlight(0, NULL, NULL); // the menu's background map shouldn't inherit it
     map_set_view_limit(1e9f);     // nor the draw distance
 
     ui_begin();
     if (!G.paused) {
         draw_hud(fps);
+        draw_voice_hud();
         script_hud();
+
     }
     if (G.qmenu && !G.paused) draw_qmenu(player_prop_count());
     if (G.paused) draw_pause();

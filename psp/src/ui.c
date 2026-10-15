@@ -302,6 +302,25 @@ void ui_image(int id, float x, float y, float w, float h, unsigned int tint) {
     sceGuDrawArray(GU_SPRITES, TVERT_FMT, 2, 0, v);
 }
 
+int ui_image_bind(int id, float *u, float *v) {
+    if (id < 0 || id >= g_num_images) return 0;
+    const ImageRec *im = &g_images[id];
+    const char *base = g_file;
+    sceGuEnable(GU_TEXTURE_2D);
+    sceGuClutMode(GU_PSM_8888, 0, 0xFF, 0);
+    sceGuClutLoad(256 / 8, base + im->clut_ofs);
+    sceGuTexMode(GU_PSM_T8, 0, 0, 1);
+    sceGuTexImage(0, im->tex_w, im->tex_h, im->tex_w, base + im->data_ofs);
+    sceGuTexFunc(GU_TFX_MODULATE, GU_TCC_RGBA);
+    sceGuTexFilter(GU_LINEAR, GU_LINEAR);
+    sceGuTexWrap(GU_CLAMP, GU_CLAMP);
+    sceGuTexScale(1.0f, 1.0f);
+    sceGuTexOffset(0.0f, 0.0f);
+    *u = (float)im->w / (float)im->tex_w;
+    *v = (float)im->h / (float)im->tex_h;
+    return 1;
+}
+
 static const Glyph *glyph(int font, int ch) {
     if (ch < 32 || ch > 126) ch = '?';
     const Glyph *g = (const Glyph *)((const char *)g_file + g_fonts[font].glyph_ofs);

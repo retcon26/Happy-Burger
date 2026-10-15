@@ -30,6 +30,15 @@ FONT_CANDIDATES = {
 }
 # Order matters: psp/src/ui.h FONT_* indices
 FONTS = [("regular", 11), ("bold", 12), ("bold", 18), ("bold", 26)]
+# Decal textures (HL2's): name in the pack, material, size kept. game.c picks them by these names.
+DECALS = [
+    ("decal_blood1", "decals/blood1", 64), ("decal_blood2", "decals/blood2", 64),
+    ("decal_blood3", "decals/blood3", 64), ("decal_blood4", "decals/flesh/blood1", 64),
+    ("decal_concrete1", "decals/concrete/shot1", 32), ("decal_concrete2", "decals/concrete/shot2", 32),
+    ("decal_metal1", "decals/metal/shot1", 32), ("decal_metal2", "decals/metal/shot2", 32),
+    ("decal_wood1", "decals/wood/shot1", 32), ("decal_wood2", "decals/wood/shot2", 32),
+    ("decal_glass1", "decals/glass/shot1", 32),
+]
 
 
 def _font_path(kind):
@@ -189,8 +198,19 @@ def build_ui(gmod_root, props, maps, out_path, log=print):
     logo = _load_image(fs, "materials/gui/gmod_logo.vtf")
     if logo is not None:
         add_image("logo", logo, 256, 64)
+    # Blood splats and bullet holes. The game draws decals as "modulate" ones (surface x texture x 2, as
+    # HL2's DecalModulate does), so each is laid on neutral grey first: grey leaves the wall as it is
+    decals = 0
+    for name, path, size in DECALS:
+        img = _load_image(fs, f"materials/{path}.vtf")
+        if img is None:
+            continue
+        flat = Image.new("RGBA", img.size, (128, 128, 128, 255))
+        flat.alpha_composite(img.convert("RGBA"))
+        add_image(name, flat.convert("RGB"), size, size, alpha=False)
+        decals += 1
     log(f"  ui: {len(FONTS)} fonts, {found}/{len(props)} spawn icons, "
-        f"{len(thumbs)}/{len(maps)} map thumbnails (in {thumbs_path}), logo {'yes' if logo else 'no'}")
+        f"{len(thumbs)}/{len(maps)} map thumbnails (in {thumbs_path}), logo {'yes' if logo else 'no'}, {decals} decals")
 
     w = PmapWriter(PUI_MAGIC, PUI_VERSION)
     w.add("FNTS", bytes(16 * len(font_recs)), len(font_recs))

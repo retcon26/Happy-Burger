@@ -64,6 +64,56 @@ static short __attribute__((aligned(64))) g_out[2][BLOCK * 2];
 static vec3 g_listener;
 static float g_listener_yaw;
 
+// Voice chat streams: written by the game thread, read by the mixer
+#define STREAMS 4
+#define STREAM_LEN 8192   // samples (0.74 s at 11025 Hz); a power of two
+#define STREAM_PREBUF 2048 // starts playing once 0.19 s is waiting
+#define STREAM_STEP 16384 // 11025 / 44100 in 16.16
+#define STREAM_VOL 300    // /256: speech a bit over the game
+static short g_stream[STREAMS][STREAM_LEN];
+static volatile uint32_t g_stream_w[STREAMS], g_stream_r[STREAMS];
+static uint32_t g_stream_frac[STREAMS];
+static volatile int g_stream_on[STREAMS];
+
+void audio_stream_push(int s, const short *pcm, int n) {
+    if (s < 0 || s >= STREAMS) return;
+    uint32_t w = g_stream_w[s];
+    if (w + (uint32_t)n - g_stream_r[s] > STREAM_LEN) return; // too far behind: drop it rather than garble
+    for (int i = 0; i < n; i++) g_stream[s][(w + (uint32_t)i) & (STREAM_LEN - 1)] = pcm[i];
+    g_stream_w[s] = w + (uint32_t)n;
+}
+
+int audio_stream_active(int s) {
+    return s >= 0 && s < STREAMS && g_stream_on[s];
+}
+
+static void mix_streams(int *mix) {
+    for (int s = 0; s < STREAMS; s++) {
+        uint32_t avail = g_stream_w[s] - g_stream_r[s];
+        if (!g_stream_on[s]) {
+            if (avail < STREAM_PREBUF) continue;
+            g_stream_on[s] = 1;
+        }
+        uint32_t r = g_stream_r[s], frac = g_stream_frac[s];
+        for (int i = 0; i < BLOCK; i++) {
+            if (r == g_stream_w[s]) {
+                g_stream_on[s] = 0; // ran dry: wait for the next words to build up again
+                break;
+            }
+            int a = g_stream[s][r & (STREAM_LEN - 1)];
+            int b = (r + 1 != g_stream_w[s]) ? g_stream[s][(r + 1) & (STREAM_LEN - 1)] : a;
+            int v = ((a + (((b - a) * (int)frac) >> 16)) * STREAM_VOL) >> 8;
+            mix[i * 2] += v;
+            mix[i * 2 + 1] += v;
+            frac += STREAM_STEP;
+            r += frac >> 16;
+            frac &= 0xFFFF;
+        }
+        g_stream_frac[s] = frac;
+        g_stream_r[s] = r;
+    }
+}
+
 static int mixer_thread(SceSize args, void *argp) {
     int buf = 0;
     static int mix[BLOCK * 2];
@@ -104,6 +154,7 @@ static int mixer_thread(SceSize args, void *argp) {
             }
         }
         sceKernelSignalSema(g_sema, 1);
+        mix_streams(mix);
 
         // Master volume, then a limiter that follows the mix sample by sample: when overlapping
         // sounds get too loud it turns them down within a couple of samples and brings the level

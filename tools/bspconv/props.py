@@ -10,7 +10,7 @@ from . import pspimage
 from .materials import MaterialLoader
 from .models import load_model
 from .viewmodels import load_arms_only, load_viewmodel
-from .phy import hull_planes, read_convex_pieces, simplify
+from .phy import align_to_mesh, hull_planes, read_convex_pieces, simplify
 from .pmap import BATCH_ALPHATEST, BATCH_TRANSLUCENT, PmapWriter
 from .vpk import GameFS
 
@@ -184,6 +184,7 @@ def build_pack(prop_list, gmod_root, out_path, tier_name, log=print, fs=None, ma
         pieces = []
         if shape in (SHAPE_AUTO, SHAPES["hull"]) and not vm:
             pieces = read_convex_pieces(fs.read(mdl_path[:-4] + ".phy"))[:HULL_MAX_PIECES]
+            pieces = align_to_mesh(pieces, [v[5:8] for mesh in m.meshes for v in mesh.verts])
         first_piece, first_point = len(hull_pieces), len(hull_points)
         if pieces:
             shape = SHAPES["hull"]

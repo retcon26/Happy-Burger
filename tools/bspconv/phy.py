@@ -82,6 +82,44 @@ def read_convex_pieces(data):
     return pieces
 
 
+def align_to_mesh(pieces, mesh_points):
+    """Turns the pieces to sit on the model, for the few whose .phy is turned about the vertical axis
+    (models with a rotated root bone: HL2's Jeep 180 degrees, GMod's seats 90). Ordinary props' hulls
+    already match their mesh and come back as they are."""
+    pts = [p for pc in pieces for p in pc]
+    if not pts or not mesh_points:
+        return pieces
+
+    def bounds(ps):
+        return [min(p[k] for p in ps) for k in range(3)], [max(p[k] for p in ps) for k in range(3)]
+
+    def turn(p, q):  # q quarter turns about +Z
+        x, y, z = p
+        for _ in range(q):
+            x, y = -y, x
+        return (x, y, z)
+
+    mlo, mhi = bounds(mesh_points)
+    size = max(max(mhi[k] - mlo[k] for k in range(3)), 1.0)
+    hlo, hhi = bounds(pts)
+    if sum(abs(hlo[k] - mlo[k]) + abs(hhi[k] - mhi[k]) for k in range(2)) < 0.15 * size:
+        return pieces
+    sample = mesh_points[:: max(1, len(mesh_points) // 300)]
+    hull_sample = pts[:: max(1, len(pts) // 200)]
+
+    def fit(q):  # mean distance from the turned hull's points to the nearest mesh vertex
+        total = 0.0
+        for p in hull_sample:
+            t = turn(p, q)
+            total += min((t[0] - s[0]) ** 2 + (t[1] - s[1]) ** 2 + (t[2] - s[2]) ** 2 for s in sample) ** 0.5
+        return total / len(hull_sample)
+
+    best = min(range(4), key=lambda q: (fit(q), q))
+    if best == 0:
+        return pieces
+    return [[turn(p, best) for p in pc] for pc in pieces]
+
+
 def hull_planes(points):
     """Outward planes (nx, ny, nz, d) of a convex point set, via a brute-force hull (point sets are small)."""
     n = len(points)

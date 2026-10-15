@@ -44,7 +44,7 @@ GAMES = [
     ("Black Mesa", ["Black Mesa/bms"]),
     ("TF2", ["Team Fortress 2/tf", "Team Fortress 2/hl2"]),
 ]
-PER_GAME = 450   # most models taken from one game, so the others get a look in
+PER_GAME = 390   # most models taken from one game, so every game (TF2 last) fits under TOTAL
 TOTAL = 3800     # the game's spawn menu holds 4096 entries, with the core props
 MAX_SIZE = 320   # bigger than this is scenery, not a prop
 MIN_CATEGORY = 6 # smaller folders go into the game's "Misc"

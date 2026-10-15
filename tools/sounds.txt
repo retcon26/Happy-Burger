@@ -89,3 +89,7 @@ vo_alyx_alert 0 sound/vo/npc/alyx/watchout01.wav
 vo_barney_pain 0 sound/vo/npc/barney/ba_pain01.wav sound/vo/npc/barney/ba_pain02.wav
 vo_barney_die 0 sound/vo/npc/barney/ba_pain07.wav sound/vo/npc/barney/ba_pain09.wav
 vo_barney_alert 0 sound/vo/npc/barney/ba_ohshit03.wav
+jeep_engine      1 sound/vehicles/v8/v8_idle_loop1.wav
+airboat_engine   1 sound/vehicles/airboat/fan_motor_idle_loop1.wav
+vehicle_enter    0 sound/doors/door_metal_thin_open1.wav
+vehicle_exit     0 sound/doors/door_metal_thin_close2.wav

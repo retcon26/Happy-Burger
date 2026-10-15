@@ -1,4 +1,4 @@
-PSP SANDBOX / PS2GMOD - CONTROLS  (v1.2.0)
+PSP SANDBOX / PS2GMOD - CONTROLS  (v1.5.1)
 =========================================
 
 ON FOOT                      PSP                        PS2 (DualShock 2)
@@ -17,7 +17,11 @@ Use (doors, buttons,         D-pad Right                D-pad Right or Triangle
 Carry a light prop           Hold D-pad Right           Hold D-pad Right or Triangle
   (let go to drop, R throws)
 Flashlight                   Hold D-pad Right           Square
-Undo last prop/NPC/ragdoll   D-pad Up                   D-pad Up
+Undo last prop/NPC/ragdoll   D-pad Up (multiplayer:     D-pad Up
+                               a quick tap)
+Talk (multiplayer, with a    Hold D-pad Up              -
+  mic: the PSP-3000's
+  built-in one, or a headset)
 Spawn menu                   Tap Select                 Tap Select
 Noclip (fly)                 Hold Select                Hold Select
   - in noclip: Jump = up, hold D-pad Down = down
@@ -63,7 +67,19 @@ Camera tool (Tool Gun)       PSP                        PS2
   while the Camera tool is out (on the PS2, X still jumps).
 
 
+VEHICLES AND SEATS (PSP; not on the PS2 yet)
+  Spawn the Jeep, Airboat or a seat from the spawn menu's Vehicles category.
+  Get in / out               Use (D-pad Right), aiming at it from close by
+  Drive                      Analog nub: up / down is throttle and brake (and reverse),
+                             left / right steers
+  Handbrake                  Hold L (the Jeep's back end slides out)
+  Seats: weld, rope or hinge one to your contraption, sit in it, and press R to switch
+  every thruster and hoverball on the contraption on and off.
+  Look around with the face buttons; Third-person view (Options) follows from behind.
+
+
 SPAWN MENU (tap Select)
+
   L / R               Switch between Categories, Items and Tools panels
   D-pad               Move around a panel (Right/Left also steps between panels)
   X                   Spawn the item / pick the tool

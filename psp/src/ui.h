@@ -23,6 +23,9 @@ int ui_image_find(const char *name);
 // Image size in pixels (its content area), 0 if missing.
 void ui_image_size(int id, int *w, int *h);
 void ui_image(int id, float x, float y, float w, float h, unsigned int tint);
+// Makes an image the GE's current texture, for drawing it in 3D (decals). Sets *u, *v to the texture
+// coordinates of its far corner (it may sit in a bigger power-of-two texture). 0 if it's missing.
+int ui_image_bind(int id, float *u, float *v);
 // A map's thumbnail (data/thumbs.pak), read from disc while it's shown: 0 if the map has none or
 // it isn't in yet (a couple are read per frame)
 int ui_map_thumb(const char *map, float x, float y, float w, float h);
