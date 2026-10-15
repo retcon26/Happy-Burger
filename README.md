@@ -387,20 +387,26 @@ your hands moves. Without the pack the game shows the still models from the prop
 - [x] Animated first-person weapons; PvP damage; synced ragdolls
 - [x] Team Fortress 2's maps, props and characters
 - [x] Drivable Jeep and Airboat; seats for contraptions; bullet holes and decals; voice chat
+- [x] Working doors in TF2 and HL2 maps; mingebags; multiplayer profiles (name, player and physics gun colours) and
+      name tags; achievements
+- [x] TF2's mercenaries in RED and BLU teams with their guns and voice lines
+- [x] More tools: Wheel, Winch, Hydraulic, Lamp, Light, Button and Emitter
+- [x] Workshop menu: maps (by game), Lua addons and custom characters switched on and off
 
 - [ ] **Save and load:** builds saved to the memory stick or memory card and loaded back on any map, and Options
       saved on the PS2 too
-- [ ] **More tools:** Wheel, Winch, Hydraulic, Lamp, Light, Button and Emitter
 - [ ] **More weapons:** RPG, crossbow, grenades, AR2 and bugbait (antlions follow you)
 - [ ] **NPC navigation:** routes along the map's own node graph (`info_node`), so NPCs walk round walls instead
       of into them
 - [ ] **Face and finger posing:** Face Poser expressions and Finger Poser hands for ragdolls
 - [ ] **Effects:** sparks on metal, smoke, fire after explosions, muzzle smoke and tracer impacts
 - [ ] **Lua gamemodes:** a bigger Lua API and small gamemodes built on it, like Prop Hunt and a zombie survival mode
-- [ ] **More player customization:** on top of picking a player model, a player colour, model skins and
-      bodygroups, and a weapon colour for the physics gun
+- [ ] **More player customization:** model skins and bodygroups, on top of the player model and the player and
+      physics gun colours
 - [ ] **Quick chat:** a radial menu of short messages and gestures for multiplayer, since the consoles have no
       keyboard
 - [ ] **Share builds:** send a saved build to the other players in the game over ad-hoc or LAN
 - [ ] **Day, night and weather:** a time-of-day option with fog and rain, built on gm_construct_13's fog
 - [ ] **Screenshots:** a pause menu button that saves the screen to the memory stick or memory card
+- [ ] **Workshop maps:** convert maps from your GMod Workshop downloads too (the converter already reads their
+      .gma files for characters), listed under Workshop
