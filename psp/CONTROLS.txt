@@ -121,6 +121,7 @@ WORKSHOP (main menu)
   L / R: tab (Maps, Addons, Custom)   Up / Down: choose
   Left / Right: a page at a time      X: on / off
   Triangle: the whole tab on / off    Circle: back (saved)
+  Maps are listed by game: X opens a game, Triangle switches all its maps.
 
 
 ACHIEVEMENTS (main menu)

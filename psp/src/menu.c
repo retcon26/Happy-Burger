@@ -35,6 +35,10 @@ static const struct {
     {"Counter-Strike", {"cs_", "de_", "as_", NULL}},
     {"Half-Life 2", {"d1_", "d2_", "d3_", NULL}},
     {"HL2 Deathmatch", {"dm_", NULL}},
+    // Half-Life Deathmatch: Source's maps have no prefix of their own: they're named one by one
+    {"HL Deathmatch", {"boot_camp", "bounce", "crossfire", "datacore", "frenzy", "lambda_bunker", "rapidcore",
+                       "snarkpit", "stalkyard", "subtransit", "undertow", NULL}},
+
     {"Half-Life", {"hl1_", NULL}},
     {"Day of Defeat", {"dod_", NULL}},
     {"Team Fortress 2", {"ctf_", "cp_", "pl_", "plr_", "koth_", "arena_", "pd_", "sd_", "tc_", "mvm_", "pass_", NULL}},
@@ -136,7 +140,11 @@ void menu_show_achievements(void) {
 }
 
 void menu_show_workshop(void) {
-    workshop_open(M.maps, M.num_maps);
+    // Maps listed by game, the same games as Start New Game's
+    static const char *names[NUM_CATS];
+    for (int c = 0; c < NUM_CATS; c++) names[c] = k_cats[c].name;
+    workshop_open(M.maps, M.num_maps, map_category, names, NUM_CATS);
+
     M.page = PAGE_WORKSHOP;
     M.sel = 2;
 }

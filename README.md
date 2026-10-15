@@ -179,9 +179,11 @@ nearest lamps or lights that are on light the world, on top of your flashlight.
 ## Workshop
 
 Main menu > Workshop turns things on and off, like GMod's addon list. It has three tabs; L and R switch between
-them, X switches the highlighted entry, and Triangle switches the whole tab:
+them, X switches the highlighted entry, and Triangle switches the whole tab (on Maps, the whole game):
 
-- **Maps:** maps that are off aren't offered in Start New Game or Host Game.
+- **Maps:** listed by game (Sandbox, Counter-Strike, Half-Life 2, HL2 Deathmatch, HL Deathmatch, Half-Life, Day of
+  Defeat, Team Fortress 2), each with how many of its maps are on. X opens a game to show its maps, and Triangle
+  switches the whole game. Maps that are off aren't offered in Start New Game or Host Game.
 - **Addons:** the Lua addons in `data/lua/autorun`. Ones that are off don't run.
 - **Custom:** characters from your GMod Workshop downloads (`game=workshop` in `tools/npcs.txt`). Ones that are
   off leave the spawn menu's Workshop list and the player models.
@@ -362,9 +364,9 @@ your hands moves. Without the pack the game shows the still models from the prop
 
 | Version | Changes |
 |---|---|
+| 1.6.2 | Workshop page: maps listed by game, each opened to show its maps and switched as a whole; Half-Life Deathmatch: Source's maps get their own game in Workshop and Start New Game |
 | 1.6.1 | More tools: Wheel, Winch, Hydraulic, Lamp, Light, Button and Emitter; Main menu > Workshop turns maps, Lua addons and custom characters on and off |
 | 1.6.0 | TF2's mercenaries in RED and BLU teams that fight each other (never you), with their own guns, gun sounds and voice lines |
-| 1.5.3 | Doors: TF2's spawn doors open and close, with their models; HL2's model doors swing open; Mingebag NPCs; Multiplayer > Profile (name, player model, player and physics gun colours) and name tags; achievements (playtime, playing with others, playing on a real PSP by model, and more) |
 
 ## Roadmap
 
