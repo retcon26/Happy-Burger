@@ -14,6 +14,9 @@ LIBS = -llua -lpspgum -lpspgu -lpspdebug -lpspctrl -lpsppower -lpspaudio -lm -lp
 
 EXTRA_TARGETS = EBOOT.PBP
 PSP_EBOOT_TITLE = PSP Sandbox
+# XMB icon and background, drawn by tools/make_psp_icons.py
+PSP_EBOOT_ICON = ICON0.PNG
+PSP_EBOOT_PIC1 = PIC1.PNG
 # MEMSIZE=1: the long-standing flag for the PSP-2000/3000/Go's extra RAM (52MB instead of 24MB), which
 # every firmware and PPSSPP honour. (The SDK's newer default, 2, isn't always recognised.)
 PSP_LARGE_MEMORY = 1

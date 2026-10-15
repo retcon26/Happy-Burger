@@ -55,13 +55,48 @@ def text(img, xy, s, f, fill, anchor="mm", shadow=True):
     d.text(xy, s, font=f, fill=fill, anchor=anchor)
 
 
+def cube(d, cx, cy, s, top, left, right, edge=(20, 24, 30)):
+    """An isometric box: (cx, cy) is its top corner, s the edge length."""
+    h = s * 0.5
+    t = [(cx, cy), (cx + s, cy + h), (cx, cy + 2 * h), (cx - s, cy + h)]
+    l = [(cx - s, cy + h), (cx, cy + 2 * h), (cx, cy + 2 * h + s), (cx - s, cy + h + s)]
+    r = [(cx, cy + 2 * h), (cx + s, cy + h), (cx + s, cy + h + s), (cx, cy + 2 * h + s)]
+    for poly, col in ((l, left), (r, right), (t, top)):
+        d.polygon(poly, fill=col, outline=edge)
+
+
+def crate(d, cx, cy, s):
+    """A wooden crate (the sandbox's classic prop), with its planks drawn on the two visible sides."""
+    cube(d, cx, cy, s, (214, 160, 92), (150, 100, 52), (178, 122, 64))
+    h = s * 0.5
+    plank = (110, 70, 34)
+    w = max(1, int(s / 9))
+    # Diagonal braces on the side faces
+    d.line([(cx - s, cy + h), (cx, cy + 2 * h + s)], fill=plank, width=w)
+    d.line([(cx + s, cy + h), (cx, cy + 2 * h + s)], fill=plank, width=w)
+
+
 def icon0():
-    img = backdrop(144, 80, 12, 28)
+    W, H, K = 144, 80, 4  # drawn at 4x, then scaled down for smooth edges
+    img = backdrop(W * K, H * K, 12 * K, 28).convert("RGB")
     d = ImageDraw.Draw(img)
-    d.rectangle([0, 0, 143, 79], outline=(90, 110, 130))
-    text(img, (72, 33), "PSP Sandbox", font("bold", 20), (255, 255, 255))
-    d.line([(34, 50), (110, 50)], fill=ACCENT, width=2)
-    text(img, (72, 62), "by Retcon", font("regular", 11), (200, 210, 220), shadow=False)
+    # A little pile of props on the left: two crates, a blue barrel-ish cube and a floating one
+    crate(d, 30 * K, 40 * K, 15 * K)
+    crate(d, 55 * K, 46 * K, 12 * K)
+    cube(d, 44 * K, 22 * K, 10 * K, (120, 190, 240), (40, 100, 160), (60, 130, 200))
+    # The physics gun's beam holding the floating box
+    beam = Image.new("L", img.size, 0)
+    ImageDraw.Draw(beam).line([(4 * K, 76 * K), (44 * K, 32 * K)], fill=255, width=3 * K)
+    beam = beam.filter(ImageFilter.GaussianBlur(2 * K))
+    img.paste(Image.new("RGB", img.size, ACCENT), (0, 0), beam)
+    ImageDraw.Draw(img).line([(4 * K, 76 * K), (44 * K, 32 * K)], fill=(220, 240, 255), width=K)
+    img = img.resize((W, H), Image.Resampling.LANCZOS)
+    d = ImageDraw.Draw(img)
+    d.rectangle([0, 0, W - 1, H - 1], outline=(90, 110, 130))
+    text(img, (106, 24), "PSP", font("bold", 22), (255, 255, 255))
+    text(img, (106, 45), "Sandbox", font("bold", 15), (255, 255, 255))
+    d.line([(82, 57), (130, 57)], fill=ACCENT, width=2)
+    text(img, (106, 67), "by Retcon", font("regular", 10), (200, 210, 220), shadow=False)
     return img
 
 
