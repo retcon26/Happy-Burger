@@ -28,8 +28,8 @@ contain it are for your own use. Don't share them.
 - **About 3,200 props:** 186 hand-picked ones in 10 spawnlists, plus about 3,000 more pulled automatically from
   HL2 and its episodes, CS:S, DoD:S, Portal, Portal 2, Left 4 Dead 1 and 2, Fistful of Frags, Black Mesa and TF2,
   in about 160 spawnlists. The extra ones load from the memory stick only when spawned.
-- **38 NPCs and 88 ragdolls**, including Team Fortress 2's nine mercenaries (also as player models) and
-  characters from Counter-Strike: Source and Half-Life: Source.
+- **48 NPCs and 98 ragdolls**, including Team Fortress 2's nine mercenaries on both teams (also as player
+  models), mingebags, and characters from Counter-Strike: Source and Half-Life: Source.
 - **9 weapons and 17 tool gun tools**, blood and bullet holes, a flashlight, an HEV suit, Lua addons and
   4-player multiplayer with voice chat.
 - **Drivable vehicles:** HL2's Jeep and Airboat, and seats to sit on your own contraptions (R switches all their
@@ -140,6 +140,23 @@ Use (D-pad Right) on a prop switches its thrusters and hoverballs on and off.
   carries on crawling as a Zombie Torso, headcrab and all.
 - **Combine** shoot at you, rebels and monsters. **Rebels and medics** follow you and fight them. **Citizens**
   wander and run away. Armed NPCs hold their guns the way HL2 bone-merges them.
+- **TF2's mercenaries** come in RED and BLU. Spawn some of each and they fight each other, never you. Each one
+  carries its own class's gun, fired with TF2's sounds:
+
+  | Class | Gun |
+  |---|---|
+  | Scout | scattergun |
+  | Soldier | rocket launcher (rockets blow up where they land and throw props about) |
+  | Pyro | flamethrower |
+  | Demoman | grenade launcher |
+  | Heavy | minigun |
+  | Engineer | shotgun |
+  | Medic | syringe gun |
+  | Sniper | sniper rifle |
+  | Spy | revolver |
+
+  They also speak with their own TF2 voice lines: a battle cry when they spot an enemy, plus pain and death
+  lines. BLU shares RED's mesh and animations, so the second team only costs its textures.
 - **Mingebags** behave like GMod's worst players. They run rings round you, bunny-hopping and swinging a
   crowbar now and then (it barely hurts). Every few seconds one spawns a bathtub, fridge or couch next to itself,
   throws a nearby prop at you, or says something in chat ("gg ez", "can i have admin"). Only their 16 newest props
@@ -235,7 +252,8 @@ launches it.
 ### Setup (one time)
 
 1. WSL with Ubuntu, then in Ubuntu:
-   `sudo apt-get install -y build-essential cmake pkgconf libusb-0.1-4 fakeroot python3-numpy python3-pil`
+   `sudo apt-get install -y build-essential cmake pkgconf libusb-0.1-4 fakeroot python3-numpy python3-pil mpg123`
+   (mpg123 decodes TF2's MP3 voice lines for the sound pack)
 2. The PSP SDK ([pspdev](https://github.com/pspdev/pspdev)) in `~/pspdev`. For the PS2 build, the PS2 SDK
    (ps2dev) in `~/ps2dev`.
 3. Garry's Mod, plus whichever other Valve games you want maps and props from, installed through Steam. The
@@ -323,7 +341,9 @@ your hands moves. Without the pack the game shows the still models from the prop
 
 | Version | Changes |
 |---|---|
-| 1.5.3 | Doors: TF2's spawn doors open and close, with their models; HL2's model doors swing open; Mingebag NPCs; Multiplayer > Profile (name, player model, player and physics gun colours) and name tags; achievements (playtime, playing with others, playing on a real PSP by model, and more) |
+| 1.6.0 | TF2's mercenaries in RED and BLU teams that fight each other (never you), with their own guns, gun sounds and voice lines |
+| 1.5.3 | Doors:
+ TF2's spawn doors open and close, with their models; HL2's model doors swing open; Mingebag NPCs; Multiplayer > Profile (name, player model, player and physics gun colours) and name tags; achievements (playtime, playing with others, playing on a real PSP by model, and more) |
 | 1.5.2 | Spawn menu: the other games' spawnlists grouped under a header per game; a Recent list; a badge on drivable vehicles and seats; all four grid columns fit |
 | 1.5.1 | Voice chat in multiplayer: hold D-pad Up to talk (PSP-3000's built-in mic, or a headset) |
 | 1.5.0 | Drivable Jeep and Airboat; seats for riding your contraptions; bullet holes; blood and holes with HL2's decal textures, no more flicker |

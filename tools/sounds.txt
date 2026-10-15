@@ -93,3 +93,41 @@ jeep_engine      1 sound/vehicles/v8/v8_idle_loop1.wav
 airboat_engine   1 sound/vehicles/airboat/fan_motor_idle_loop1.wav
 vehicle_enter    0 sound/doors/door_metal_thin_open1.wav
 vehicle_exit     0 sound/doors/door_metal_thin_close2.wav
+# TF2's mercenaries (MP3s: the sound pack needs mpg123 for these)
+vo_scout_pain 0 tf:sound/vo/scout_painsharp01.mp3 tf:sound/vo/scout_painsharp02.mp3 tf:sound/vo/scout_painsharp03.mp3
+vo_scout_die 0 tf:sound/vo/scout_paincrticialdeath01.mp3 tf:sound/vo/scout_paincrticialdeath02.mp3
+vo_scout_alert 0 tf:sound/vo/scout_battlecry01.mp3 tf:sound/vo/scout_battlecry02.mp3 tf:sound/vo/scout_battlecry03.mp3
+vo_soldier_pain 0 tf:sound/vo/soldier_painsharp01.mp3 tf:sound/vo/soldier_painsharp02.mp3 tf:sound/vo/soldier_painsharp03.mp3
+vo_soldier_die 0 tf:sound/vo/soldier_paincrticialdeath01.mp3 tf:sound/vo/soldier_paincrticialdeath02.mp3
+vo_soldier_alert 0 tf:sound/vo/soldier_battlecry01.mp3 tf:sound/vo/soldier_battlecry02.mp3 tf:sound/vo/soldier_battlecry03.mp3
+vo_pyro_pain 0 tf:sound/vo/pyro_painsharp01.mp3 tf:sound/vo/pyro_painsharp02.mp3 tf:sound/vo/pyro_painsharp03.mp3
+vo_pyro_die 0 tf:sound/vo/pyro_paincrticialdeath01.mp3 tf:sound/vo/pyro_paincrticialdeath02.mp3
+vo_pyro_alert 0 tf:sound/vo/pyro_battlecry01.mp3 tf:sound/vo/pyro_battlecry02.mp3
+vo_demoman_pain 0 tf:sound/vo/demoman_painsharp01.mp3 tf:sound/vo/demoman_painsharp02.mp3 tf:sound/vo/demoman_painsharp03.mp3
+vo_demoman_die 0 tf:sound/vo/demoman_paincrticialdeath01.mp3 tf:sound/vo/demoman_paincrticialdeath02.mp3
+vo_demoman_alert 0 tf:sound/vo/demoman_battlecry01.mp3 tf:sound/vo/demoman_battlecry02.mp3 tf:sound/vo/demoman_battlecry03.mp3
+vo_heavy_pain 0 tf:sound/vo/heavy_painsharp01.mp3 tf:sound/vo/heavy_painsharp02.mp3 tf:sound/vo/heavy_painsharp03.mp3
+vo_heavy_die 0 tf:sound/vo/heavy_paincrticialdeath01.mp3 tf:sound/vo/heavy_paincrticialdeath02.mp3
+vo_heavy_alert 0 tf:sound/vo/heavy_battlecry01.mp3 tf:sound/vo/heavy_battlecry02.mp3 tf:sound/vo/heavy_battlecry03.mp3
+vo_engineer_pain 0 tf:sound/vo/engineer_painsharp01.mp3 tf:sound/vo/engineer_painsharp02.mp3 tf:sound/vo/engineer_painsharp03.mp3
+vo_engineer_die 0 tf:sound/vo/engineer_paincrticialdeath01.mp3 tf:sound/vo/engineer_paincrticialdeath02.mp3
+vo_engineer_alert 0 tf:sound/vo/engineer_battlecry01.mp3 tf:sound/vo/engineer_battlecry03.mp3 tf:sound/vo/engineer_battlecry04.mp3
+vo_medic_pain 0 tf:sound/vo/medic_painsharp01.mp3 tf:sound/vo/medic_painsharp02.mp3 tf:sound/vo/medic_painsharp03.mp3
+vo_medic_die 0 tf:sound/vo/medic_paincrticialdeath01.mp3 tf:sound/vo/medic_paincrticialdeath02.mp3
+vo_medic_alert 0 tf:sound/vo/medic_battlecry01.mp3 tf:sound/vo/medic_battlecry02.mp3 tf:sound/vo/medic_battlecry03.mp3
+vo_sniper_pain 0 tf:sound/vo/sniper_painsharp01.mp3 tf:sound/vo/sniper_painsharp02.mp3 tf:sound/vo/sniper_painsharp03.mp3
+vo_sniper_die 0 tf:sound/vo/sniper_paincrticialdeath01.mp3 tf:sound/vo/sniper_paincrticialdeath02.mp3
+vo_sniper_alert 0 tf:sound/vo/sniper_battlecry01.mp3 tf:sound/vo/sniper_battlecry02.mp3 tf:sound/vo/sniper_battlecry03.mp3
+vo_spy_pain 0 tf:sound/vo/spy_painsharp01.mp3 tf:sound/vo/spy_painsharp02.mp3 tf:sound/vo/spy_painsharp03.mp3
+vo_spy_die 0 tf:sound/vo/spy_paincrticialdeath01.mp3 tf:sound/vo/spy_paincrticialdeath02.mp3
+vo_spy_alert 0 tf:sound/vo/spy_battlecry01.mp3 tf:sound/vo/spy_battlecry02.mp3 tf:sound/vo/spy_battlecry03.mp3
+# TF2's guns, for its mercenaries
+tf_scatter 0 tf:sound/weapons/scatter_gun_shoot.wav
+tf_rocket 0 tf:sound/weapons/rocket_shoot.wav
+tf_flame 0 tf:sound/weapons/flame_thrower_loop.wav
+tf_grenade 0 tf:sound/weapons/grenade_launcher_shoot.wav
+tf_minigun 0 tf:sound/weapons/minigun_shoot.wav
+tf_shotgun 0 tf:sound/weapons/shotgun_shoot.wav
+tf_syringe 0 tf:sound/weapons/syringegun_shoot.wav
+tf_sniper 0 tf:sound/weapons/sniper_shoot.wav
+tf_revolver 0 tf:sound/weapons/revolver_shoot.wav

@@ -94,16 +94,17 @@ class GameFS:
     The order roughly follows GMod's: the map's own pakfile first, then garrysmod, then mounted games.
     """
 
-    def __init__(self, gmod_root, extra_dirs=()):
+    def __init__(self, gmod_root, extra_dirs=(), fallback_dirs=()):
         """extra_dirs: other game folders (e.g. .../Counter-Strike Source/cstrike) to search first,
-        loose files and their *_dir.vpk archives, for maps from games other than GMod."""
+        loose files and their *_dir.vpk archives, for maps from games other than GMod.
+        fallback_dirs: game folders searched only after GMod's own files (TF2's weapons for the prop pack)."""
         self.loose_roots = []
         self.vpks = []
         self.pak = None  # zipfile.ZipFile from the BSP, set per map
 
-        for d in extra_dirs:
+        def add_dir(d):
             if not os.path.isdir(d):
-                continue
+                return
             self.loose_roots.append(d)
             for name in sorted(os.listdir(d)):
                 if name.endswith("_dir.vpk"):
@@ -111,6 +112,9 @@ class GameFS:
                         self.vpks.append(Vpk(os.path.join(d, name)))
                     except (OSError, ValueError):
                         pass
+
+        for d in extra_dirs:
+            add_dir(d)
 
         gm = os.path.join(gmod_root, "garrysmod")
         self.loose_roots.append(gm)
@@ -123,6 +127,8 @@ class GameFS:
             for name in sorted(os.listdir(src)):
                 if name.endswith("_dir.vpk"):
                     self.vpks.append(Vpk(os.path.join(src, name)))
+        for d in fallback_dirs:
+            add_dir(d)
 
     def set_pak(self, zipf):
         self.pak = zipf

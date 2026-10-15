@@ -17,7 +17,9 @@
 
 //   minge: a mingebag - runs rings round players, bunny-hops, whacks them with a crowbar, spams and
 //          throws props and talks rubbish (through npc_set_minge_handler)
-enum { AI_CITIZEN, AI_ZOMBIE, AI_ANTLION, AI_COMBINE, AI_REBEL, AI_MINGE };
+//   tf_red / tf_blue: TF2's mercenaries - they fight the other team and leave players alone
+enum { AI_CITIZEN, AI_ZOMBIE, AI_ANTLION, AI_COMBINE, AI_REBEL, AI_MINGE, AI_TF_RED, AI_TF_BLUE };
+
 enum { MINGE_SPAWN, MINGE_THROW, MINGE_CHAT, MINGE_HURT, MINGE_DIED };
 
 int npcs_load(void);
@@ -26,6 +28,9 @@ const char *npc_type_name(int type);
 // Some characters are only ragdolls (no animations, not in the NPC list); some can be player models
 int npc_type_ragdoll_only(int type);
 int npc_type_player_model(int type);
+// From the GMod Workshop (npcs.txt game=workshop): listed under Workshop in the spawn menu
+int npc_type_workshop(int type);
+
 
 int npc_spawn(int type, vec3 pos, float yaw); // returns the NPC index or -1
 void npc_remove(int i);

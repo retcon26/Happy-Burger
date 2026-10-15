@@ -2053,7 +2053,38 @@ static void add_tracer(vec3 a, vec3 b);
 
 // An armed NPC fired: the gun's sound where it is, and a tracer to where the shot went
 static void npc_shot(const char *weapon, vec3 from, vec3 to) {
+    if (strncmp(weapon, "_tf_", 4) == 0) {
+        // TF2's guns: their own sounds (named like the gun: "_tf_rocket" -> "tf_rocket")
+        static const char *names[9];
+        static int snd[9], count;
+        int k = 0;
+        while (k < count && strcmp(names[k], weapon) != 0) k++;
+        if (k == count && count < 9) {
+            names[count] = weapon;
+            snd[count++] = snd_find(weapon + 1);
+        }
+        int flame = strcmp(weapon, "_tf_flame") == 0;
+        static float flame_next;
+        float now = (float)(sceKernelGetSystemTimeWide() / 1000) * 0.001f;
+        if (k < count && snd[k] >= 0 && g_settings.sound && (!flame || now >= flame_next)) {
+            snd_play_at(snd[k], from, 0.7f);
+            if (flame) flame_next = now + 0.5f; // one roar per half second, not one per puff
+        }
+        if (strcmp(weapon, "_tf_rocket") == 0 || strcmp(weapon, "_tf_grenade") == 0) {
+            // Rockets and pipes: a bang where they land that throws props about (the mercenaries' own
+            // damage comes from npc.c, so nobody else gets hurt by it)
+            show_explosion(to);
+            phys_blast(&G.phys, to, 200.0f, 500.0f);
+        } else if (!flame) {
+            add_tracer(from, to);
+            vec3 d = v3_sub(to, from);
+            float len = v3_len(d);
+            if (len > 1.0f) bullet_hole(from, v3_scale(d, 1.0f / len), to, -1);
+        }
+        return;
+    }
     int w = strcmp(weapon, "_pistol") == 0    ? WEAPON_PISTOL
+
             : strcmp(weapon, "_shotgun") == 0 ? WEAPON_SHOTGUN
             : strcmp(weapon, "_357") == 0     ? WEAPON_357
                                               : WEAPON_SMG; // SMG and AR2
@@ -2704,8 +2735,18 @@ static int rag_cat(void) {
     return G.npcs_loaded && npc_ragdolls_available() ? G.props.num_categories + 1 + (npc_cat() >= 0) : -1;
 }
 
+// Workshop: characters from your GMod Workshop addons, as ragdolls (and player models in Options)
+static int ws_cat(void) {
+    static int any = -1;
+    if (any < 0 && G.npcs_loaded) {
+        any = 0;
+        for (int t = 0; t < npc_type_count(); t++) any |= npc_type_workshop(t);
+    }
+    return G.npcs_loaded && any > 0 ? G.props.num_categories + 1 + (npc_cat() >= 0) + (rag_cat() >= 0) : -1;
+}
+
 static int extra_row0(void) {
-    return G.props.num_categories + 1 + (npc_cat() >= 0) + (rag_cat() >= 0);
+    return G.props.num_categories + 1 + (npc_cat() >= 0) + (rag_cat() >= 0) + (ws_cat() >= 0);
 }
 
 static int num_cats(void) {
@@ -2772,6 +2813,7 @@ static const char *row_name(int row) {
     if (row == 0) return "All Props";
     if (row == npc_cat()) return "NPCs";
     if (row == rag_cat()) return "Ragdolls";
+    if (row == ws_cat()) return "Workshop";
     if (row <= G.props.num_categories) return G.props.categories[row - 1];
     return propx_category(row - extra_row0());
 }
@@ -2859,15 +2901,17 @@ static int grid_items(int *out) {
         return n;
     }
 
-    if (G.cat == npc_cat() || G.cat == rag_cat()) {
-        // Every character can be a ragdoll; the ragdoll-only ones (no animations) can't be NPCs
-        int npcs = G.cat == npc_cat();
+    if (G.cat == npc_cat() || G.cat == rag_cat() || G.cat == ws_cat()) {
+        // Every character can be a ragdoll; the ragdoll-only ones (no animations) can't be NPCs. The
+        // Workshop's are only under Workshop, as ragdolls.
+        int npcs = G.cat == npc_cat(), ws = G.cat == ws_cat();
         for (int t = 0; t < npc_type_count() && n < MAX_SPAWNABLE; t++) {
-            if (npcs && npc_type_ragdoll_only(t)) continue;
+            if (npc_type_workshop(t) != ws || (npcs && npc_type_ragdoll_only(t))) continue;
             out[n++] = (npcs ? GRID_NPC : GRID_RAG) + t;
         }
         return n;
     }
+
     int want = row_prop_cat(G.cat);
     for (int k = 0; k < G.num_spawnable && n < MAX_SPAWNABLE; k++) {
         int m = G.spawnable[k];

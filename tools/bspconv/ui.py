@@ -151,13 +151,12 @@ def build_ui(gmod_root, props, maps, out_path, log=print):
             # (Half-Life: Source's models/barney.mdl), so draw it
             from .extras import render_icon
             from .materials import MaterialLoader
-            from .npcbuild import GAME_DIRS
-            from .steam import game_dir
+            from .npcbuild import game_dirs
 
             if game not in game_fs:
-                gfs = GameFS(gmod_root, [game_dir(d) for d in GAME_DIRS.get(game, [])])
+                gfs = GameFS(gmod_root, game_dirs(game))
                 game_fs[game] = (gfs, MaterialLoader(gfs))
-            img = render_icon(*game_fs[game], mdl)
+            img = render_icon(*game_fs[game], mdl, skin=item[3] if len(item) > 3 else 0)
         else:
             img = _load_image(fs, "materials/spawnicons/" + mdl[:-4] + ".png")
         if img is not None:

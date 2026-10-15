@@ -204,6 +204,17 @@ models/weapons/w_smg1.mdl                         | _smg1            | hidden
 models/weapons/w_shotgun.mdl                      | _shotgun         | hidden
 models/weapons/w_irifle.mdl                       | _ar2             | hidden
 models/weapons/w_stunbaton.mdl                    | _stunstick       | hidden
+# TF2's mercenaries' guns (from TF2's own files, after GMod's)
+models/weapons/w_models/w_scattergun.mdl          | _tf_scatter      | hidden
+models/weapons/w_models/w_rocketlauncher.mdl      | _tf_rocket       | hidden
+models/weapons/c_models/c_flamethrower/c_flamethrower.mdl | _tf_flame | hidden
+models/weapons/w_models/w_grenadelauncher.mdl     | _tf_grenade      | hidden
+models/weapons/w_models/w_minigun.mdl             | _tf_minigun      | hidden
+models/weapons/w_models/w_shotgun.mdl             | _tf_shotgun      | hidden
+models/weapons/w_models/w_syringegun.mdl          | _tf_syringe      | hidden
+models/weapons/w_models/w_sniperrifle.mdl         | _tf_sniper       | hidden
+models/weapons/w_models/w_revolver.mdl            | _tf_revolver     | hidden
+
 models/weapons/c_physcannon.mdl                   | _vm_physgun      | hidden vm hue=180
 models/weapons/c_physcannon.mdl                   | _vm_gravgun      | hidden vm
 models/weapons/c_toolgun.mdl                      | _vm_toolgun      | hidden vm

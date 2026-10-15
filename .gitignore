@@ -15,3 +15,6 @@ screenshots/
 psp/PARAM.SFO
 __pycache__/
 *.pyc
+
+# GMod Workshop addons unpacked by tools/bspconv (your downloads, not ours to share)
+tools/workshop_cache/

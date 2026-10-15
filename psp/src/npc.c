@@ -84,6 +84,12 @@ static const NpcGun k_guns[] = {
     {"_ar2", 0.12f, 5.0f, 1800.0f, 3, 5, 1, 0},    {"_shotgun", 0.9f, 3.0f, 700.0f, 1, 2, 6, 0},
     {"_357", 0.8f, 18.0f, 1800.0f, 1, 2, 1, 0},    {"_stunstick", 0.9f, 15.0f, 70.0f, 1, 1, 1, 1},
     {"_crowbar", 0.8f, 12.0f, 70.0f, 1, 1, 1, 1},
+    // TF2's mercenaries' guns: a little gentler than TF2's numbers, so a fight lasts a while
+    {"_tf_scatter", 0.625f, 5.0f, 900.0f, 1, 2, 6, 0}, {"_tf_rocket", 0.8f, 55.0f, 1600.0f, 1, 2, 1, 0},
+    {"_tf_flame", 0.08f, 3.0f, 320.0f, 10, 16, 1, 0},  {"_tf_grenade", 0.6f, 45.0f, 1200.0f, 1, 2, 1, 0},
+    {"_tf_minigun", 0.1f, 4.0f, 1300.0f, 10, 18, 2, 0}, {"_tf_shotgun", 0.625f, 5.0f, 800.0f, 1, 2, 6, 0},
+    {"_tf_syringe", 0.105f, 5.0f, 1100.0f, 5, 9, 1, 0}, {"_tf_sniper", 1.5f, 50.0f, 2800.0f, 1, 1, 1, 0},
+    {"_tf_revolver", 0.5f, 25.0f, 1500.0f, 1, 2, 1, 0},
 };
 #define NUM_GUNS (int)(sizeof(k_guns) / sizeof(k_guns[0]))
 
@@ -169,7 +175,9 @@ static int g_snd_rag = -1;
 // Voices (pack flags bits 8-15, in npcbuild.py's VOICES order): pain, death and spotting-an-enemy lines
 enum { VOICE_PAIN, VOICE_DIE, VOICE_ALERT, VOICE_KINDS };
 static const char *const k_voices[] = {"", "male", "female", "combine", "metro", "zombie", "fastzombie", "poison",
-                                     "antlion", "headcrab", "guard", "vort", "alyx", "barney", "zombine"};
+                                     "antlion", "headcrab", "guard", "vort", "alyx", "barney", "zombine",
+                                     "scout", "soldier", "pyro", "demoman", "heavy", "engineer", "medic", "sniper",
+                                     "spy"};
 #define NUM_VOICES (int)(sizeof(k_voices) / sizeof(k_voices[0]))
 static int g_voice_snd[NUM_VOICES][VOICE_KINDS];
 static void ragdolls_clear(void);
@@ -186,7 +194,7 @@ static const PmapTexture *g_textures;
 static const RagBone *g_ragbones; // NULL in packs made before ragdolls
 static const NpcWeapon *g_weapons; // NULL in packs made before NPC weapons
 static const uint32_t *g_flags;    // NPCF: 1 ragdoll only, 2 player model; NULL in older packs
-enum { NPCF_RAGDOLL_ONLY = 1, NPCF_PLAYER = 2, NPCF_RELEASE_CRAB = 4, NPCF_HALVES = 16 };
+enum { NPCF_RAGDOLL_ONLY = 1, NPCF_PLAYER = 2, NPCF_RELEASE_CRAB = 4, NPCF_WORKSHOP = 8, NPCF_HALVES = 16 };
 static const uint64_t *g_crab_bones; // NPCH: per type, the palette bones of its headcrab (NULL in older packs)
 static const uint64_t *g_leg_bones;  // NPCL: per type, the palette bones below the waist (NULL in older packs)
 static int g_crab_type = -1;          // the Headcrab NPC a zombie's crab becomes
@@ -280,7 +288,12 @@ static int animated(int type) {
            g_models[type].seq[SEQ_WALK] != 0xFFFFFFFFu;
 }
 
+int npc_type_workshop(int type) {
+    return g_flags && type >= 0 && type < g_num_models && (g_flags[type] & NPCF_WORKSHOP);
+}
+
 int npc_type_player_model(int type) {
+
     return g_flags && type >= 0 && type < g_num_models && (g_flags[type] & NPCF_PLAYER) && animated(type);
 }
 
@@ -290,6 +303,8 @@ static int ai_of(const NpcModel *md) {
     if (strcmp(md->ai, "combine") == 0) return AI_COMBINE;
     if (strcmp(md->ai, "rebel") == 0) return AI_REBEL;
     if (strcmp(md->ai, "minge") == 0) return AI_MINGE;
+    if (strcmp(md->ai, "tf_red") == 0) return AI_TF_RED;
+    if (strcmp(md->ai, "tf_blue") == 0) return AI_TF_BLUE;
     return AI_CITIZEN;
 }
 
@@ -576,6 +591,11 @@ static int hates(int ai, int other) {
         return other == AI_REBEL || other == AI_ZOMBIE || other == AI_ANTLION || other == AI_MINGE;
     case AI_REBEL:
         return other == AI_COMBINE || other == AI_ZOMBIE || other == AI_ANTLION;
+    case AI_TF_RED: // TF2's teams only fight each other
+        return other == AI_TF_BLUE;
+    case AI_TF_BLUE:
+        return other == AI_TF_RED;
+
     default:
         return 0;
     }

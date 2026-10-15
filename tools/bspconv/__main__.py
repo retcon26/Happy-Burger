@@ -82,13 +82,19 @@ def cmd_props(args):
 
     from .props import build_pack, read_prop_list
 
+    from .npcbuild import GAME_DIRS
+    from .steam import game_dir
+    from .vpk import GameFS
+
     os.makedirs(args.out, exist_ok=True)
     plist = read_prop_list(args.list)
     tiers = ["high", "low"] if args.tier == "both" else [args.tier]
     for t in tiers:
         suffix = "" if t == "high" else ".low"
         print(f"props [{t}]")
-        build_pack(plist, args.gmod, os.path.join(args.out, f"props{suffix}.ppak"), t)
+        # TF2's weapons (what its mercenaries hold) come from TF2, searched only after GMod's own files
+        fs = GameFS(args.gmod, fallback_dirs=[game_dir(d) for d in GAME_DIRS["tf"]])
+        build_pack(plist, args.gmod, os.path.join(args.out, f"props{suffix}.ppak"), t, fs=fs)
 
 
 def cmd_sounds(args):
@@ -147,7 +153,7 @@ def cmd_ui(args):
     if os.path.exists(args.npcs):
         from .npcbuild import read_npc_list
 
-        props += [(m, label, o.get("game", "")) for m, label, o in read_npc_list(args.npcs)]
+        props += [(m, label, o.get("game", ""), int(o.get("skin", "0") or 0)) for m, label, o in read_npc_list(args.npcs)]
     # Thumbnails for the maps that have been converted (as the game names them: hl1_<name> for Half-Life's)
     maps = []
     for name in sorted(os.listdir(os.path.join(args.out, "maps")) if os.path.isdir(os.path.join(args.out, "maps")) else []):

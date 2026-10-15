@@ -14,7 +14,7 @@ Sections (same container as .pmap):
   "MATS": float[12] per bone per frame (frame-major)
   "NPCB": {i32 parent; float pivot[3]} per palette bone, for ragdolls (parent is the nearest skinned ancestor,
           -1 for the root; pivot is the bone's bind-pose position in model space). NPCM's last u32 is the first.
-  "NPCF": u32 flags per NPC: 1 ragdoll only (ai=ragdoll: no animations), 2 a player model,
+  "NPCF": u32 flags per NPC: 1 ragdoll only (ai=ragdoll: no animations), 2 a player model, 8 from the Workshop,
           4 a headcrab jumps off when it dies (releasecrab), bits 8-15 its voice (index into VOICES)
   "NPCH": u64 per NPC: the palette bones of its headcrab (npcs.txt headcrabs: the headcrab bodygroups on)
   "NPCL": u64 per NPC: the palette bones below the waist (npcs.txt halves: a sawblade cuts it in two)
@@ -43,8 +43,20 @@ WEAPONS = {
     "357": ("models/weapons/w_357.mdl", "_357"),
     "stunstick": ("models/weapons/w_stunbaton.mdl", "_stunstick"),
     "crowbar": ("models/weapons/w_crowbar.mdl", "_crowbar"),
+    # TF2's mercenaries' guns (models from TF2, in the prop pack under the same labels)
+    "tf_scatter": ("models/weapons/w_models/w_scattergun.mdl", "_tf_scatter"),
+    "tf_rocket": ("models/weapons/w_models/w_rocketlauncher.mdl", "_tf_rocket"),
+    "tf_flame": ("models/weapons/c_models/c_flamethrower/c_flamethrower.mdl", "_tf_flame"),
+    "tf_grenade": ("models/weapons/w_models/w_grenadelauncher.mdl", "_tf_grenade"),
+    "tf_minigun": ("models/weapons/w_models/w_minigun.mdl", "_tf_minigun"),
+    "tf_shotgun": ("models/weapons/w_models/w_shotgun.mdl", "_tf_shotgun"),
+    "tf_syringe": ("models/weapons/w_models/w_syringegun.mdl", "_tf_syringe"),
+    "tf_sniper": ("models/weapons/w_models/w_sniperrifle.mdl", "_tf_sniper"),
+    "tf_revolver": ("models/weapons/w_models/w_revolver.mdl", "_tf_revolver"),
 }
-GRIP_BONES = ("valvebiped.weapon_bone", "valvebiped.anim_attachment_rh", "valvebiped.bip01_r_hand")
+# HL2's skeletons, then TF2's (its weapons follow the mercenary's weapon_bone)
+GRIP_BONES = ("valvebiped.weapon_bone", "valvebiped.anim_attachment_rh", "valvebiped.bip01_r_hand", "weapon_bone",
+              "bip_hand_r")
 
 # Armed NPCs use the weapon-holding versions of their animations where the model has them
 _RIFLE = {
@@ -63,8 +75,18 @@ _MELEE = {
     "idle": ["ACT_IDLE_ANGRY_MELEE", "ACT_IDLE_MELEE"],
     "attack": ["ACT_MELEE_ATTACK_SWING", "ACT_MELEE_ATTACK1"],
 }
+# TF2's mercenaries holding their primary (the Spy's revolver is a secondary)
+_TF_GUN = {
+    "idle": ["ACT_MP_STAND_PRIMARY", "ACT_MP_STAND_SECONDARY"],
+    "walk": ["ACT_MP_RUN_PRIMARY", "ACT_MP_RUN_SECONDARY"],
+    "run": ["ACT_MP_RUN_PRIMARY", "ACT_MP_RUN_SECONDARY"],
+    "attack": ["ACT_MP_ATTACK_STAND_PRIMARY", "ACT_MP_ATTACK_STAND_SECONDARY"],
+}
+_TF_SECONDARY = {k: list(reversed(v)) for k, v in _TF_GUN.items()}
 WEAPON_ACTS = {"smg1": _RIFLE, "ar2": _RIFLE, "shotgun": dict(_RIFLE, attack=["ACT_RANGE_ATTACK_SHOTGUN"] + _RIFLE["attack"]),
                "pistol": _PISTOL, "357": _PISTOL, "stunstick": _MELEE, "crowbar": _MELEE}
+WEAPON_ACTS.update({w: _TF_GUN for w in WEAPONS if w.startswith("tf_")})
+WEAPON_ACTS["tf_revolver"] = _TF_SECONDARY
 
 
 def _bone_to_model(bone):
@@ -124,7 +146,9 @@ MAX_FRAMES = 48  # longer animations are baked at a lower rate to fit
 MAX_PALETTE = 64  # skinned bones the game keeps per character (npc.c)
 # npcs.txt voice=NAME: the sounds it makes (vo_NAME_pain/_die/_alert in sounds.txt), in the order npc.c knows them
 VOICES = ["", "male", "female", "combine", "metro", "zombie", "fastzombie", "poison", "antlion", "headcrab", "guard",
-          "vort", "alyx", "barney", "zombine"]
+          "vort", "alyx", "barney", "zombine", "scout", "soldier", "pyro", "demoman", "heavy", "engineer", "medic",
+          "sniper", "spy"]
+
 
 TIERS = {"high": {"tex": 128, "max_tris": 900}, "low": {"tex": 64, "max_tris": 450},
          # The PS2's: low detail, but with the ragdoll-only characters (they have no animations, so they're small)
@@ -137,6 +161,15 @@ GAME_DIRS = {
     "tf": ["Team Fortress 2/tf", "Team Fortress 2/hl2"],
     "hls": ["Half-Life 2/hl1", "Half-Life 1 Source Deathmatch/hl1", "Half-Life 1 Source Deathmatch/hl1mp"],
 }
+
+
+def game_dirs(game):
+    """The folders to search for a game= option: a Steam game's, or "workshop": your GMod Workshop addons."""
+    if game == "workshop":
+        from .gma import workshop_dirs
+
+        return workshop_dirs()
+    return [game_dir(d) for d in GAME_DIRS.get(game, [])]
 
 
 def read_npc_list(path):
@@ -158,9 +191,9 @@ def read_npc_list(path):
 def build_npcs(npc_list, gmod_root, out_path, tier_name, log=print):
     tier = TIERS[tier_name]
     fss = {"": GameFS(gmod_root)}
-    for game, dirs in GAME_DIRS.items():
+    for game in list(GAME_DIRS) + ["workshop"]:
         if any(game == o.get("game") for _m, _l, o in npc_list):
-            fss[game] = GameFS(gmod_root, [game_dir(d) for d in dirs])
+            fss[game] = GameFS(gmod_root, game_dirs(game))
     fs = fss[""]
     mats = MaterialLoader(fs)
     mats_for = {"": mats}
@@ -169,6 +202,8 @@ def build_npcs(npc_list, gmod_root, out_path, tier_name, log=print):
     npc_data, mesh_data, vert_data, idx_data, seq_data, mat_data, rag_data, wpn_data, flag_data, crab_data, leg_data = (
         bytearray() for _ in range(11))
     counts = {"npc": 0, "mesh": 0, "vert": 0, "idx": 0, "seq": 0, "mat": 0, "rag": 0}
+    reuse = {}  # (model, weapon, ...) -> what its first entry made, for the same character in another skin
+
 
     def texture_for(path, game=""):
         nonlocal txdt
@@ -199,10 +234,11 @@ def build_npcs(npc_list, gmod_root, out_path, tier_name, log=print):
             log(f"  skip {mdl}: unknown game={game}")
             continue
         fs = fss[game]
+        skin = int(opts.get("skin", "0") or 0)
         try:
             sk = Skeleton(fs, mdl)
             # npcs.txt decimate: a model with no low LODs of its own gets simplified to the budget
-            m = load_model(fs, mdl, tier["max_tris"], decimate="decimate" in opts,
+            m = load_model(fs, mdl, tier["max_tris"], skin=skin, decimate="decimate" in opts,
                            bodygroups={"headcrab": 1} if "headcrabs" in opts else None)
         except (ValueError, struct.error, IndexError, KeyError) as e:
             log(f"  skip {mdl}: {e}")
@@ -210,6 +246,30 @@ def build_npcs(npc_list, gmod_root, out_path, tier_name, log=print):
         if m is None:
             log(f"  skip {mdl}: not found")
             continue
+
+        # The same model and weapon again in another skin (TF2's BLU team): its own textures, but the
+        # first one's vertices, animations and skeleton, so a second team costs only its textures
+        key = (mdl, opts.get("weapon", ""), "decimate" in opts, "headcrabs" in opts)
+        prev = reuse.get(key)
+        if prev and [len(mesh.verts) for mesh in m.meshes] == prev["mesh_sizes"]:
+            first_mesh = counts["mesh"]
+            for mesh, rng in zip(m.meshes, prev["ranges"]):
+                tex = texture_for(mesh.material, game)
+                mesh_data += struct.pack("<4I2H", *rng, tex, tex_records[tex][3])
+                counts["mesh"] += 1
+            npc_data += struct.pack("<32s16sf6f2II5II", label.encode()[:31], opts.get("ai", "citizen").encode()[:15],
+                                    float(opts.get("health", "50")), *m.mins, *m.maxs, first_mesh, len(m.meshes),
+                                    prev["bones"], *prev["seq_ids"], prev["first_rag"])
+            wpn_data.extend(prev["wpn"])
+            crab_data += prev["crab"]
+            leg_data += prev["leg"]
+            voice = VOICES.index(opts["voice"]) if opts.get("voice") in VOICES else 0
+            flag_data += struct.pack("<I", (2 if "player" in opts else 0) | (4 if "releasecrab" in opts else 0)
+                                     | (8 if game == "workshop" else 0) | (16 if "halves" in opts else 0) | (voice << 8))
+            counts["npc"] += 1
+            log(f"  {label:14s} skin {skin}, sharing {prev['label']}'s mesh and animations")
+            continue
+
         # Only bones that vertices follow need matrices; renumber them compactly
         used = sorted({b for mesh in m.meshes for b in mesh.bones})
         if len(used) > MAX_PALETTE:
@@ -235,8 +295,10 @@ def build_npcs(npc_list, gmod_root, out_path, tier_name, log=print):
             counts["rag"] += 1
 
         first_mesh = counts["mesh"]
+        ranges = []
         for mesh in m.meshes:
             tex = texture_for(mesh.material, game)
+            ranges.append((counts["vert"], len(mesh.verts), counts["idx"], len(mesh.tris) * 3))
             mesh_data += struct.pack("<4I2H", counts["vert"], len(mesh.verts), counts["idx"], len(mesh.tris) * 3, tex,
                                      tex_records[tex][3])
             for v, bone in zip(mesh.verts, mesh.bones):
@@ -311,8 +373,12 @@ def build_npcs(npc_list, gmod_root, out_path, tier_name, log=print):
         leg_data += struct.pack("<Q", leg_mask)
         voice = VOICES.index(opts["voice"]) if opts.get("voice") in VOICES else 0
         flag_data += struct.pack("<I", (1 if ragdoll_only else 0) | (2 if "player" in opts else 0) | (4 if "releasecrab" in opts else 0)
-                                 | (16 if "halves" in opts else 0) | (voice << 8))
+                                 | (8 if game == "workshop" else 0) | (16 if "halves" in opts else 0) | (voice << 8))
         counts["npc"] += 1
+        if not ragdoll_only:
+            reuse.setdefault(key, {"label": label, "mesh_sizes": [len(mesh.verts) for mesh in m.meshes], "ranges": ranges,
+                                   "bones": len(used), "seq_ids": seq_ids, "first_rag": first_rag,
+                                   "wpn": bytes(wpn_data[-68:]), "crab": crab_data[-8:], "leg": leg_data[-8:]})
         log(f"  {label:14s} {m.tris:4d} tris, {len(used):2d} bones: {', '.join(baked) or 'ragdoll only'}")
 
     w = PmapWriter(PNPC_MAGIC, PNPC_VERSION)

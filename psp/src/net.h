@@ -8,9 +8,9 @@
 // NPCs and doors; clients send their position, aim and actions).
 
 #define NET_MAX_PLAYERS 4
-#define NET_VERSION 6 // 2: rope packets name the joint type (sliders); 3: player models;
+#define NET_VERSION 7 // 2: rope packets name the joint type (sliders); 3: player models;
                       // 4: the host's ragdolls sent to clients, and their physics gun holds; 5: vehicles;
-                      // 6: Profile colours, mingebags
+                      // 6: Profile colours, mingebags; 7: TF2 teams (NPC numbers moved)
 
 typedef enum { NET_OFF, NET_CONNECTING, NET_READY, NET_FAILED } NetState;
 

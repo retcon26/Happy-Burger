@@ -245,10 +245,12 @@ class AnimDesc:
 
 # --- Skeleton + sequences across include files --------------------------------------------------
 
+# ACT_HL2MP_*: GMod's player models, which take their animations from its shared m_anm.mdl
 ACTIVITIES = {
-    "idle": ["ACT_IDLE", "ACT_IDLE_RIFLE", "ACT_MP_STAND_MELEE"],
-    "walk": ["ACT_WALK", "ACT_WALK_RIFLE", "ACT_WALK_AIM_RIFLE", "ACT_WALK_EASY", "ACT_MP_RUN_MELEE"],
-    "run": ["ACT_RUN", "ACT_RUN_RIFLE", "ACT_RUN_AIM_RIFLE", "ACT_WALK", "ACT_WALK_RIFLE", "ACT_MP_RUN_MELEE"],
+    "idle": ["ACT_IDLE", "ACT_IDLE_RIFLE", "ACT_MP_STAND_MELEE", "ACT_HL2MP_IDLE"],
+    "walk": ["ACT_WALK", "ACT_WALK_RIFLE", "ACT_WALK_AIM_RIFLE", "ACT_WALK_EASY", "ACT_MP_RUN_MELEE", "ACT_HL2MP_WALK"],
+    "run": ["ACT_RUN", "ACT_RUN_RIFLE", "ACT_RUN_AIM_RIFLE", "ACT_WALK", "ACT_WALK_RIFLE", "ACT_MP_RUN_MELEE",
+            "ACT_HL2MP_RUN"],
     "attack": ["ACT_MELEE_ATTACK1", "ACT_RANGE_ATTACK1", "ACT_MELEE_ATTACK_SWING", "ACT_MP_ATTACK_STAND_MELEE"],
     "death": ["ACT_DIESIMPLE", "ACT_DIEFORWARD", "ACT_DIEBACKWARD", "ACT_DIE_GUTSHOT"],
 }

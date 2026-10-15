@@ -1,13 +1,19 @@
 """Sound pack (.psnd) builder: Source .wav files -> mono 16-bit PCM at one sample rate.
 
-It handles PCM (8/16-bit) and Microsoft ADPCM, which most HL2/GMod sounds use.
+It handles PCM (8/16-bit) and Microsoft ADPCM, which most HL2/GMod sounds use, and MP3 (TF2's voice lines)
+through mpg123 if it's installed (sudo apt install mpg123).
+A path can name the game it's from: "tf:sound/vo/scout_painsharp01.mp3" is looked for in TF2's files.
 Layout matches psp/src/audio.c: a sectioned container (see pmap.py) holding:
   "SNDS": {char name[24]; u32 first_sample; u32 num_samples; u32 flags} per sound: flags bit 0 loops,
           bits 8-11 n: stored at the pack's rate / 2^n (NPC voices, named vo_*)
   "PCM ": int16 samples for all sounds, back to back
 """
 
+import os
+import shutil
 import struct
+import subprocess
+import tempfile
 
 import numpy as np
 
@@ -17,6 +23,7 @@ from .vpk import GameFS
 PSND_MAGIC = b"PSND"
 PSND_VERSION = 1
 VOICE_MAX_SECONDS = 1.0
+ALERT_MAX_SECONDS = 1.8  # battle cries are longer (TF2's "Incoming!")
 
 MSADPCM_ADAPT = [230, 230, 230, 230, 307, 409, 512, 614, 768, 614, 512, 409, 307, 230, 230, 230]
 MSADPCM_COEF = [(256, 0), (512, -256), (0, 0), (192, 64), (240, 0), (460, -208), (392, -232)]
@@ -117,19 +124,47 @@ def resample(samples, src_rate, dst_rate):
     return np.interp(x, np.arange(len(samples)), samples).astype(np.float32)
 
 
+def decode_mp3(data):
+    """(mono float samples, rate) through mpg123, or None without it."""
+    exe = shutil.which("mpg123")
+    if not exe:
+        return None
+    with tempfile.TemporaryDirectory() as d:
+        src, dst = os.path.join(d, "in.mp3"), os.path.join(d, "out.wav")
+        with open(src, "wb") as f:
+            f.write(data)
+        if subprocess.run([exe, "-q", "-m", "-w", dst, src], capture_output=True).returncode != 0 or not os.path.exists(dst):
+            return None
+        with open(dst, "rb") as f:
+            return decode_wav(f.read())
+
+
 def build_pack(sound_list, gmod_root, out_path, rate, log=print):
-    fs = GameFS(gmod_root)
+    from .npcbuild import GAME_DIRS
+    from .steam import game_dir
+
+    fss = {"": GameFS(gmod_root)}
     entries = bytearray()
     pcm = []
     total = 0
     count = 0
+    no_mp3 = 0
     for name, loop, paths in sound_list:
         for vi, path in enumerate(paths):
-            data = fs.read(path)
+            game, _, rel = path.rpartition(":")
+            if game not in fss:
+                fss[game] = GameFS(gmod_root, [game_dir(d) for d in GAME_DIRS.get(game, [])])
+            data = fss[game].read(rel)
             if data is None:
                 log(f"  missing {path}")
                 continue
-            dec = decode_wav(data)
+            if rel.lower().endswith(".mp3"):
+                dec = decode_mp3(data)
+                if dec is None:
+                    no_mp3 += 1
+                    continue
+            else:
+                dec = decode_wav(data)
             if dec is None:
                 log(f"  unsupported format {path}")
                 continue
@@ -139,7 +174,7 @@ def build_pack(sound_list, gmod_root, out_path, rate, log=print):
             shift = (2 if rate >= 32000 else 1) if name.startswith("vo_") else 0
             s = resample(s, src_rate, rate >> shift)
             if shift:
-                s = s[: int(VOICE_MAX_SECONDS * (rate >> shift))]
+                s = s[: int((ALERT_MAX_SECONDS if name.endswith("_alert") else VOICE_MAX_SECONDS) * (rate >> shift))]
             peak = float(np.abs(s).max()) if len(s) else 0.0
             if peak > 1.0:
                 s = s / peak
@@ -149,8 +184,11 @@ def build_pack(sound_list, gmod_root, out_path, rate, log=print):
             pcm.append(i16.tobytes())
             total += len(i16)
             count += 1
+    if no_mp3:
+        log(f"  skipped {no_mp3} MP3 sounds: install mpg123 to include them (sudo apt install mpg123)")
     w = PmapWriter(PSND_MAGIC, PSND_VERSION)
     w.add("SNDS", entries, count)
+
     w.add("PCM ", b"".join(pcm), total)
     w.add("RATE", struct.pack("<I", rate), 1)
     size = w.write(out_path)

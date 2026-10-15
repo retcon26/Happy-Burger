@@ -15,3 +15,11 @@ def game_dir(rel):
         if os.path.isdir(lib + rel):
             return lib + rel
     return LIBRARIES[0] + rel
+
+
+def workshop_dir():
+    """Where Steam keeps Garry's Mod's Workshop downloads (app 4000), in the library GMod is in."""
+    for lib in LIBRARIES:
+        if os.path.isdir(lib + "GarrysMod"):
+            return os.path.normpath(lib + "../workshop/content/4000")
+    return os.path.normpath(LIBRARIES[0] + "../workshop/content/4000")

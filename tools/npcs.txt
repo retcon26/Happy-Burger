@@ -5,10 +5,15 @@
 #   health=N                    hit points
 #   ai=combine|rebel            soldiers: Combine shoot at you, rebels and monsters; rebels follow you and fight them
 #   weapon=pistol|smg1|ar2|shotgun|357|stunstick|crowbar   what it holds (and shoots)
+#   weapon=tf_scatter|tf_rocket|tf_flame|tf_grenade|tf_minigun|tf_shotgun|tf_syringe|tf_sniper|tf_revolver
 #   ai=minge                    a mingebag: runs rings round you, spams and throws props, whacks you, talks rubbish
+#   ai=tf_red|tf_blue           TF2 teams: they fight the other team's mercenaries and leave players alone
+#   skin=N                      the model's Nth skin (TF2's BLU is 1); the same model and weapon again shares
+#                               the first entry's mesh and animations, so it only costs its textures
 #   ai=ragdoll                  only in the Ragdolls list (no animations are baked, so it's cheap)
 #   player                      can be picked as your player model (Options > Player model)
 #   halves                      a thrown Sawblade cuts it in two: legs ragdoll + a live Zombie Torso
+#   game=tf|css|hls|workshop    the model's from that game (workshop: your GMod Workshop addons)
 #   decimate                    simplify the mesh to the triangle budget (models without low LODs)
 # Every entry is also in the Ragdolls list.
 # Run: tools/bspconv.sh npcs
@@ -42,16 +47,29 @@ models/police.mdl                        | Metrocop (Stunstick) | ai=combine hea
 models/zombie/zombie_soldier.mdl         | Zombine      | ai=zombie health=100 headcrabs releasecrab voice=zombine
 models/zombie/classic_torso.mdl          | Zombie Torso | ai=zombie health=30 headcrabs releasecrab voice=zombie decimate
 # Team Fortress 2's mercenaries (their melee animations: they hold no weapon here)
-models/player/scout.mdl                  | Scout        | ai=citizen health=125 player game=tf decimate
-models/player/soldier.mdl                | Soldier      | ai=citizen health=200 player game=tf decimate
-models/player/pyro.mdl                   | Pyro         | ai=citizen health=175 player game=tf decimate
-models/player/demo.mdl                   | Demoman      | ai=citizen health=175 player game=tf decimate
-models/player/heavy.mdl                  | Heavy        | ai=citizen health=300 player game=tf decimate
-models/player/engineer.mdl               | Engineer     | ai=citizen health=125 player game=tf decimate
-models/player/medic.mdl                  | Medic (TF2)  | ai=citizen health=150 player game=tf decimate
-models/player/sniper.mdl                 | Sniper       | ai=citizen health=125 player game=tf decimate
-models/player/spy.mdl                    | Spy          | ai=citizen health=125 player game=tf decimate
+# TF2's mercenaries: RED and BLU fight each other, never you (BLU shares RED's mesh and animations)
+models/player/scout.mdl                  | Scout (RED)    | ai=tf_red health=125 weapon=tf_scatter voice=scout player game=tf decimate
+models/player/soldier.mdl                | Soldier (RED)  | ai=tf_red health=200 weapon=tf_rocket voice=soldier player game=tf decimate
+models/player/pyro.mdl                   | Pyro (RED)     | ai=tf_red health=175 weapon=tf_flame voice=pyro player game=tf decimate
+models/player/demo.mdl                   | Demoman (RED)  | ai=tf_red health=175 weapon=tf_grenade voice=demoman player game=tf decimate
+models/player/heavy.mdl                  | Heavy (RED)    | ai=tf_red health=300 weapon=tf_minigun voice=heavy player game=tf decimate
+models/player/engineer.mdl               | Engineer (RED) | ai=tf_red health=125 weapon=tf_shotgun voice=engineer player game=tf decimate
+models/player/medic.mdl                  | Medic (RED)    | ai=tf_red health=150 weapon=tf_syringe voice=medic player game=tf decimate
+models/player/sniper.mdl                 | Sniper (RED)   | ai=tf_red health=125 weapon=tf_sniper voice=sniper player game=tf decimate
+models/player/spy.mdl                    | Spy (RED)      | ai=tf_red health=125 weapon=tf_revolver voice=spy player game=tf decimate
+models/player/scout.mdl                  | Scout (BLU)    | ai=tf_blue health=125 weapon=tf_scatter voice=scout player game=tf decimate skin=1
+models/player/soldier.mdl                | Soldier (BLU)  | ai=tf_blue health=200 weapon=tf_rocket voice=soldier player game=tf decimate skin=1
+models/player/pyro.mdl                   | Pyro (BLU)     | ai=tf_blue health=175 weapon=tf_flame voice=pyro player game=tf decimate skin=1
+models/player/demo.mdl                   | Demoman (BLU)  | ai=tf_blue health=175 weapon=tf_grenade voice=demoman player game=tf decimate skin=1
+models/player/heavy.mdl                  | Heavy (BLU)    | ai=tf_blue health=300 weapon=tf_minigun voice=heavy player game=tf decimate skin=1
+models/player/engineer.mdl               | Engineer (BLU) | ai=tf_blue health=125 weapon=tf_shotgun voice=engineer player game=tf decimate skin=1
+models/player/medic.mdl                  | Medic (BLU)    | ai=tf_blue health=150 weapon=tf_syringe voice=medic player game=tf decimate skin=1
+models/player/sniper.mdl                 | Sniper (BLU)   | ai=tf_blue health=125 weapon=tf_sniper voice=sniper player game=tf decimate skin=1
+models/player/spy.mdl                    | Spy (BLU)      | ai=tf_blue health=125 weapon=tf_revolver voice=spy player game=tf decimate skin=1
 models/humans/group02/male_02.mdl        | Mingebag     | ai=minge health=60 weapon=crowbar voice=male
+# From your GMod Workshop downloads (game=workshop: unpacked into tools/workshop_cache); they're listed
+# under Workshop in the spawn menu, and can be player models
+models/player/dewobedil/jeff_mmd_p.mdl   | Jeff the Killer | ai=citizen health=100 player game=workshop decimate
 
 # Ragdolls only
 models/humans/group01/male_04.mdl        | Citizen 2    | ai=ragdoll
