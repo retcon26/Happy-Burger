@@ -215,10 +215,20 @@ static int boxes_touch(vec3 amin, vec3 amax, vec3 bmin, vec3 bmax) {
            amax.z >= bmin.z;
 }
 
-void ents_update(Map *m, float dt, vec3 pmin, vec3 pmax) {
+// Which of the players' boxes touches this one (grown by grow), or -1
+static int any_touch(const vec3 *pmin, const vec3 *pmax, int n, vec3 grow, vec3 bmin, vec3 bmax) {
+    for (int k = 0; k < n; k++) {
+        if (boxes_touch(v3_sub(pmin[k], grow), v3_add(pmax[k], grow), bmin, bmax)) return k;
+    }
+    return -1;
+}
+
+void ents_update(Map *m, float dt, const vec3 *pmin, const vec3 *pmax, int n) {
     g_clock += dt;
     map_update_lightstyles(m, g_clock);
-    vec3 pcenter = v3_scale(v3_add(pmin, pmax), 0.5f);
+    const vec3 zero = v3(0, 0, 0);
+    // Where whatever fires "came from" (doors open away from it): the first player's middle
+    vec3 pcenter = n > 0 ? v3_scale(v3_add(pmin[0], pmax[0]), 0.5f) : zero;
     for (int i = 0; i < g_num_pending;) {
         if (g_pending[i].time <= g_clock) {
             Pending p = g_pending[i];
@@ -236,7 +246,8 @@ void ents_update(Map *m, float dt, vec3 pmin, vec3 pmax) {
         if (e->type == PMAP_ENT_TRIGGER) {
             vec3 tmin = v3(e->origin[0] + e->mins[0], e->origin[1] + e->mins[1], e->origin[2] + e->mins[2]);
             vec3 tmax = v3(e->origin[0] + e->maxs[0], e->origin[1] + e->maxs[1], e->origin[2] + e->maxs[2]);
-            int in = boxes_touch(pmin, pmax, tmin, tmax);
+            int who = any_touch(pmin, pmax, n, zero, tmin, tmax), in = who >= 0;
+            if (in) pcenter = v3_scale(v3_add(pmin[who], pmax[who]), 0.5f);
             if (in && !s->inside && !s->done) {
                 fire(m, i, PMAP_EV_ACTIVATE, pcenter);
                 if (e->flags & PMAP_ENT_TRIGGER_ONCE) s->done = 1;
@@ -259,8 +270,8 @@ void ents_update(Map *m, float dt, vec3 pmin, vec3 pmax) {
         // Doors and buttons
         if ((e->type == PMAP_ENT_DOOR || e->type == PMAP_ENT_DOOR_ROTATING) && (e->flags & SF_DOOR_TOUCH_OPENS) &&
             s->state == ENT_CLOSED) {
-            vec3 grow = v3(4, 4, 4);
-            if (boxes_touch(v3_sub(pmin, grow), v3_add(pmax, grow), s->wmin, s->wmax)) door_open(m, i, pcenter);
+            int who = any_touch(pmin, pmax, n, v3(4, 4, 4), s->wmin, s->wmax);
+            if (who >= 0) door_open(m, i, v3_scale(v3_add(pmin[who], pmax[who]), 0.5f));
         }
         float travel = fabsf(e->distance);
         float rate = travel > 0.01f ? e->speed / travel : 10.0f;
@@ -282,7 +293,7 @@ void ents_update(Map *m, float dt, vec3 pmin, vec3 pmax) {
             if (s->progress < 0.0f) s->progress = 0.0f;
             update_transform(m, i);
             // Don't crush the player: bounce back open
-            if (e->type != PMAP_ENT_BUTTON && boxes_touch(pmin, pmax, s->wmin, s->wmax) && e->solid) {
+            if (e->type != PMAP_ENT_BUTTON && any_touch(pmin, pmax, n, zero, s->wmin, s->wmax) >= 0 && e->solid) {
                 s->progress = before;
                 s->state = ENT_OPENING;
                 update_transform(m, i);

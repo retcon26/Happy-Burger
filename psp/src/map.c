@@ -40,7 +40,7 @@ static void cache_textures_in_vram(Map *m) {
         order[j + 1] = k;
     }
     unsigned int ofs = gfx_vram_free_offset();
-    unsigned char *vram_cpu = (unsigned char *)(0x40000000u | (unsigned int)sceGeEdramGetAddr()); // uncached
+    unsigned char *vram_cpu = (unsigned char *)(0x40000000u | (uintptr_t)sceGeEdramGetAddr()); // uncached
     unsigned char *vram_ge = (unsigned char *)sceGeEdramGetAddr();
     for (int oi = 0; oi < n; oi++) {
         int t = order[oi];

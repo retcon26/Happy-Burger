@@ -26,8 +26,9 @@ typedef struct EntState {
 } EntState;
 
 int ents_init(Map *m);
-// Moves doors, runs timers and outputs, fires triggers touched by the player's box.
-void ents_update(Map *m, float dt, vec3 player_mins, vec3 player_maxs);
+// Moves doors, runs timers and outputs, fires triggers touched by the players' boxes (n of them:
+// everyone in the game, or none on a dedicated server with nobody on it).
+void ents_update(Map *m, float dt, const vec3 *player_mins, const vec3 *player_maxs, int n);
 // "Use" along a ray from the eye: presses buttons and opens doors within reach. Returns 1 if something reacted.
 int ents_use(Map *m, vec3 eye, vec3 dir);
 // Multiplayer: the host packs door/button/fan/light states (4 bytes each), clients apply them and

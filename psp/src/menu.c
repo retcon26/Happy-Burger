@@ -15,6 +15,7 @@
 #include "map.h"
 #include "mem.h"
 #include "net.h"
+#include "osk.h"
 #include "settings.h"
 #include "sky.h"
 #include "ui.h"
@@ -49,8 +50,14 @@ static const struct {
 
 static const char *k_main_items[] = {"Start New Game", "Multiplayer", "Workshop", "Achievements", "Options"};
 #define NUM_MAIN_ITEMS (int)(sizeof(k_main_items) / sizeof(k_main_items[0]))
-static const char *k_multi_items[] = {"Host Game", "Join Game", "Profile", "Back"};
-#define NUM_MULTI_ITEMS 4
+// Host and Join are ad-hoc (PSP to PSP); Wi-Fi goes through an access point to games on the same
+// network and to dedicated servers
+static const char *k_multi_items[] = {"Host Game", "Join Game", "Host on Wi-Fi", "Online Servers", "Profile", "Back"};
+#define NUM_MULTI_ITEMS 6
+enum { MULTI_HOST, MULTI_JOIN, MULTI_HOST_WIFI, MULTI_ONLINE, MULTI_PROFILE, MULTI_BACK };
+#define SERVERS_PATH "data/servers.cfg"
+#define MAX_SAVED 12
+#define QUERY_INTERVAL 1.0f
 
 static struct {
     Page page;
@@ -75,6 +82,15 @@ static struct {
     int joining;
     int join_slot;
     uint8_t join_mac[6];
+    // Online Servers: Join over Wi-Fi, with the servers you added (by address) as well as the LAN's games
+    int online;
+    char saved[MAX_SAVED][48];
+    uint8_t saved_addr[MAX_SAVED][6];
+    int saved_ok[MAX_SAVED]; // 1 resolved, -1 couldn't be, 0 not tried yet (DNS waits for Wi-Fi)
+    int num_saved;
+    float query_timer;
+    int adding; // the keyboard is open for a new address
+    char autojoin[48]; // autoload.txt "join ADDRESS": join this server as soon as Wi-Fi is up
 } M;
 
 static int map_category(const char *name) {
@@ -101,6 +117,70 @@ static int maps_in_cat(int cat, int *out) {
 
 static void click(int id, float vol) {
     if (g_settings.sound) snd_play(id, vol, 0.0f);
+}
+
+// --- Online Servers: addresses you added, kept in data/servers.cfg (one per line) ---------------------
+
+static void servers_load(void) {
+    M.num_saved = 0;
+    FILE *f = fopen(SERVERS_PATH, "r");
+    if (!f) return;
+    char line[64];
+    while (M.num_saved < MAX_SAVED && fgets(line, sizeof(line), f)) {
+        line[strcspn(line, "\r\n ")] = 0;
+        if (!line[0] || line[0] == '#') continue;
+        snprintf(M.saved[M.num_saved], sizeof(M.saved[0]), "%.47s", line);
+        M.saved_ok[M.num_saved++] = 0;
+    }
+    fclose(f);
+}
+
+static void servers_save(void) {
+    FILE *f = fopen(SERVERS_PATH, "w");
+    if (!f) return;
+    for (int i = 0; i < M.num_saved; i++) fprintf(f, "%s\n", M.saved[i]);
+    fclose(f);
+}
+
+// The rows of the list: the games that answered (hosts[]), then saved servers that haven't (-1 - index)
+static int online_rows(int *rows) {
+    int n = 0;
+    for (int i = 0; i < M.num_hosts; i++) rows[n++] = i;
+    for (int s = 0; s < M.num_saved && M.online; s++) {
+        int found = 0;
+        for (int i = 0; i < M.num_hosts && !found; i++) {
+            found = M.saved_ok[s] == 1 && memcmp(M.hosts[i].mac, M.saved_addr[s], 6) == 0;
+        }
+        if (!found) rows[n++] = -1 - s;
+    }
+    return n;
+}
+
+// The saved server a row is (a game that answered counts if it's at a saved address), or -1
+static int row_saved(int row) {
+    if (row < 0) return -1 - row;
+    for (int s = 0; s < M.num_saved; s++) {
+        if (M.saved_ok[s] == 1 && memcmp(M.hosts[row].mac, M.saved_addr[s], 6) == 0) return s;
+    }
+    return -1;
+}
+
+// Wi-Fi: resolve what's new, then ask everyone on the LAN and every saved server about their games
+static void online_query(float dt) {
+    if (!M.online || net_poll() != NET_READY) return;
+    for (int s = 0; s < M.num_saved; s++) {
+        if (M.saved_ok[s] == 0) {
+            M.saved_ok[s] = net_resolve(M.saved[s], M.saved_addr[s]) == 0 ? 1 : -1;
+            return; // one DNS wait a frame at most
+        }
+    }
+    M.query_timer -= dt;
+    if (M.query_timer > 0.0f) return;
+    M.query_timer = QUERY_INTERVAL;
+    net_lobby_query(NULL);
+    for (int s = 0; s < M.num_saved; s++) {
+        if (M.saved_ok[s] == 1) net_lobby_query(M.saved_addr[s]);
+    }
 }
 
 void menu_open(void) {
@@ -149,10 +229,29 @@ void menu_show_workshop(void) {
     M.sel = 2;
 }
 
+void menu_autojoin(const char *address) {
+    M.page = PAGE_JOIN;
+    M.online = 1;
+    M.num_hosts = 0;
+    M.host_sel = 0;
+    M.joining = 0;
+    M.adding = 0;
+    M.num_saved = 0;
+    snprintf(M.autojoin, sizeof(M.autojoin), "%s", address);
+    net_set_mode(NET_MODE_INET, 0);
+    net_start();
+}
+
+void menu_show_multiplayer(void) {
+    M.page = PAGE_MULTI;
+    M.sel = 1;
+    M.multi_sel = 0;
+}
+
 void menu_show_profile(void) {
 
     M.page = PAGE_PROFILE;
-    M.multi_sel = 2;
+    M.multi_sel = MULTI_PROFILE;
 }
 
 void menu_set_error(const char *msg) {
@@ -227,24 +326,29 @@ MenuResult menu_update(const InputState *in, float dt, char *map_out, int map_ou
             M.multi_sel = (M.multi_sel + 1) % NUM_MULTI_ITEMS;
             click(M.snd_move, 0.4f);
         }
-        if (in->pressed & PSP_CTRL_CIRCLE || ((in->pressed & PSP_CTRL_CROSS) && M.multi_sel == 3)) {
+        if (in->pressed & PSP_CTRL_CIRCLE || ((in->pressed & PSP_CTRL_CROSS) && M.multi_sel == MULTI_BACK)) {
             M.page = PAGE_MAIN;
             click(M.snd_move, 0.4f);
         } else if (in->pressed & PSP_CTRL_CROSS) {
             click(M.snd_select, 0.6f);
             M.error[0] = 0;
-            if (M.multi_sel == 0) {
+            if (M.multi_sel == MULTI_HOST || M.multi_sel == MULTI_HOST_WIFI) {
                 M.page = PAGE_NEWGAME;
-                M.host = 1;
+                M.host = M.multi_sel == MULTI_HOST_WIFI ? 2 : 1;
                 M.map_sel = 0;
                 M.scroll = 0;
-            } else if (M.multi_sel == 2) {
+            } else if (M.multi_sel == MULTI_PROFILE) {
                 M.page = PAGE_PROFILE;
             } else {
                 M.page = PAGE_JOIN;
+                M.online = M.multi_sel == MULTI_ONLINE;
                 M.num_hosts = 0;
                 M.host_sel = 0;
                 M.joining = 0;
+                M.adding = 0;
+                M.query_timer = 0.0f;
+                if (M.online) servers_load();
+                net_set_mode(M.online ? NET_MODE_INET : NET_MODE_ADHOC, 0);
                 net_start();
             }
         }
@@ -252,7 +356,41 @@ MenuResult menu_update(const InputState *in, float dt, char *map_out, int map_ou
     }
     if (M.page == PAGE_JOIN) {
         int r = net_lobby_update(dt, M.hosts, MAX_HOSTS, &M.num_hosts);
-        if (M.host_sel >= M.num_hosts) M.host_sel = M.num_hosts > 0 ? M.num_hosts - 1 : 0;
+        online_query(dt);
+        if (M.autojoin[0] && net_poll() == NET_READY) {
+            NetHost h;
+            memset(&h, 0, sizeof(h));
+            if (net_resolve(M.autojoin, h.mac) == 0) {
+                M.joining = 1;
+                net_lobby_join(&h);
+            } else {
+                menu_set_error("Couldn't find that address");
+            }
+            M.autojoin[0] = 0;
+        }
+        int rows[MAX_HOSTS + MAX_SAVED];
+        int nrows = online_rows(rows);
+        if (M.host_sel >= nrows) M.host_sel = nrows > 0 ? nrows - 1 : 0;
+        if (M.adding) {
+            // The keyboard is up for a new server's address
+            char typed[48];
+            if (osk_active()) return MENU_STAY;
+            M.adding = 0;
+            if (osk_result(typed, sizeof(typed))) {
+                char *s = typed;
+                while (*s == ' ') s++;
+                s[strcspn(s, " ")] = 0;
+                if (*s && M.num_saved < MAX_SAVED) {
+                    snprintf(M.saved[M.num_saved], sizeof(M.saved[0]), "%.47s", s);
+                    M.saved_ok[M.num_saved++] = 0;
+                    servers_save();
+                    M.query_timer = 0.0f;
+                } else if (*s) {
+                    menu_set_error("That's enough servers: remove one with Square");
+                }
+            }
+            return MENU_STAY;
+        }
         if (r == 1) {
             net_lobby_result(map_out, map_out_len, &M.join_slot, M.join_mac);
             M.joining = 0;
@@ -266,15 +404,37 @@ MenuResult menu_update(const InputState *in, float dt, char *map_out, int map_ou
             M.host_sel--;
             click(M.snd_move, 0.4f);
         }
-        if ((in->pressed & PSP_CTRL_DOWN) && M.host_sel + 1 < M.num_hosts) {
+        if ((in->pressed & PSP_CTRL_DOWN) && M.host_sel + 1 < nrows) {
             M.host_sel++;
             click(M.snd_move, 0.4f);
         }
-        if ((in->pressed & PSP_CTRL_CROSS) && M.num_hosts > 0 && !M.joining) {
+        if ((in->pressed & PSP_CTRL_CROSS) && nrows > 0 && !M.joining) {
+            int row = rows[M.host_sel];
+            if (row >= 0) {
+                click(M.snd_select, 0.6f);
+                M.error[0] = 0;
+                M.joining = 1;
+                net_lobby_join(&M.hosts[row]);
+            } else {
+                menu_set_error(M.saved_ok[-1 - row] < 0 ? "Couldn't find that address" : "That server isn't answering");
+            }
+        }
+        if (M.online && (in->pressed & PSP_CTRL_TRIANGLE) && !M.joining) {
             click(M.snd_select, 0.6f);
-            M.error[0] = 0;
-            M.joining = 1;
-            net_lobby_join(&M.hosts[M.host_sel]);
+            if (osk_start("Server address (name or 1.2.3.4, :port optional)", "", 47) == 0) M.adding = 1;
+        }
+        if (M.online && (in->pressed & PSP_CTRL_SQUARE) && nrows > 0 && !M.joining) {
+            int s = row_saved(rows[M.host_sel]);
+            if (s >= 0) {
+                click(M.snd_move, 0.4f);
+                for (int k = s; k + 1 < M.num_saved; k++) {
+                    memcpy(M.saved[k], M.saved[k + 1], sizeof(M.saved[0]));
+                    memcpy(M.saved_addr[k], M.saved_addr[k + 1], 6);
+                    M.saved_ok[k] = M.saved_ok[k + 1];
+                }
+                M.num_saved--;
+                servers_save();
+            }
         }
         if (in->pressed & PSP_CTRL_CIRCLE) {
             net_stop();
@@ -313,6 +473,7 @@ MenuResult menu_update(const InputState *in, float dt, char *map_out, int map_ou
             click(M.snd_select, 0.7f);
             snprintf(map_out, map_out_len, "%s", M.maps[idx[M.map_sel]]);
             M.error[0] = 0;
+            if (M.host) net_set_mode(M.host == 2 ? NET_MODE_INET : NET_MODE_ADHOC, 1);
             return M.host ? MENU_HOST_GAME : MENU_START_GAME;
         }
     }
@@ -357,7 +518,8 @@ static void draw_newgame(void) {
     ui_rrect(x - 2, y - 2, w + 4, h + 4, 6, 0x60000000);
     ui_rrect(x, y, w, h, 5, 0xF5E8E8E8);
     ui_gradient(x, y, w, 24, 0xFF8C6A3D, 0xFF6E5230);
-    ui_text(FONT_BOLD, x + 10, y + 6, 0xFFFFFFFF, ALIGN_LEFT, M.host ? "Host Multiplayer Game (Ad-hoc)" : "Start New Game");
+    ui_text(FONT_BOLD, x + 10, y + 6, 0xFFFFFFFF, ALIGN_LEFT,
+            M.host == 2 ? "Host Multiplayer Game (Wi-Fi)" : M.host ? "Host Multiplayer Game (Ad-hoc)" : "Start New Game");
 
     // Categories down the left
     float cx = x + 6, cy = y + 30;
@@ -401,48 +563,69 @@ static void draw_newgame(void) {
     ui_text(FONT_SMALL, x + 10, y + h - 21, 0xFF606060, ALIGN_LEFT, "L/R: category    O: back");
 }
 
-// Join Game: the games nearby, from their hosts' beacons
+// Join Game (ad-hoc): the games nearby, from their hosts' beacons. Online Servers (Wi-Fi): the games on
+// the same network and the servers you added.
 static void draw_join(void) {
     float x = 40, y = 20, w = 400, h = 232;
     ui_rrect(x - 2, y - 2, w + 4, h + 4, 6, 0x60000000);
     ui_rrect(x, y, w, h, 5, 0xF5E8E8E8);
     ui_gradient(x, y, w, 24, 0xFF8C6A3D, 0xFF6E5230);
-    ui_text(FONT_BOLD, x + 10, y + 6, 0xFFFFFFFF, ALIGN_LEFT, "Join Game (Ad-hoc)");
+    ui_text(FONT_BOLD, x + 10, y + 6, 0xFFFFFFFF, ALIGN_LEFT, M.online ? "Online Servers (Wi-Fi)" : "Join Game (Ad-hoc)");
     ui_textf(FONT_SMALL, x + w - 10, y + 7, 0xFFE0E0E0, ALIGN_RIGHT, "You: %s", net_nickname());
 
     NetState st = net_poll();
+    int rows[MAX_HOSTS + MAX_SAVED];
+    int nrows = online_rows(rows);
     float ly = y + 32;
     if (st != NET_READY) {
         ui_text(FONT_SMALL, x + 14, ly + 4, st == NET_FAILED ? 0xFF2020C0 : 0xFF404040, ALIGN_LEFT,
-                st == NET_FAILED ? net_status() : "Starting ad-hoc wireless...");
-        if (st == NET_FAILED) {
+                st == NET_FAILED ? net_status() : M.online ? "Connecting to Wi-Fi..." : "Starting ad-hoc wireless...");
+        if (st == NET_FAILED && M.online) {
+            ui_text(FONT_SMALL, x + 14, ly + 22, 0xFF606060, ALIGN_LEFT, "Check the WLAN switch and System Settings > Network");
+            ui_text(FONT_SMALL, x + 14, ly + 38, 0xFF606060, ALIGN_LEFT, "Settings. In PPSSPP, enable networking (WLAN).");
+        } else if (st == NET_FAILED) {
             ui_text(FONT_SMALL, x + 14, ly + 22, 0xFF606060, ALIGN_LEFT, "Check the WLAN switch. In PPSSPP, enable networking and");
             ui_text(FONT_SMALL, x + 14, ly + 38, 0xFF606060, ALIGN_LEFT, "the built-in ad-hoc server in Settings > Networking.");
         }
-    } else if (M.num_hosts == 0) {
+    } else if (nrows == 0) {
         // A little spinner while we listen for beacons
         int dots = (int)(M.t * 3.0f) % 4;
         ui_textf(FONT_SMALL, x + 14, ly + 4, 0xFF404040, ALIGN_LEFT, "Looking for games%.*s", dots, "...");
-        ui_text(FONT_SMALL, x + 14, ly + 22, 0xFF606060, ALIGN_LEFT, "Someone nearby has to pick Multiplayer > Host Game.");
+        ui_text(FONT_SMALL, x + 14, ly + 22, 0xFF606060, ALIGN_LEFT,
+                M.online ? "Triangle adds a server's address; games on this Wi-Fi show up here."
+                         : "Someone nearby has to pick Multiplayer > Host Game.");
     }
-    for (int i = 0; i < M.num_hosts; i++) {
-        const NetHost *hs = &M.hosts[i];
-        float ry = ly + i * 30;
-        int sel = i == M.host_sel;
+    int first = M.host_sel > 5 ? M.host_sel - 5 : 0;
+    for (int r = first; r < nrows && r < first + 6; r++) {
+        float ry = ly + (r - first) * 30;
+        int sel = r == M.host_sel, row = rows[r];
+        unsigned int tc = sel ? 0xFFFFFFFF : 0xFF303030;
+        if (row < 0) {
+            // A saved server that hasn't answered
+            int s = -1 - row;
+            ui_rrect(x + 8, ry, w - 16, 26, 3, sel ? 0xFFB09070 : 0xFFE0E0E0);
+            ui_text_clip(FONT_BOLD, x + 40, ry + 6, 220, sel ? 0xFFFFFFFF : 0xFF808080, M.saved[s]);
+            ui_text(FONT_SMALL, x + w - 16, ry + 7, sel ? 0xFFFFFFFF : 0xFF909090, ALIGN_RIGHT,
+                    st != NET_READY ? "" : M.saved_ok[s] < 0 ? "address not found" : "no answer");
+            continue;
+        }
+        const NetHost *hs = &M.hosts[row];
         ui_rrect(x + 8, ry, w - 16, 26, 3, sel ? 0xFFE6A03D : 0xFFF8F8F8);
         ui_map_thumb(hs->map, x + 11, ry + 2, 22, 22);
-        unsigned int tc = sel ? 0xFFFFFFFF : 0xFF303030;
-        ui_text(FONT_BOLD, x + 40, ry + 6, tc, ALIGN_LEFT, hs->host);
-        ui_text(FONT_SMALL, x + 180, ry + 7, tc, ALIGN_LEFT, hs->map);
-        ui_textf(FONT_SMALL, x + w - 16, ry + 7, tc, ALIGN_RIGHT, "%d / %d", hs->players, hs->max);
+        ui_text_clip(FONT_BOLD, x + 40, ry + 6, 132, tc, hs->host);
+        ui_text_clip(FONT_SMALL, x + 180, ry + 7, 130, tc, hs->map);
+        ui_textf(FONT_SMALL, x + w - 16, ry + 7, tc, ALIGN_RIGHT, "%s%d / %d", hs->dedicated ? "server  " : "", hs->players,
+                 hs->max);
     }
     if (M.joining) {
         ui_rrect(x + w / 2 - 90, y + h / 2 - 14, 180, 28, 4, 0xE0303030);
         ui_text(FONT_BOLD, x + w / 2, y + h / 2 - 6, 0xFFFFFFFF, ALIGN_CENTER, "Joining...");
     }
-    ui_rrect(x + w - 112, y + h - 26, 104, 20, 3, M.num_hosts ? 0xFFE6A03D : 0xFFB0B0B0);
+    int can_join = nrows > 0 && rows[M.host_sel] >= 0;
+    ui_rrect(x + w - 112, y + h - 26, 104, 20, 3, can_join ? 0xFFE6A03D : 0xFFB0B0B0);
     ui_text(FONT_BOLD, x + w - 60, y + h - 22, 0xFFFFFFFF, ALIGN_CENTER, "X  Join");
-    ui_text(FONT_SMALL, x + 10, y + h - 21, 0xFF606060, ALIGN_LEFT, "Up/Down: pick a game    O: back");
+    ui_text(FONT_SMALL, x + 10, y + h - 21, 0xFF606060, ALIGN_LEFT,
+            M.online ? "Triangle: add server   Square: remove   O: back" : "Up/Down: pick a game    O: back");
 }
 
 void menu_render(float fps) {
@@ -471,8 +654,8 @@ void menu_render(float fps) {
         menu_draw_buttons(k_main_items, NUM_MAIN_ITEMS, M.sel, 112, 26);
     } else if (M.page == PAGE_MULTI) {
         draw_logo();
-        ui_text_shadow(FONT_BOLD, 24, 94, 0xFFA0A0A0, ALIGN_LEFT, "MULTIPLAYER (AD-HOC, UP TO 4)");
-        menu_draw_buttons(k_multi_items, NUM_MULTI_ITEMS, M.multi_sel, 112, 26);
+        ui_text_shadow(FONT_BOLD, 24, 94, 0xFFA0A0A0, ALIGN_LEFT, "MULTIPLAYER (UP TO 4)");
+        menu_draw_buttons(k_multi_items, NUM_MULTI_ITEMS, M.multi_sel, 114, 22); // six items: a bit closer than the main menu
     } else if (M.page == PAGE_PROFILE) {
         draw_logo();
         profile_draw(150, 60, 300, 186);

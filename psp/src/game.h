@@ -18,6 +18,13 @@ void game_refresh_player_models(void);
 int game_start(const char *map_name, char *err, int err_len);
 // Multiplayer, right after game_start: host this game over ad-hoc, or join one (from the lobby)
 void game_host(void);
+// A dedicated server (psp-sandbox-server): hosts with no player of its own; log gets the notes
+void game_host_dedicated(void (*log)(const char *msg));
+// Its console: who's in each slot (NULL: nobody), sending a player away, a chat line for everyone
+enum { GAME_LEAVE_ENDED, GAME_LEAVE_KICKED, GAME_LEAVE_MAP }; // why, as the player is told
+const char *game_peer_name(int slot);
+void game_kick(int slot, int reason);
+void game_chat(const char *text);
 void game_join(int slot, const unsigned char host_mac[6]);
 const char *game_exit_message(void); // why a multiplayer game ended, or ""
 void game_set_view(float x, float y, float z, float yaw, float pitch);

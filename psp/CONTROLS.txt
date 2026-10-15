@@ -1,4 +1,4 @@
-PSP SANDBOX / PS2GMOD - CONTROLS  (v1.5.2)
+PSP SANDBOX / PS2GMOD - CONTROLS  (v1.7.0)
 =========================================
 
 ON FOOT                      PSP                        PS2 (DualShock 2)
@@ -97,9 +97,20 @@ SPAWN MENU (tap Select)
 
 
 PAUSE MENU (Start)
-  Resume Game, Options, Toggle Noclip, Freeze All Props, Clean Up Props
-  (also clears blood), Disconnect
+  Resume Game, Options, Saves, Toggle Noclip, Freeze All Props, Clean Up
+  Props (also clears blood), Disconnect
   D-pad Up / Down to choose, X to select, Circle or Start to resume.
+
+
+PAUSE MENU > SAVES (single player and hosting)
+  Saves everything you've spawned (props, welds, ropes and the rest,
+  thrusters, hoverballs, balloons, lamps, lights, buttons and emitters) to
+  data/saves on the memory stick, and loads it back on any map.
+  "Save the current build": X names it with the on-screen keyboard.
+  On a save:  X        load it where you're looking, turned the way you face
+              Square   load it where it was built (on the map it was built on)
+              Triangle delete it (press twice)
+  One Undo takes a whole loaded build away.
 
 
 OPTIONS
@@ -108,6 +119,17 @@ OPTIONS
   Third-person view, NPC thinking, NPCs ignore players, Unlimited ammo,
   HEV suit, Show HUD, Crosshair, Show FPS, Draw distance, Physics quality,
   Credits.
+
+
+MULTIPLAYER
+  Host Game / Join Game     ad-hoc, PSP to PSP
+  Host on Wi-Fi             host through your access point: PSPs on the
+                            same Wi-Fi find it in Online Servers
+  Online Servers            games on your Wi-Fi and dedicated servers
+                            (psp-sandbox-server). Triangle adds a server's
+                            address (a name or 1.2.3.4, ":port" if it isn't
+                            18256), Square removes it, X joins.
+  Wi-Fi uses the first connection in System Settings > Network Settings.
 
 
 MULTIPLAYER > PROFILE

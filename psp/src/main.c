@@ -103,6 +103,12 @@ static int run_autoload(char *status, int status_len) {
         if (strcmp(nm, "menu") == 0 && sscanf(line, "%*s %31s", page) == 1 && strcmp(page, "profile") == 0) {
             menu_show_profile(); // "menu profile": Multiplayer > Profile
         }
+        if (strcmp(nm, "join") == 0 && sscanf(line, "%*s %31s", page) == 1) {
+            menu_autojoin(page); // "join ADDRESS": Online Servers, joining that server
+        }
+        if (strcmp(nm, "menu") == 0 && sscanf(line, "%*s %31s", page) == 1 && strcmp(page, "multiplayer") == 0) {
+            menu_show_multiplayer();
+        }
         if (strcmp(nm, "menu") == 0 && sscanf(line, "%*s %31s", page) == 1 && strcmp(page, "workshop") == 0) {
             menu_show_workshop();
         }
@@ -110,7 +116,7 @@ static int run_autoload(char *status, int status_len) {
             menu_show_achievements();
         }
 
-        if (n >= 1 && strcmp(nm, "menu") != 0 && start_game(nm, status, status_len)) {
+        if (n >= 1 && strcmp(nm, "menu") != 0 && strcmp(nm, "join") != 0 && start_game(nm, status, status_len)) {
 
             started = 1;
             if (n == 6) game_set_view(c[0], c[1], c[2], c[3], c[4]);

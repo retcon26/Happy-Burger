@@ -18,6 +18,11 @@ enum {
     ACH_CREATOR,      // spawn 100 props
     ACH_MINGE_HUNTER, // kill 10 mingebags
     ACH_EXPLORER,     // play on 10 different maps
+    // 1.7.0 (new ones go on the end: progress files keep a bit per achievement)
+    ACH_SAVE_POINT,   // save a build
+    ACH_DEJA_VU,      // load a build on another map than it was built on
+    ACH_ONLINE,       // join a dedicated server
+    ACH_ON_THE_AIR,   // host a game over Wi-Fi that someone joins
     ACH_COUNT
 };
 
@@ -28,6 +33,7 @@ void achieve_update(float dt, int players);
 void achieve_prop_spawned(void);
 void achieve_minge_killed(void);
 void achieve_map(const char *name);
+void achieve_unlock(int a); // the ones that are done or not (ACH_SAVE_POINT...)
 // The next achievement unlocked since the last call (for the game's notification), or -1
 int achieve_pop(void);
 const char *achieve_name(int a);

@@ -2,15 +2,23 @@
 
 #include <stdint.h>
 
-// Ad-hoc wireless multiplayer transport. Every PSP joins one ad-hoc group ("GmodPSP") and talks
-// with PDP datagrams: broadcasts for the host's beacons and world snapshots, unicast for the rest.
+// Multiplayer transport, two ways:
+//   Ad-hoc: every PSP joins one ad-hoc group ("GmodPSP") and talks with PDP datagrams: broadcasts for
+//     the host's beacons and world snapshots, unicast for the rest.
+//   Wi-Fi: UDP through an access point, to games on the same network (a PSP hosting over Wi-Fi) or
+//     dedicated servers anywhere (psp-sandbox-server, on a PC). Addresses are the IPv4 address and
+//     port packed into the 6 bytes the game uses for a MAC.
 // The game protocol on top of this lives in game.c (host-authoritative: the host runs physics,
 // NPCs and doors; clients send their position, aim and actions).
 
 #define NET_MAX_PLAYERS 4
-#define NET_VERSION 8 // 2: rope packets name the joint type (sliders); 3: player models;
+#define NET_PORT 18256
+#define NET_VERSION 9 // 2: rope packets name the joint type (sliders); 3: player models;
                       // 4: the host's ragdolls sent to clients, and their physics gun holds; 5: vehicles;
-                      // 6: Profile colours, mingebags; 7: TF2 teams (NPC numbers moved); 8: devices, hydraulics
+                      // 6: Profile colours, mingebags; 7: TF2 teams (NPC numbers moved); 8: devices, hydraulics;
+                      // 9: Wi-Fi and dedicated servers (PK_INFO, beacon flags)
+
+enum { NET_MODE_ADHOC, NET_MODE_INET };
 
 typedef enum { NET_OFF, NET_CONNECTING, NET_READY, NET_FAILED } NetState;
 
@@ -26,6 +34,13 @@ int net_send(const uint8_t *mac, const void *data, int len);
 int net_recv(uint8_t mac[6], void *buf, int max);
 const uint8_t *net_my_mac(void);
 const char *net_nickname(void); // the PSP's system nickname
+
+// Which way the next net_start() connects. host: a host over Wi-Fi listens on NET_PORT.
+void net_set_mode(int mode, int host);
+int net_mode(void);
+// Wi-Fi: "name", "1.2.3.4" or either with ":port" to an address; 0 on success (names wait for DNS)
+int net_resolve(const char *text, uint8_t addr[6]);
+void net_addr_text(const uint8_t addr[6], char *out, int len); // "1.2.3.4:18256"
 
 // --- Packets -----------------------------------------------------------------------------------
 
@@ -46,6 +61,7 @@ enum {
     PK_VOICE,      // client -> host -> all others (or host -> all): a frame of voice chat
     PK_CHAT,       // host -> all: a line in the chat feed (mingebags' rubbish)
     PK_DEVICES,    // host -> all: lamps, lights, buttons and emitters
+    PK_INFO,       // player -> host: "tell me about your game" (the host answers with a beacon)
 };
 
 
@@ -63,8 +79,9 @@ typedef struct {
     NetHeader h;
     char map[32];
     char host[16];
-    uint8_t players, max, pad[2];
+    uint8_t players, max, flags, pad;
 } PkBeacon;
+#define BEACON_DEDICATED 1 // a dedicated server: nobody plays on the host
 
 typedef struct {
     NetHeader h;
@@ -84,6 +101,7 @@ typedef struct {
     char map[32];
     char host[16];
     int players, max;
+    int dedicated;
     float age; // seconds since the last beacon
 } NetHost;
 
@@ -91,4 +109,6 @@ typedef struct {
 // -1 if the host was full, else 0.
 int net_lobby_update(float dt, NetHost *hosts, int max_hosts, int *num_hosts);
 void net_lobby_join(const NetHost *h); // starts asking this host to join (resent until answered)
+// Asks a host about its game (it answers with a beacon); NULL asks everyone nearby
+void net_lobby_query(const uint8_t *addr);
 void net_lobby_result(char *map, int map_len, int *slot, uint8_t host_mac[6]);

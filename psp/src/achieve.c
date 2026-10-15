@@ -31,6 +31,10 @@ static const AchDef k_ach[ACH_COUNT] = {
     {"Creator", "Spawn 100 props", 100},
     {"Mingebag Hunter", "Kill 10 mingebags", 10},
     {"Explorer", "Play on 10 different maps", 10},
+    {"Save Point", "Save a build", 0},
+    {"Deja Vu", "Load a saved build on another map", 0},
+    {"Online", "Join a dedicated server", 0},
+    {"On the Air", "Host on Wi-Fi and have someone join", 0},
 };
 
 enum { DEV_EMULATOR, DEV_PSP1000, DEV_PSPSLIM, DEV_PSPGO };
@@ -46,6 +50,7 @@ static struct {
     float since_save;
     int queue[8], q_head, q_tail; // unlocked, waiting for the game's notification
     int sel, scroll;
+    int loaded; // achieve_init ran: only then is there progress to save (the dedicated server never runs it)
 } A;
 
 static int exists(const char *path) {
@@ -112,9 +117,11 @@ void achieve_init(void) {
         fclose(f);
     }
     A.device = detect_device();
+    A.loaded = 1;
 }
 
 void achieve_save(void) {
+    if (!A.loaded) return; // never over someone's progress with nothing
     FILE *f = fopen(ACH_PATH, "w");
     if (!f) return;
     fprintf(f, "unlocked %u\nplaytime %u\nprops %d\nmingebags %d\n", A.unlocked, (unsigned int)A.playtime, A.props, A.minges);
@@ -135,6 +142,10 @@ void achieve_update(float dt, int players) {
     if (players >= 4) unlock(ACH_FULL_HOUSE);
     check_counts();
     if (A.since_save >= SAVE_EVERY) achieve_save();
+}
+
+void achieve_unlock(int a) {
+    unlock(a);
 }
 
 void achieve_prop_spawned(void) {

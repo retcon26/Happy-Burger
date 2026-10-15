@@ -10,6 +10,7 @@
 
 #include "achieve.h"
 #include "audio.h"
+#include "builds.h"
 #include "camera.h"
 #include "pak.h"
 #include "workshop.h"
@@ -40,6 +41,10 @@ float g_ps2_prof[4];
 void gu_profile_text(char *buf, int len);
 #endif
 static int g_flashlight; // Square toggles it on the PS2, holding D-pad Right on the PSP
+// A dedicated server (psp-sandbox-server): it hosts, but nobody plays on it. Its own player stays out of
+// the game (noclip, not sent, not a target) and notes go to its log.
+static int g_dedicated;
+static void (*g_log)(const char *msg);
 
 // The PSP plays over ad-hoc wifi, the PS2 over the network adapter
 #ifdef PS2
@@ -49,10 +54,11 @@ static int g_flashlight; // Square toggles it on the PS2, holding D-pad Right on
 #define NET_HOSTING_TAG "HOSTING (LAN)"
 #define RAGDOLL_LOCAL_MSG "Ragdoll (only on this console)"
 #else
-#define NET_HOSTING_HINT "Hosting - others can join over ad-hoc"
-#define NET_LOST_MSG "Lost the ad-hoc connection"
-#define NET_STARTING_MSG "Starting ad-hoc..."
-#define NET_HOSTING_TAG "HOSTING (AD-HOC)"
+#define NET_HOSTING_HINT \
+    (net_mode() == NET_MODE_INET ? "Hosting - others can join over Wi-Fi" : "Hosting - others can join over ad-hoc")
+#define NET_LOST_MSG (net_mode() == NET_MODE_INET ? "Lost the Wi-Fi connection" : "Lost the ad-hoc connection")
+#define NET_STARTING_MSG (net_mode() == NET_MODE_INET ? "Connecting to Wi-Fi..." : "Starting ad-hoc...")
+#define NET_HOSTING_TAG (net_mode() == NET_MODE_INET ? "HOSTING (WI-FI)" : "HOSTING (AD-HOC)")
 #define RAGDOLL_LOCAL_MSG "Ragdoll (only on this PSP)"
 #endif
 #ifndef PS2
@@ -80,6 +86,7 @@ static int g_flash_fired;
 #define BALLOON_FORCE 30000.0f // mass * acceleration: lifts about 50kg against 600 gravity
 #define MAX_BALLOONS 4
 #define UNDO_MAX 64
+#define UNDO_GROUP_BASE 0x100000 // an undo entry for the UNDO_GROUP_BASE + n entries below it (a loaded build)
 #define PLAYER_PROP_LIMIT 40
 #define STEP_STRIDE 72.0f
 #define IMPACT_MIN_SPEED 140.0f
@@ -214,7 +221,7 @@ static const struct {
     {"Render", {TOOL_CAMERA, TOOL_COLOUR, TOOL_LAMP, TOOL_LIGHT}, 4},
 };
 #define NUM_TOOL_GROUPS (int)(sizeof(k_tool_groups) / sizeof(k_tool_groups[0]))
-static const char *k_pause_items[] = {"Resume Game", "Options",    "Toggle Noclip", "Freeze All Props",
+static const char *k_pause_items[] = {"Resume Game", "Options", "Saves", "Toggle Noclip", "Freeze All Props",
                                       "Clean Up Props", "Disconnect"};
 #define SELECT_HOLD_TIME 0.4f // holding Select this long toggles noclip instead of opening the spawn menu
 #define NUM_PAUSE_ITEMS (int)(sizeof(k_pause_items) / sizeof(k_pause_items[0]))
@@ -436,6 +443,7 @@ static struct {
     int paused;
     int pause_sel;
     int pause_options;
+    int pause_saves; // Pause > Saves is open
     float select_time; // how long Select has been held
     int select_fired;  // the hold already toggled noclip
     // Notifications, newest first
@@ -532,6 +540,7 @@ static void bullet_hole(vec3 eye, vec3 dir, vec3 hit, int body);
 // GMod-style notification in the bottom right
 static void notify(const char *msg, int kind) {
     if (G.acting) return; // a remote player's action: not for this screen
+    if (g_log) g_log(msg);
     memmove(&G.notes[1], &G.notes[0], sizeof(G.notes[0]) * (MAX_NOTES - 1));
     snprintf(G.notes[0].text, sizeof(G.notes[0].text), "%s", msg);
     G.notes[0].kind = kind;
@@ -623,6 +632,9 @@ static void devices_clear(void);
 static void toolgun_fire(void);
 static void test_use_aim(void);
 static void test_use_body(int body);
+static void save_build(const char *name);
+static int load_build(const char *name, int in_place);
+static void cleanup_props(void);
 
 static void load_shared(void) {
     if (G.props_loaded) return;
@@ -1040,8 +1052,25 @@ void game_command(const char *line) {
     } else if (sscanf(line, "menu %d", &i) == 1) {
         G.qmenu = 1;
         G.focus = i % 3;
+    } else if (strncmp(line, "pause saves", 11) == 0) { // Pause > Saves
+        G.paused = 1;
+        G.pause_saves = 1;
+        saves_open(G.map_name);
     } else if (strncmp(line, "pause", 5) == 0) {
         G.paused = 1;
+    } else if (strncmp(line, "savebuild ", 10) == 0) { // savebuild NAME
+        char nm[BUILD_NAME_LEN];
+        snprintf(nm, sizeof(nm), "%s", line + 10);
+        nm[strcspn(nm, "\r\n")] = 0;
+        save_build(nm);
+    } else if (strncmp(line, "loadbuild ", 10) == 0 || strncmp(line, "loadhere ", 9) == 0) { // where you look / built
+        int here = line[4] == 'h';
+        char nm[BUILD_NAME_LEN];
+        snprintf(nm, sizeof(nm), "%s", line + (here ? 9 : 10));
+        nm[strcspn(nm, "\r\n")] = 0;
+        load_build(nm, here);
+    } else if (strncmp(line, "cleanup", 7) == 0) {
+        cleanup_props();
     } else if (sscanf(line, "tool %d", &i) == 1) {
         G.tool = (Tool)(i % TOOL_COUNT);
         G.weapon = WEAPON_TOOLGUN;
@@ -1621,6 +1650,40 @@ static int is_camera(int body) {
     return b->active && b->lib == 0 && b->model >= 0 && b->model == camera_model();
 }
 
+// A spawnable prop's body: at pos (its shape's centre), or with sit_on (a surface normal) sat on the
+// surface at pos. Loads an extra prop's model first (making room if it must). Returns the body, or
+// -1 when the world is full and -2 when there's no memory for the model.
+static int new_body(int model, vec3 pos, quat rot, unsigned int tint, const vec3 *sit_on) {
+    PpakModel tmp;
+    const PpakModel *md = G.props_loaded ? model_info(model, &tmp) : NULL;
+    if (!md) return -1;
+    int local;
+    const PropLib *lib = model_lib(model, &local);
+    if (!lib) {
+        release_unused_extras();
+        lib = model_lib(model, &local);
+    }
+    if (!lib) return -2;
+    md = &lib->models[local]; // exact bounds, now it's loaded
+    vec3 mins = v3(md->mins[0], md->mins[1], md->mins[2]);
+    vec3 maxs = v3(md->maxs[0], md->maxs[1], md->maxs[2]);
+    if (sit_on) {
+        // Sit the shape on the surface we hit: lift it along the normal by its extent in that direction.
+        vec3 half = v3_scale(v3_sub(maxs, mins), 0.5f);
+        vec3 ln = q_rotate_inv(rot, *sit_on);
+        float lift = fabsf(ln.x) * half.x + fabsf(ln.y) * half.y + fabsf(ln.z) * half.z + 1.0f;
+        pos = v3_mad(pos, *sit_on, lift);
+    }
+    int i = phys_spawn(&G.phys, model, (int)(md->flags & PPAK_SHAPE_MASK), mins, maxs, md->mass, pos, rot);
+    if (i < 0) return -1;
+    attach_hull(&G.phys.bodies[i], lib, local);
+    G.phys.bodies[i].tint_abgr = tint;
+    G.phys.bodies[i].surface = (int)md->surface;
+    if (model == camera_model()) G.phys.bodies[i].frozen = 1; // cameras hang where they're put, as in GMod
+    G.body_owner[i] = G.acting;
+    return i;
+}
+
 static int spawn_prop(int model, vec3 at, vec3 normal, quat rot, unsigned int tint) {
     PpakModel tmp;
     const PpakModel *md = G.props_loaded ? model_info(model, &tmp) : NULL;
@@ -1636,33 +1699,15 @@ static int spawn_prop(int model, vec3 at, vec3 normal, quat rot, unsigned int ti
         toast("Prop limit reached - remove some first");
         return -1;
     }
-    int local;
-    const PropLib *lib = model_lib(model, &local);
-    if (!lib) {
-        release_unused_extras();
-        lib = model_lib(model, &local);
-    }
-    if (!lib) {
-        toast("Not enough memory for that prop - remove some first");
+    int i = new_body(model, at, rot, tint, &normal);
+    if (i == -2) {
+        toast("Not enough memory - remove some props first");
         return -1;
     }
-    md = &lib->models[local]; // exact bounds, now it's loaded
-    vec3 mins = v3(md->mins[0], md->mins[1], md->mins[2]);
-    vec3 maxs = v3(md->maxs[0], md->maxs[1], md->maxs[2]);
-    vec3 half = v3_scale(v3_sub(maxs, mins), 0.5f);
-    // Sit the shape on the surface we hit: lift it along the normal by its extent in that direction.
-    vec3 ln = q_rotate_inv(rot, normal);
-    float lift = fabsf(ln.x) * half.x + fabsf(ln.y) * half.y + fabsf(ln.z) * half.z + 1.0f;
-    int i = phys_spawn(&G.phys, model, (int)(md->flags & PPAK_SHAPE_MASK), mins, maxs, md->mass, v3_mad(at, normal, lift), rot);
     if (i < 0) {
         toast("Too many physics objects");
         return -1;
     }
-    attach_hull(&G.phys.bodies[i], lib, local);
-    G.phys.bodies[i].tint_abgr = tint;
-    G.phys.bodies[i].surface = (int)md->surface;
-    if (model == camera_model()) G.phys.bodies[i].frozen = 1; // cameras hang where they're put, as in GMod
-    G.body_owner[i] = G.acting;
     undo_push(i);
     play(G.snd.spawn, 0.6f);
     if (G.acting == G.my_slot) achieve_prop_spawned(); // ours, not a client's we spawned for them
@@ -3245,6 +3290,7 @@ static void open_pause(void) {
     G.paused = 1;
     G.pause_sel = 0;
     G.pause_options = 0;
+    G.pause_saves = 0;
     play(G.snd.menu_select, 0.5f);
 }
 
@@ -3384,6 +3430,266 @@ static void cleanup_props(void) {
     notify("Cleaned up all props", NOTE_CLEANUP);
 }
 
+// --- Saves: builds written to the memory stick and loaded back on any map (builds.c) ----------------
+
+static Build g_build;
+
+static const char *model_cat_name(int model) {
+    int c = model_cat(model);
+    if (c < G.props.num_categories) return c >= 0 ? G.props.categories[c] : "";
+    return propx_category(c - G.props.num_categories);
+}
+
+// A saved prop's model: by its name in its category, or by its name alone (another pack's categories)
+static int model_by_name(const char *name, const char *cat) {
+    int any = -1;
+    for (int m = 0; m < G.props.num_models; m++) {
+        if (strncmp(G.props.models[m].name, name, sizeof(G.props.models[m].name)) != 0) continue;
+        if (strcmp(model_cat_name(m), cat) == 0) return m;
+        if (any < 0) any = m;
+    }
+    for (int x = 0; x < propx_count(); x++) {
+        if (strcmp(propx_name(x), name) != 0) continue;
+        int m = G.props.num_models + x;
+        if (strcmp(model_cat_name(m), cat) == 0) return m;
+        if (any < 0) any = m;
+    }
+    return any;
+}
+
+// Everything players spawned (not the map's own props or broken pieces), from the middle of its
+// floor and turned so the way you face is the build's forward. Returns how many props.
+static int build_capture(Build *bd) {
+    memset(bd, 0, sizeof(*bd));
+    snprintf(bd->map, sizeof(bd->map), "%s", G.map_name);
+    int idx[MAX_BODIES];
+    vec3 lo = v3(1e9f, 1e9f, 1e9f), hi = v3(-1e9f, -1e9f, -1e9f);
+    for (int i = 0; i < MAX_BODIES; i++) {
+        const Body *b = &G.phys.bodies[i];
+        idx[i] = -1;
+        if (!b->active || b->lib != 0 || b->life > 0.0f || bd->num_props >= BUILD_MAX_PROPS) continue;
+        idx[i] = bd->num_props++;
+        vec3 mn, mx;
+        phys_body_aabb(b, &mn, &mx);
+        lo = v3(fminf(lo.x, mn.x), fminf(lo.y, mn.y), fminf(lo.z, mn.z));
+        hi = v3(fmaxf(hi.x, mx.x), fmaxf(hi.y, mx.y), fmaxf(hi.z, mx.z));
+    }
+    if (bd->num_props == 0) return 0;
+    bd->origin = v3((lo.x + hi.x) * 0.5f, (lo.y + hi.y) * 0.5f, lo.z);
+    bd->yaw = G.yaw;
+    quat inv = yaw_quat(-G.yaw);
+    for (int i = 0; i < MAX_BODIES; i++) {
+        if (idx[i] < 0) continue;
+        const Body *b = &G.phys.bodies[i];
+        BuildProp *p = &bd->props[idx[i]];
+        snprintf(p->name, sizeof(p->name), "%s", model_name(b->model));
+        snprintf(p->cat, sizeof(p->cat), "%s", model_cat_name(b->model));
+        p->pos = q_rotate(inv, v3_sub(b->pos, bd->origin));
+        p->rot = q_norm(q_mul(inv, b->rot));
+        p->tint = b->tint_abgr;
+        p->mass = b->mass;
+        p->flags = (b->frozen ? BUILD_FROZEN : 0) | (b->nocollide ? BUILD_NOCOLLIDE : 0);
+        p->balloons = b->balloons;
+    }
+    for (int j = 0; j < MAX_JOINTS && bd->num_joints < BUILD_MAX_JOINTS; j++) {
+        const Joint *jt = &G.phys.joints[j];
+        if (!jt->active || idx[jt->a] < 0 || (jt->b >= 0 && idx[jt->b] < 0)) continue;
+        Joint *o = &bd->joints[bd->num_joints++];
+        *o = *jt;
+        o->a = idx[jt->a];
+        o->b = jt->b >= 0 ? idx[jt->b] : -1;
+        if (jt->b < 0) {
+            // Held to the world: its anchor, angle and line are world ones, so they move with the build
+            o->lb = q_rotate(inv, v3_sub(jt->lb, bd->origin));
+            o->rel = q_mul(inv, jt->rel);
+            o->axis = q_rotate(inv, jt->axis);
+        }
+    }
+    for (int f = 0; f < MAX_FORCES && bd->num_forces < BUILD_MAX_FORCES; f++) {
+        const Force *fc = &G.phys.forces[f];
+        if (!fc->active || idx[fc->body] < 0) continue;
+        Force *o = &bd->forces[bd->num_forces++];
+        *o = *fc;
+        o->body = idx[fc->body];
+        if (fc->type == FORCE_HOVER) o->strength -= bd->origin.z; // the height it holds, from the floor
+    }
+    for (int d = 0; d < MAX_DEVICES && bd->num_devices < BUILD_MAX_DEVICES; d++) {
+        const Device *v = &g_dev[d];
+        if (!v->type || idx[v->body] < 0) continue;
+        BuildDevice *o = &bd->devices[bd->num_devices++];
+        o->type = v->type;
+        o->body = idx[v->body];
+        o->on = v->on;
+        o->lpos = v->lpos;
+        o->ldir = v->ldir;
+        o->colour = v->colour;
+        o->effect = v->effect;
+        o->target = body_valid(v->target) ? idx[v->target] : -1;
+    }
+    return bd->num_props;
+}
+
+// Spawns a build with its floor's middle at origin, its forward turned to yaw. Returns how many props
+// it made (0: nothing, with msg saying why).
+static int build_place(const Build *bd, vec3 origin, float yaw, char *msg, int msg_len) {
+    int free_bodies = 0;
+    for (int i = 0; i < MAX_BODIES; i++) free_bodies += !G.phys.bodies[i].active;
+    int room = PLAYER_PROP_LIMIT - player_prop_count();
+    if (bd->num_props > room || bd->num_props > free_bodies) {
+        snprintf(msg, msg_len, "It has %d props: room for %d", bd->num_props, room < free_bodies ? room : free_bodies);
+        return 0;
+    }
+    quat r = yaw_quat(yaw);
+    int body[BUILD_MAX_PROPS], made = 0, missing = 0;
+    for (int k = 0; k < bd->num_props; k++) {
+        const BuildProp *p = &bd->props[k];
+        int model = model_by_name(p->name, p->cat);
+        body[k] = model >= 0 ? new_body(model, v3_add(origin, q_rotate(r, p->pos)), q_norm(q_mul(r, p->rot)), p->tint, NULL)
+                             : -1;
+        if (body[k] < 0) {
+            missing++;
+            continue;
+        }
+        Body *b = &G.phys.bodies[body[k]];
+        if (fabsf(p->mass - b->mass) > 0.5f) phys_set_mass(&G.phys, body[k], p->mass);
+        b->frozen = (p->flags & BUILD_FROZEN) != 0;
+        b->nocollide = (p->flags & BUILD_NOCOLLIDE) != 0;
+        b->balloons = p->balloons < MAX_BALLOONS ? p->balloons : MAX_BALLOONS;
+        update_balloon_lift(b);
+        undo_push(body[k]);
+        made++;
+    }
+    for (int k = 0; k < bd->num_joints; k++) {
+        const Joint *src = &bd->joints[k];
+        if (body[src->a] < 0 || (src->b >= 0 && body[src->b] < 0)) continue;
+        int j;
+        for (j = 0; j < MAX_JOINTS && G.phys.joints[j].active; j++) {
+        }
+        if (j == MAX_JOINTS) break;
+        Joint *jt = &G.phys.joints[j];
+        *jt = *src;
+        jt->a = body[src->a];
+        jt->b = src->b >= 0 ? body[src->b] : -1;
+        if (src->b < 0) {
+            jt->lb = v3_add(origin, q_rotate(r, src->lb));
+            jt->rel = q_mul(r, src->rel);
+            jt->axis = q_rotate(r, src->axis);
+        }
+    }
+    for (int k = 0; k < bd->num_forces; k++) {
+        const Force *src = &bd->forces[k];
+        if (body[src->body] < 0) continue;
+        int f;
+        for (f = 0; f < MAX_FORCES && G.phys.forces[f].active; f++) {
+        }
+        if (f == MAX_FORCES) break;
+        Force *fc = &G.phys.forces[f];
+        *fc = *src;
+        fc->body = body[src->body];
+        if (fc->type == FORCE_HOVER) fc->strength += origin.z;
+    }
+    for (int k = 0; k < bd->num_devices; k++) {
+        const BuildDevice *src = &bd->devices[k];
+        if (body[src->body] < 0) continue;
+        int d;
+        for (d = 0; d < MAX_DEVICES && g_dev[d].type; d++) {
+        }
+        if (d == MAX_DEVICES) break;
+        Device *v = &g_dev[d];
+        memset(v, 0, sizeof(*v));
+        v->type = src->type;
+        v->body = body[src->body];
+        v->on = src->on;
+        v->lpos = src->lpos;
+        v->ldir = src->ldir;
+        v->colour = src->colour >= 0 && src->colour < PALETTE_SIZE ? src->colour : 0;
+        v->effect = src->effect % EMIT_COUNT;
+        v->target = src->target >= 0 && src->target < bd->num_props ? body[src->target] : -1;
+    }
+    for (int k = 0; k < bd->num_props; k++) {
+        if (body[k] >= 0) phys_wake(&G.phys, body[k]);
+    }
+    // One Undo takes the whole build away
+    if (made > 1) undo_push(UNDO_GROUP_BASE + made);
+    if (missing) {
+        snprintf(msg, msg_len, "Loaded (%d prop%s not in this prop pack)", missing, missing == 1 ? "" : "s");
+    } else {
+        snprintf(msg, msg_len, "Loaded %d prop%s", made, made == 1 ? "" : "s");
+    }
+    return made;
+}
+
+// Where a build goes when loaded "where you look": on the floor there, far enough out not to land on you
+static vec3 build_drop_point(const Build *bd) {
+    float radius = 0.0f;
+    for (int k = 0; k < bd->num_props; k++) {
+        float d = sqrtf(bd->props[k].pos.x * bd->props[k].pos.x + bd->props[k].pos.y * bd->props[k].pos.y) + 24.0f;
+        if (d > radius) radius = d;
+    }
+    Aim a = aim_trace(radius + 600.0f); // not off at the horizon
+    vec3 at = a.point;
+    vec3 f = view_forward();
+    f.z = 0.0f;
+    f = v3_len(f) > 1e-3f ? v3_norm(f) : v3(1, 0, 0);
+    vec3 from = G.player.origin;
+    float out;
+    if (!(a.hit_world && a.normal.z > 0.7f)) at = v3_mad(at, f, -radius); // a wall: come back off it
+    out = v3_dot(v3_sub(at, from), f);
+    if (out < radius + 40.0f) at = v3_mad(at, f, radius + 40.0f - out);
+    // Down onto the floor
+    Trace tr;
+    vec3 above = v3_add(at, v3(0, 0, 48.0f));
+    cm_trace_line(&G.map, above, v3_add(above, v3(0, 0, -2048.0f)), MASK_PLAYERSOLID, NULL, 0, &tr);
+    return v3_add(tr.endpos, v3(0, 0, 2.0f));
+}
+
+static void save_build(const char *name) {
+    char msg[48];
+    if (build_capture(&g_build) == 0) {
+        notify("Nothing to save: spawn some props first", NOTE_ERROR);
+        return;
+    }
+    if (build_write(name, &g_build) != 0) {
+        notify("Couldn't save (is the memory stick full?)", NOTE_ERROR);
+        return;
+    }
+    snprintf(msg, sizeof(msg), "Saved %s (%d props)", name, g_build.num_props);
+    notify(msg, NOTE_HINT);
+    play(G.snd.weld, 0.6f);
+    achieve_unlock(ACH_SAVE_POINT);
+}
+
+static int load_build(const char *name, int in_place) {
+    char msg[48];
+    if (build_read(name, &g_build) != 0) {
+        notify("Couldn't read that save", NOTE_ERROR);
+        return 0;
+    }
+    vec3 at = in_place ? g_build.origin : build_drop_point(&g_build);
+    float yaw = in_place ? g_build.yaw : G.yaw;
+    int made = build_place(&g_build, at, yaw, msg, sizeof(msg));
+    notify(msg, made ? NOTE_HINT : NOTE_ERROR);
+    if (made) play(G.snd.spawn, 0.6f);
+    if (made && strcmp(g_build.map, G.map_name) != 0) achieve_unlock(ACH_DEJA_VU);
+    return made;
+}
+
+static void saves_page(const InputState *in) {
+    char name[BUILD_NAME_LEN];
+    int r = saves_update(in, name, sizeof(name));
+    if (r == SAVES_BACK) {
+        G.pause_saves = 0;
+    } else if (r == SAVES_SAVE) {
+        save_build(name);
+        saves_refresh();
+    } else if (r == SAVES_LOAD_AIM || r == SAVES_LOAD_IN_PLACE) {
+        if (load_build(name, r == SAVES_LOAD_IN_PLACE)) {
+            G.pause_saves = 0;
+            G.paused = 0; // back to the game, to see it
+        }
+    }
+}
+
 // GMod's escape menu: Resume, Options, cleanup, Disconnect
 static GameResult pause_update(const InputState *in) {
     if (G.pause_options) {
@@ -3392,6 +3698,10 @@ static GameResult pause_update(const InputState *in) {
             snd_stop(G.hold_sound);
             G.hold_sound = -1;
         }
+        return GAME_CONTINUE;
+    }
+    if (G.pause_saves) {
+        saves_page(in);
         return GAME_CONTINUE;
     }
     int before = G.pause_sel;
@@ -3408,23 +3718,33 @@ static GameResult pause_update(const InputState *in) {
     case 0: G.paused = 0; break;
     case 1: G.pause_options = 1; break;
     case 2:
+        if (is_client()) {
+            // The host has the whole world (welds, thrusters...): builds are saved and loaded there
+            notify("Only the host can save and load builds", NOTE_ERROR);
+            G.paused = 0;
+        } else {
+            G.pause_saves = 1;
+            saves_open(G.map_name);
+        }
+        break;
+    case 3:
         G.player.noclip = !G.player.noclip;
         G.player.velocity = v3(0, 0, 0);
         G.paused = 0;
         notify(G.player.noclip ? "Noclip enabled" : "Noclip disabled", NOTE_HINT);
         break;
-    case 3:
     case 4:
+    case 5:
         if (is_client()) {
             notify("Only the host can do that", NOTE_ERROR);
-        } else if (G.pause_sel == 3) {
+        } else if (G.pause_sel == 4) {
             freeze_all();
         } else {
             cleanup_props();
         }
         G.paused = 0;
         break;
-    case 5:
+    case 6:
         G.paused = 0;
         G.qmenu = 0;
         net_leave();
@@ -3701,6 +4021,20 @@ static int undo_pop(int slot) {
     undo_list(slot, &list, &count);
     while (*count > 0) {
         int i = list[--(*count)];
+        if (i >= UNDO_GROUP_BASE) {
+            int n = i - UNDO_GROUP_BASE, removed = 0;
+            for (; n > 0 && *count > 0; n--) {
+                int k = list[--(*count)];
+                if (k >= 0 && k < MAX_BODIES && G.phys.bodies[k].active && G.phys.bodies[k].lib == 0 &&
+                    G.body_owner[k] == slot) {
+                    remove_body(k);
+                    removed++;
+                }
+            }
+            if (!removed) continue;
+            release_unused_extras();
+            return 4;
+        }
         if (i >= RAGDOLL_ID_BASE) {
             if (!npc_ragdoll_active(i - RAGDOLL_ID_BASE)) continue;
             npc_ragdoll_remove(i - RAGDOLL_ID_BASE);
@@ -3905,6 +4239,19 @@ static void drop_peer(int s, const char *why) {
     npc_puppet_set(s, 0, -1, v3(0, 0, 0), 0.0f, 0.0f);
 }
 
+static int num_players(void);
+
+// "A game is running here": the host's name, the map and how full it is
+static void make_beacon(PkBeacon *bc) {
+    memset(bc, 0, sizeof(*bc));
+    bc->h = net_header(PK_BEACON);
+    map_base(bc->map, sizeof(bc->map));
+    snprintf(bc->host, sizeof(bc->host), "%s", net_nickname());
+    bc->players = (uint8_t)num_players();
+    bc->max = (uint8_t)(g_dedicated ? NET_MAX_PLAYERS - 1 : NET_MAX_PLAYERS);
+    bc->flags = g_dedicated ? BEACON_DEDICATED : 0;
+}
+
 static void host_receive(void) {
     union {
         NetHeader h;
@@ -3917,6 +4264,13 @@ static void host_receive(void) {
     while ((len = net_recv(from, &pk, sizeof(pk))) > 0) {
         if (pk.h.version != NET_VERSION) continue;
         int s = peer_by_mac(from);
+        if (pk.h.type == PK_INFO) {
+            // Someone's server list asking about this game (over Wi-Fi or the internet)
+            PkBeacon bc;
+            make_beacon(&bc);
+            net_send(from, &bc, sizeof(bc));
+            continue;
+        }
         if (pk.h.type == PK_JOIN && len >= (int)sizeof(PkJoin)) {
             int is_new = s < 0;
             if (is_new) {
@@ -3949,6 +4303,7 @@ static void host_receive(void) {
                 char msg[48];
                 snprintf(msg, sizeof(msg), "%s joined the game", p->name);
                 notify(msg, NOTE_HINT);
+                if (net_mode() == NET_MODE_INET && !g_dedicated) achieve_unlock(ACH_ON_THE_AIR);
             }
             PkWelcome w;
             memset(&w, 0, sizeof(w));
@@ -4002,6 +4357,7 @@ static void host_receive(void) {
 static void pack_player(NetPlayer *np, int s) {
     memset(np, 0, sizeof(*np));
     uint8_t god = g_settings.god_mode ? PF_GOD : 0; // tells clients, so they stop reporting damage
+    if (s == 0 && g_dedicated) return; // nobody plays on a dedicated server
     if (s == 0) {
         np->active = 1;
         np->pos[0] = G.player.origin.x;
@@ -4219,7 +4575,7 @@ static void client_apply_devices(const PkDevices *pk, int len) {
 }
 
 static int num_players(void) {
-    int n = 1;
+    int n = g_dedicated ? 0 : 1;
     for (int s = 1; s < NET_MAX_PLAYERS; s++) n += G.peers[s].active;
     return n;
 }
@@ -4236,7 +4592,7 @@ static void host_update(float dt) {
     if (st != NET_READY) return;
     if (!G.net_was_ready) {
         G.net_was_ready = 1;
-        notify(NET_HOSTING_HINT, NOTE_HINT);
+        if (!g_dedicated) notify(NET_HOSTING_HINT, NOTE_HINT);
     }
     host_receive();
     for (int s = 1; s < NET_MAX_PLAYERS; s++) {
@@ -4268,15 +4624,10 @@ static void host_send(float dt) {
     if (G.beacon_timer <= 0.0f) {
         G.beacon_timer = BEACON_INTERVAL;
         PkBeacon bc;
-        memset(&bc, 0, sizeof(bc));
-        bc.h = net_header(PK_BEACON);
-        map_base(bc.map, sizeof(bc.map));
-        snprintf(bc.host, sizeof(bc.host), "%s", net_nickname());
-        bc.players = (uint8_t)num_players();
-        bc.max = NET_MAX_PLAYERS;
+        make_beacon(&bc);
         net_send(NULL, &bc, sizeof(bc));
     }
-    if (num_players() < 2) return; // nobody to send to
+    if (num_players() < (g_dedicated ? 1 : 2)) return; // nobody to send to
     G.snap_timer -= dt;
     if (G.snap_timer <= 0.0f) {
         G.snap_timer = SNAP_INTERVAL;
@@ -4300,6 +4651,7 @@ static void host_send(float dt) {
 
 static void client_apply_players(const PkPlayers *pk) {
     npc_ragdoll_net_keep(pk->rag_mask, pk->rag_gen);
+    if (!pk->players[0].active) achieve_unlock(ACH_ONLINE); // nobody plays on the host: a dedicated server
     for (int s = 0; s < NET_MAX_PLAYERS; s++) {
         const NetPlayer *np = &pk->players[s];
         if (s == G.my_slot) {
@@ -4409,7 +4761,7 @@ static void client_apply_ropes(const PkRopes *pk, int len) {
 // Client: returns 0 when the game is over (host gone)
 static int client_update(float dt) {
     if (net_poll() != NET_READY) {
-        snprintf(G.exit_msg, sizeof(G.exit_msg), NET_LOST_MSG);
+        snprintf(G.exit_msg, sizeof(G.exit_msg), "%s", NET_LOST_MSG);
         return 0;
     }
     static union {
@@ -4473,7 +4825,11 @@ static int client_update(float dt) {
             }
             break;
         case PK_LEAVE:
-            snprintf(G.exit_msg, sizeof(G.exit_msg), "The host ended the game");
+            // h.slot says why (GAME_LEAVE_*): servers kick players and change maps
+            snprintf(G.exit_msg, sizeof(G.exit_msg), "%s",
+                     pk.h.slot == GAME_LEAVE_KICKED ? "You were kicked from the server"
+                     : pk.h.slot == GAME_LEAVE_MAP  ? "The server is changing map: join again"
+                                                    : "The host ended the game");
             return 0;
         default:
             break;
@@ -4648,7 +5004,7 @@ void game_host(void) {
         G.role = ROLE_OFFLINE;
         return;
     }
-    notify(NET_STARTING_MSG, NOTE_HINT);
+    if (!g_dedicated) notify(NET_STARTING_MSG, NOTE_HINT);
     voice_init();
 }
 
@@ -4674,6 +5030,31 @@ void game_join(int slot, const uint8_t host_mac[6]) {
 
 const char *game_exit_message(void) {
     return G.exit_msg;
+}
+
+// --- For the dedicated server's console -------------------------------------------------------------
+
+const char *game_peer_name(int slot) {
+    return slot > 0 && slot < NET_MAX_PLAYERS && G.role == ROLE_HOST && G.peers[slot].active ? G.peers[slot].name : NULL;
+}
+
+void game_kick(int slot, int reason) {
+    if (!game_peer_name(slot)) return;
+    NetHeader bye = net_header(PK_LEAVE);
+    bye.slot = (uint8_t)reason;
+    for (int k = 0; k < 3; k++) net_send(G.peers[slot].mac, &bye, sizeof(bye));
+    drop_peer(slot, reason == GAME_LEAVE_KICKED ? "was kicked" : "left");
+}
+
+void game_chat(const char *text) {
+    PkChat c;
+    memset(&c, 0, sizeof(c));
+    snprintf(c.text, sizeof(c.text), "%s", text);
+    notify(c.text, NOTE_CHAT);
+    if (G.role == ROLE_HOST) {
+        c.h = net_header(PK_CHAT);
+        net_send(NULL, &c, sizeof(c));
+    }
 }
 
 static void npc_hits(int target, float amount) {
@@ -5005,7 +5386,43 @@ static void devices_update(float dt) {
     }
 }
 
+// Single player and host: doors, buttons and triggers, touched by this PSP's player (its box, or just
+// its feet while dead) and, when hosting, everyone else's
+static void host_ents_update(float dt, vec3 hmin, vec3 hmax) {
+    vec3 mins[NET_MAX_PLAYERS], maxs[NET_MAX_PLAYERS];
+    int n = 0;
+    if (!g_dedicated) {
+        mins[n] = hmin;
+        maxs[n++] = hmax;
+    }
+    for (int s = 1; s < NET_MAX_PLAYERS && G.role == ROLE_HOST; s++) {
+        const Peer *p = &G.peers[s];
+        if (!p->active || p->health <= 0.0f || (p->flags & PF_NOCLIP)) continue;
+        mins[n] = v3_add(p->pos, v3(-16, -16, 0));
+        maxs[n++] = v3_add(p->pos, v3(16, 16, (p->flags & PF_DUCKED) ? 36 : 72));
+    }
+    ents_update(&G.map, dt, mins, maxs, n);
+}
+
+// A dedicated server's frame: the world and the network, no player of its own
+static GameResult dedicated_update(float dt) {
+    phys_set_quality(g_settings.physics);
+    devices_update(dt);
+    host_ents_update(dt, G.player.origin, G.player.origin);
+    world_step(dt);
+    return GAME_CONTINUE;
+}
+
+void game_host_dedicated(void (*log)(const char *msg)) {
+    g_dedicated = 1;
+    g_log = log;
+    G.player.noclip = 1; // out of everyone's way: not hit, not a target, touches nothing
+    G.player.origin = v3(0, 0, -60000.0f);
+    game_host();
+}
+
 GameResult game_update(const InputState *in, float dt) {
+    if (g_dedicated) return dedicated_update(dt);
     phys_set_quality(g_settings.physics);
     achievements_tick(dt);
     devices_update(dt);
@@ -5026,7 +5443,7 @@ GameResult game_update(const InputState *in, float dt) {
         if (is_client()) {
             ents_client_update(&G.map, dt);
         } else {
-            ents_update(&G.map, dt, G.player.origin, G.player.origin);
+            host_ents_update(dt, G.player.origin, G.player.origin);
         }
         if (!world_step(dt)) {
             net_leave();
@@ -5204,7 +5621,8 @@ GameResult game_update(const InputState *in, float dt) {
                 int r = undo_pop(0);
                 if (r) {
                     play(G.snd.undo, 0.6f);
-                    notify(r == 3 ? "Undone Ragdoll" : r == 2 ? "Undone NPC" : "Undone Prop", NOTE_UNDO);
+                    notify(r == 4 ? "Undone Build" : r == 3 ? "Undone Ragdoll" : r == 2 ? "Undone NPC" : "Undone Prop",
+                           NOTE_UNDO);
                 }
             }
             if (G.switch_time <= 0.0f) {
@@ -5250,7 +5668,7 @@ GameResult game_update(const InputState *in, float dt) {
     if (is_client()) {
         ents_client_update(&G.map, dt);
     } else {
-        ents_update(&G.map, dt, pmin, pmax);
+        host_ents_update(dt, pmin, pmax);
     }
 
     // Walking into props shoves them (the host's physics decides that in multiplayer)
@@ -6363,6 +6781,8 @@ static void draw_pause(void) {
     }
     if (G.pause_options) {
         options_draw(150, 60, 300, 186);
+    } else if (G.pause_saves) {
+        saves_draw(130, 60, 340, 186);
     } else {
         ui_text_shadow(FONT_BOLD, 24, 74, 0xFFA0A0A0, ALIGN_LEFT, "PAUSED");
         menu_draw_buttons(k_pause_items, NUM_PAUSE_ITEMS, G.pause_sel, 92, 22);
@@ -6479,5 +6899,6 @@ void game_render(float fps) {
     if (G.paused) draw_pause();
     ui_end();
     gfx_end_frame();
+    if (G.paused && G.pause_saves) saves_frame(); // the keyboard for a save's name
     gfx_present(1);
 }

@@ -1,6 +1,6 @@
 # PSP Sandbox
 
-A Garry's Mod–style sandbox for the PSP, by Retcon. Current version: **1.6.0** (shown in the main menu's corner,
+A Garry's Mod–style sandbox for the PSP, by Retcon. Current version: **1.7.0** (shown in the main menu's corner,
 set in `psp/src/version.h`).
 
 - **`psp/`**: the engine, written from scratch in C for the PSP. It draws with the GE (the PSP's graphics chip)
@@ -9,6 +9,9 @@ set in `psp/src/version.h`).
   Garry's Mod and Valve game installs and turns them into compact files the consoles can load.
 - **[PS2-GMOD](https://github.com/retcon26/PS2-GMOD)** (a separate repo): the PS2 port. It runs the same engine
   code on the PS2 and reads the same converted data, packed onto a bootable disc image.
+- **[psp-sandbox-server](https://github.com/retcon26/psp-sandbox-server)** (a separate repo): a dedicated server.
+  It runs this engine on a Linux PC or server, with nobody playing on it, and hosts games that PSPs join over Wi-Fi
+  and the internet (see [Multiplayer](#multiplayer)).
 
 **No game content is in this repository.** GMod's and Valve's maps, models, textures and sounds belong to their
 owners. You make the game data yourself from the games you own (see [Building](#building)), and builds that
@@ -31,7 +34,8 @@ contain it are for your own use. Don't share them.
 - **48 NPCs and 98 ragdolls**, including Team Fortress 2's nine mercenaries on both teams (also as player
   models), mingebags, and characters from Counter-Strike: Source and Half-Life: Source.
 - **9 weapons and 24 tool gun tools**, blood and bullet holes, a flashlight, an HEV suit, Lua addons and
-  4-player multiplayer with voice chat.
+  4-player multiplayer with voice chat: ad-hoc, over Wi-Fi, or on a dedicated server.
+- **Saves:** your builds saved to the memory stick and loaded back on any map (see [Saves](#saves)).
 - **Drivable vehicles:** HL2's Jeep and Airboat, and seats to sit on your own contraptions (R switches all their
   thrusters and hoverballs). Spawn them from the Vehicles category; Use gets in and out.
 
@@ -141,6 +145,22 @@ nearest lamps or lights that are on light the world, on top of your flashlight.
   terrorists and hostages, Half-Life: Source's scientist, Barney, grunts and aliens, Gordon Freeman, DoD:S
   soldiers and Chell. (The PSP-1000 has room for the NPCs' ragdolls only.)
 
+## Saves
+
+**Pause menu > Saves** keeps your builds, like GMod's saves and duplicator. A save holds everything players
+spawned: the props (with their colour, weight, frozen and no-collide), welds, ropes, ball sockets, elastics,
+sliders, wheels, winches and hydraulics, thrusters, hoverballs, balloons, lamps, lights, buttons and emitters.
+Saves are small text files in `data/saves/` on the memory stick (a PSP Go's internal storage).
+
+- **Save the current build:** X, then name it with the on-screen keyboard.
+- **X on a save:** loads it on any map, on the floor where you're looking and turned the way you face.
+- **Square:** loads it exactly where it was built (on the map it was built on).
+- **Triangle:** deletes it (press it twice).
+
+One Undo takes a whole loaded build away. Props are found by name, so a save made with the full-detail packs loads
+with the PSP-1000's too, and anything a prop pack doesn't have is skipped. In multiplayer only the host saves and
+loads, since the host has the whole world.
+
 ## NPCs
 
 - **Zombies, antlions and headcrabs** chase you and attack. Zombies wear their headcrabs, and when a zombie dies
@@ -192,7 +212,7 @@ What's off is saved to `data/workshop.cfg`.
 
 ## Achievements
 
-Main menu > Achievements lists 12, with progress bars for the counted ones. They're saved to
+Main menu > Achievements lists 16, with progress bars for the counted ones. They're saved to
 `data/achievements.cfg`, and a notification pops up in game when you unlock one.
 
 | Achievement | How |
@@ -205,6 +225,10 @@ Main menu > Achievements lists 12, with progress bars for the counted ones. They
 | Creator | Spawn 100 props |
 | Mingebag Hunter | Kill 10 mingebags |
 | Explorer | Play on 10 different maps |
+| Save Point | Save a build |
+| Deja Vu | Load a saved build on a different map from the one it was built on |
+| Online | Join a dedicated server |
+| On the Air | Host a game over Wi-Fi that someone joins |
 
 The PSP doesn't let a game read its model directly, so the page's "Playing on" line works it out:
 - **PPSSPP:** spotted by its settings files on the memory stick. The game only checks they exist and never reads them.
@@ -239,7 +263,21 @@ gm_construct's files, so it takes no extra space.
 
 ## Multiplayer
 
-Up to 4 players. The host runs the physics, NPCs, ragdolls and doors. Pick Multiplayer > Host Game or Join Game.
+Up to 4 players. The host runs the physics, NPCs, ragdolls and doors. Multiplayer has three ways to play:
+
+- **Host Game / Join Game:** ad-hoc, PSP to PSP, no access point needed.
+- **Host on Wi-Fi:** your PSP hosts through your access point, using the first connection set up in System
+  Settings > Network Settings. Other PSPs on the same Wi-Fi find it in Online Servers.
+- **Online Servers:** the games on your Wi-Fi, and dedicated servers. Triangle adds a server by its address (a
+  name or `1.2.3.4`, with `:port` if it isn't the usual 18256), Square removes it and X joins. The list is kept in
+  `data/servers.cfg`.
+
+A **dedicated server** ([psp-sandbox-server](https://github.com/retcon26/psp-sandbox-server)) runs this game's
+engine on a Linux PC or a rented server, with nobody playing on it, so up to 3 PSPs can play there. It has a
+console for kicking, chat, changing maps and loading saved builds. For players outside your network, forward UDP
+port 18256 on your router to the PC that runs it.
+
+Doors, buttons and triggers react to every player, not just the host, so TF2's spawn doors open for everyone.
 
 **Multiplayer > Profile** is how other players see you:
 
@@ -257,7 +295,8 @@ everyone: the host drives them for whoever is inside.
 microphone, or a headset's on a PSP-2000. The mic is only switched on while you hold Up. Speech is sent as
 4-bit ADPCM at 11 kHz (about 5.5 KB/s), and the host passes it on to everyone else.
 
-- **PSP:** ad-hoc wifi between PSPs (or PPSSPP instances with ad-hoc networking set up).
+- **PSP:** ad-hoc wifi between PSPs (or PPSSPP instances with ad-hoc networking set up), or Wi-Fi through an
+  access point (PPSSPP: with networking enabled).
 - **PS2:** over a network adapter on the same local network (a fat PS2 with the adapter, a slim PS2, or PCSX2).
 
 The PSP and PS2 versions can't play together.
@@ -364,9 +403,9 @@ your hands moves. Without the pack the game shows the still models from the prop
 
 | Version | Changes |
 |---|---|
+| 1.7.0 | Saves: builds saved to the memory stick and loaded back on any map; Wi-Fi multiplayer (Host on Wi-Fi, Online Servers) and dedicated servers ([psp-sandbox-server](https://github.com/retcon26/psp-sandbox-server)); doors and triggers react to every player; 4 new achievements |
 | 1.6.2 | Workshop page: maps listed by game, each opened to show its maps and switched as a whole; Half-Life Deathmatch: Source's maps get their own game in Workshop and Start New Game |
 | 1.6.1 | More tools: Wheel, Winch, Hydraulic, Lamp, Light, Button and Emitter; Main menu > Workshop turns maps, Lua addons and custom characters on and off |
-| 1.6.0 | TF2's mercenaries in RED and BLU teams that fight each other (never you), with their own guns, gun sounds and voice lines |
 
 ## Roadmap
 
@@ -392,9 +431,10 @@ your hands moves. Without the pack the game shows the still models from the prop
 - [x] TF2's mercenaries in RED and BLU teams with their guns and voice lines
 - [x] More tools: Wheel, Winch, Hydraulic, Lamp, Light, Button and Emitter
 - [x] Workshop menu: maps (by game), Lua addons and custom characters switched on and off
+- [x] Save and load: builds saved to the memory stick and loaded back on any map
+- [x] Wi-Fi multiplayer and dedicated servers (psp-sandbox-server)
 
-- [ ] **Save and load:** builds saved to the memory stick or memory card and loaded back on any map, and Options
-      saved on the PS2 too
+- [ ] **PS2 saves:** Options and builds saved to the PS2's memory card
 - [ ] **More weapons:** RPG, crossbow, grenades, AR2 and bugbait (antlions follow you)
 - [ ] **NPC navigation:** routes along the map's own node graph (`info_node`), so NPCs walk round walls instead
       of into them

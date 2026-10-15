@@ -1,6 +1,7 @@
 #include "collision.h"
 
 #include <float.h>
+#include <stddef.h>
 
 #include "ents.h"
 
