@@ -112,6 +112,7 @@ static const CreditLine k_credits[] = {
     {FONT_SMALL, C_TEXT, "Half-Life Deathmatch: Source"},
     {FONT_SMALL, C_TEXT, "Counter-Strike: Source"},
     {FONT_SMALL, C_TEXT, "Day of Defeat: Source"},
+    {FONT_SMALL, C_TEXT, "Team Fortress 2"},
     {FONT_SMALL, C_TEXT, "Portal"},
     {FONT_SMALL, C_TEXT, "Portal 2"},
     {FONT_SMALL, C_TEXT, "Left 4 Dead"},

@@ -1,6 +1,6 @@
 # PSP Sandbox
 
-A Garry's Mod–style sandbox for the PSP, by Retcon. Current version: **1.3.0** (shown in the main menu's corner,
+A Garry's Mod–style sandbox for the PSP, by Retcon. Current version: **1.4.0** (shown in the main menu's corner,
 set in `psp/src/version.h`).
 
 - **`psp/`**: the engine, written from scratch in C for the PSP. It draws with the GE (the PSP's graphics chip)
@@ -22,13 +22,14 @@ contain it are for your own use. Don't share them.
 
 ## What's in it
 
-- **228 maps:** gm_construct and gm_flatgrass, the Half-Life 2 campaign, the original Half-Life campaign
-  (converted from GoldSrc), HL2 Deathmatch, Half-Life Deathmatch: Source, Counter-Strike: Source and
-  Day of Defeat: Source maps, plus **gm_construct_13** (see [Maps](#maps)).
+- **250 maps:** gm_construct and gm_flatgrass, the Half-Life 2 campaign, the original Half-Life campaign
+  (converted from GoldSrc), HL2 Deathmatch, Half-Life Deathmatch: Source, Counter-Strike: Source, Day of Defeat:
+  Source and Team Fortress 2 maps, plus **gm_construct_13** (see [Maps](#maps)).
 - **About 3,200 props:** 186 hand-picked ones in 10 spawnlists, plus about 3,000 more pulled automatically from
-  HL2 and its episodes, CS:S, DoD:S, Portal, Portal 2, Left 4 Dead 1 and 2, Fistful of Frags and Black Mesa,
+  HL2 and its episodes, CS:S, DoD:S, Portal, Portal 2, Left 4 Dead 1 and 2, Fistful of Frags, Black Mesa and TF2,
   in 136 spawnlists. The extra ones load from the memory stick only when spawned.
-- **29 NPCs and 79 ragdolls**, including characters from Counter-Strike: Source and Half-Life: Source.
+- **38 NPCs and 88 ragdolls**, including Team Fortress 2's nine mercenaries (also as player models) and
+  characters from Counter-Strike: Source and Half-Life: Source.
 - **9 weapons and 17 tool gun tools**, blood, a flashlight, an HEV suit, Lua addons and 4-player multiplayer.
 
 ## Targets
@@ -150,7 +151,7 @@ show HUD, crosshair, show FPS, draw distance, physics quality, debug overlay, an
 
 ## Maps
 
-`tools/maps.txt` lists 228 maps, converted from your installs:
+`tools/maps.txt` lists 250 maps, converted from your installs:
 
 | From | Maps |
 |---|---|
@@ -161,6 +162,7 @@ show HUD, crosshair, show FPS, draw distance, physics quality, debug overlay, an
 | Half-Life Deathmatch: Source | crossfire, bounce, datacore, frenzy, stalkyard, undertow and more |
 | Counter-Strike: Source | `cs_` and `de_` maps |
 | Day of Defeat: Source | `dod_` maps |
+| Team Fortress 2 | 22 official maps, one or more of each mode: 2Fort, Turbine, Dustbowl, Granary, Badwater, Gold Rush, Viaduct, Hydro, Hightower, Doomsday, Mannworks and more |
 
 The list also has **gm_construct_13**: gm_construct at night, in thick dark fog. A black figure turns up in the
 distance now and then, at the edge of your view. Look straight at it, or walk towards it, and it's gone. It reuses
@@ -194,9 +196,9 @@ launches it.
 2. The PSP SDK ([pspdev](https://github.com/pspdev/pspdev)) in `~/pspdev`. For the PS2 build, the PS2 SDK
    (ps2dev) in `~/ps2dev`.
 3. Garry's Mod, plus whichever other Valve games you want maps and props from, installed through Steam. The
-   converter looks in `/mnt/d/SteamLibrary/steamapps/common/` (change `DEFAULT_GMOD` in `tools/bspconv/__main__.py`
-   and `STEAM` in `extras.py` and `npcbuild.py` if your library is elsewhere). If it's on another drive, mount it in
-   Ubuntu: `sudo mkdir -p /mnt/d && sudo mount -t drvfs D: /mnt/d`.
+   converter looks for each game in `/mnt/d/SteamLibrary/steamapps/common/`, then in Steam's own folder on C:
+   (change `DEFAULT_GMOD` in `tools/bspconv/__main__.py` and `LIBRARIES` in `tools/bspconv/steam.py` if your
+   libraries are elsewhere). If one is on another drive, mount it in Ubuntu: `sudo mkdir -p /mnt/d && sudo mount -t drvfs D: /mnt/d`.
 
 ### Making the data and the EBOOT
 
@@ -268,6 +270,7 @@ your hands moves. Without the pack the game shows the still models from the prop
 
 | Version | Changes |
 |---|---|
+| 1.4.0 | Team Fortress 2: 22 maps, its nine mercenaries as NPCs, ragdolls and player models, and about 450 of its props |
 | 1.3.0 | Animated first-person weapons; guns and the crowbar hurt other players in multiplayer; everyone sees the same ragdolls; PS2: props, NPCs and ragdolls on VU1 (about twice the frame rate) |
 | 1.2.0 | NPC guns held properly; sawblades cut zombies in half; the Zombine and Zombie Torso as NPCs |
 | 1.1.0 | Camera tool |
@@ -291,8 +294,7 @@ your hands moves. Without the pack the game shows the still models from the prop
 - [x] Camera tool; Poser tools (Inflator, Deflator); unlimited ammo and HEV suit options
 - [x] PS2 speed: props and NPCs on VU1 too
 - [x] Animated first-person weapons; PvP damage; synced ragdolls
-- [ ] **Team Fortress 2 content (coming soon):** TF2's maps, props and characters through the converter, like the
-        other Source games
+- [x] Team Fortress 2's maps, props and characters
 - [ ] **Drivable vehicles:** HL2's Jeep and Airboat, with GMod's seat for sitting on your own contraptions
 - [ ] **Save and load:** builds saved to the memory stick or memory card and loaded back on any map, and Options
       saved on the PS2 too

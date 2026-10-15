@@ -40,6 +40,16 @@ models/humans/group03/male_04.mdl        | Rebel Shotgunner | ai=rebel health=60
 models/police.mdl                        | Metrocop (Stunstick) | ai=combine health=50 weapon=stunstick voice=metro
 models/zombie/zombie_soldier.mdl         | Zombine      | ai=zombie health=100 headcrabs releasecrab voice=zombine
 models/zombie/classic_torso.mdl          | Zombie Torso | ai=zombie health=30 headcrabs releasecrab voice=zombie decimate
+# Team Fortress 2's mercenaries (their melee animations: they hold no weapon here)
+models/player/scout.mdl                  | Scout        | ai=citizen health=125 player game=tf decimate
+models/player/soldier.mdl                | Soldier      | ai=citizen health=200 player game=tf decimate
+models/player/pyro.mdl                   | Pyro         | ai=citizen health=175 player game=tf decimate
+models/player/demo.mdl                   | Demoman      | ai=citizen health=175 player game=tf decimate
+models/player/heavy.mdl                  | Heavy        | ai=citizen health=300 player game=tf decimate
+models/player/engineer.mdl               | Engineer     | ai=citizen health=125 player game=tf decimate
+models/player/medic.mdl                  | Medic (TF2)  | ai=citizen health=150 player game=tf decimate
+models/player/sniper.mdl                 | Sniper       | ai=citizen health=125 player game=tf decimate
+models/player/spy.mdl                    | Spy          | ai=citizen health=125 player game=tf decimate
 
 # Ragdolls only
 models/humans/group01/male_04.mdl        | Citizen 2    | ai=ragdoll

@@ -114,9 +114,27 @@ class StudioFile:
             # extreme poses, so take the middle one (aiming straight ahead)
             g0, g1 = struct.unpack_from("<2i", self.d, o + 68)
             g0, g1 = max(1, g0), max(1, g1)
-            mid = (g1 // 2) * g0 + g0 // 2
+            x, y = g0 // 2, g1 // 2
+            # Movement blends (TF2's run_PRIMARY: move_y x move_x) have standing still in the middle:
+            # take the far end of move_x, running forward
+            for axis, name in enumerate(self._blend_params(o)):
+                if name == "move_x":
+                    x, y = (g0 - 1, y) if axis == 0 else (x, g1 - 1)
+            mid = y * g0 + x
             anim = struct.unpack_from("<h", self.d, o + anim_index_index + 2 * mid)[0]
             out.append((label, act, anim, flags))
+        return out
+
+    def _blend_params(self, seq_ofs):
+        """The pose parameter names a sequence blends over (its two grid axes), "" for none."""
+        num, index = struct.unpack_from("<2i", self.d, 300)
+        out = []
+        for p in struct.unpack_from("<2i", self.d, seq_ofs + 76):
+            if 0 <= p < num:
+                o = index + p * 20
+                out.append(_cstr(self.d, o + struct.unpack_from("<i", self.d, o)[0]).lower())
+            else:
+                out.append("")
         return out
 
 
@@ -228,10 +246,10 @@ class AnimDesc:
 # --- Skeleton + sequences across include files --------------------------------------------------
 
 ACTIVITIES = {
-    "idle": ["ACT_IDLE", "ACT_IDLE_RIFLE"],
-    "walk": ["ACT_WALK", "ACT_WALK_RIFLE", "ACT_WALK_AIM_RIFLE", "ACT_WALK_EASY"],
-    "run": ["ACT_RUN", "ACT_RUN_RIFLE", "ACT_RUN_AIM_RIFLE", "ACT_WALK", "ACT_WALK_RIFLE"],
-    "attack": ["ACT_MELEE_ATTACK1", "ACT_RANGE_ATTACK1", "ACT_MELEE_ATTACK_SWING"],
+    "idle": ["ACT_IDLE", "ACT_IDLE_RIFLE", "ACT_MP_STAND_MELEE"],
+    "walk": ["ACT_WALK", "ACT_WALK_RIFLE", "ACT_WALK_AIM_RIFLE", "ACT_WALK_EASY", "ACT_MP_RUN_MELEE"],
+    "run": ["ACT_RUN", "ACT_RUN_RIFLE", "ACT_RUN_AIM_RIFLE", "ACT_WALK", "ACT_WALK_RIFLE", "ACT_MP_RUN_MELEE"],
+    "attack": ["ACT_MELEE_ATTACK1", "ACT_RANGE_ATTACK1", "ACT_MELEE_ATTACK_SWING", "ACT_MP_ATTACK_STAND_MELEE"],
     "death": ["ACT_DIESIMPLE", "ACT_DIEFORWARD", "ACT_DIEBACKWARD", "ACT_DIE_GUTSHOT"],
 }
 

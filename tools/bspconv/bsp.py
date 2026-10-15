@@ -362,8 +362,16 @@ class Bsp:
         out = {}
         for i in range(count):
             lid, flags, ver, ofs, length = struct.unpack_from("<iHHii", d, 4 + i * 16)
+            if lid == 0:  # the end marker after compressed game lumps
+                continue
             name = struct.pack(">i", lid).decode("latin-1")
-            out[name] = (ver, flags, self.raw[ofs : ofs + length])
+            data = self.raw[ofs : ofs + length]
+            # Newer maps (TF2's since its 64-bit update) LZMA-compress each game lump on its own; their
+            # stored lengths can't be trusted, so the size comes from the LZMA header
+            if self.raw[ofs : ofs + 4] == b"LZMA":
+                actual, packed = struct.unpack_from("<II", self.raw, ofs + 4)
+                data = _lzma_decompress(self.raw[ofs : ofs + 17 + packed], actual) if actual else b""
+            out[name] = (ver, flags, data)
         return out
 
 

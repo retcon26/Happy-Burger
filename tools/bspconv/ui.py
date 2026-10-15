@@ -142,10 +142,11 @@ def build_ui(gmod_root, props, maps, out_path, log=print):
             # (Half-Life: Source's models/barney.mdl), so draw it
             from .extras import render_icon
             from .materials import MaterialLoader
-            from .npcbuild import GAME_DIRS, STEAM
+            from .npcbuild import GAME_DIRS
+            from .steam import game_dir
 
             if game not in game_fs:
-                gfs = GameFS(gmod_root, [STEAM + d for d in GAME_DIRS.get(game, [])])
+                gfs = GameFS(gmod_root, [game_dir(d) for d in GAME_DIRS.get(game, [])])
                 game_fs[game] = (gfs, MaterialLoader(gfs))
             img = render_icon(*game_fs[game], mdl)
         else:
@@ -156,10 +157,18 @@ def build_ui(gmod_root, props, maps, out_path, log=print):
     # Map thumbnails go in a file of their own (thumbs.pak), read by the game only while they're
     # on screen: hundreds of maps' worth would take megabytes of RAM in this pack
     thumbs = []
+    tf_fs = None
     for name in maps:
         # Half-Life's maps (hl1_<name>) look like Half-Life: Source's of the same name
         src = name[4:] if name.startswith("hl1_") else name
         img = _load_image(fs, f"maps/thumb/{name}.png") or _load_image(fs, f"maps/thumb/{src}.png")
+        if img is None:
+            # Team Fortress 2's maps: the picture from its own map menu
+            if tf_fs is None:
+                from .steam import game_dir
+
+                tf_fs = GameFS(gmod_root, [game_dir("Team Fortress 2/tf"), game_dir("Team Fortress 2/hl2")])
+            img = _load_image(tf_fs, f"materials/vgui/maps/menu_thumb_{name}.vtf")
         if img is not None:
             sq = Image.new("RGBA", (128, 128), (0, 0, 0, 255))
             fit, w_, h_ = _fit_pow2(img.convert("RGBA"), 128, 128)

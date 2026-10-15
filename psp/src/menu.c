@@ -25,7 +25,7 @@ typedef enum { PAGE_MAIN, PAGE_NEWGAME, PAGE_OPTIONS, PAGE_MULTI, PAGE_JOIN } Pa
 // Map browser categories, by name prefix like GMod's New Game screen
 static const struct {
     const char *name;
-    const char *prefixes[4];
+    const char *prefixes[12];
 } k_cats[] = {
     {"Sandbox", {"gm_", NULL}},
     {"Counter-Strike", {"cs_", "de_", "as_", NULL}},
@@ -33,6 +33,7 @@ static const struct {
     {"HL2 Deathmatch", {"dm_", NULL}},
     {"Half-Life", {"hl1_", NULL}},
     {"Day of Defeat", {"dod_", NULL}},
+    {"Team Fortress 2", {"ctf_", "cp_", "pl_", "plr_", "koth_", "arena_", "pd_", "sd_", "tc_", "mvm_", "pass_", NULL}},
     {"Other", {NULL}},
 };
 #define NUM_CATS (int)(sizeof(k_cats) / sizeof(k_cats[0]))
@@ -69,7 +70,7 @@ static struct {
 
 static int map_category(const char *name) {
     for (int c = 0; c < NUM_CATS - 1; c++) {
-        for (int p = 0; p < 4 && k_cats[c].prefixes[p]; p++) {
+        for (int p = 0; p < 12 && k_cats[c].prefixes[p]; p++) {
             if (strncmp(name, k_cats[c].prefixes[p], strlen(k_cats[c].prefixes[p])) == 0) return c;
         }
     }

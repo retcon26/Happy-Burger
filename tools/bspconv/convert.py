@@ -37,9 +37,9 @@ FULL_RES_PROP_TEX = {"high": 256, "low": 64}
 
 SKIP_SURF = SURF_NODRAW | SURF_SKIP | SURF_SKY | SURF_SKY2D | SURF_HINT | SURF_TRIGGER
 MAX_BATCH_VERTS = 65535
-# GMod / HL2 spawn points first, then HL2DM and CS:S team spawns
+# GMod / HL2 spawn points first, then HL2DM, CS:S and TF2 team spawns
 SPAWN_CLASSES = ("info_player_start", "info_player_deathmatch", "info_player_combine", "info_player_rebel",
-                 "info_player_counterterrorist", "info_player_terrorist")
+                 "info_player_counterterrorist", "info_player_terrorist", "info_player_teamspawn")
 
 
 def _gamma_abgr(rgb_linear, alpha=255):
@@ -550,8 +550,8 @@ def convert_map(bsp_path, gmod_root, out_path, tier_name, log=print):
     fog = skypaint = sunlight = None
     for e in ents:
         cls = e.get("classname", "")
-        if cls in SPAWN_CLASSES:
-            o = _parse_vec(e.get("origin", ""))
+        if cls in SPAWN_CLASSES and e.get("StartDisabled", "0") != "1":
+            o =_parse_vec(e.get("origin", ""))
             ang = _parse_vec(e.get("angles", ""))
             spawns.append((SPAWN_CLASSES.index(cls), struct.pack("<4f", o[0], o[1], o[2] + 1.0, ang[1])))
         elif cls == "env_fog_controller" and fog is None:

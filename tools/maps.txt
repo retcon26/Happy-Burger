@@ -242,3 +242,27 @@
 /mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/t0a0d.bsp
 /mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/undertow.bsp
 /mnt/d/SteamLibrary/steamapps/common/Half-Life/valve/maps/xen_dm.bsp
+
+# Team Fortress 2 (installed in the C: Steam library)
+/mnt/c/Program Files (x86)/Steam/steamapps/common/Team Fortress 2/tf/maps/ctf_2fort.bsp
+/mnt/c/Program Files (x86)/Steam/steamapps/common/Team Fortress 2/tf/maps/ctf_turbine.bsp
+/mnt/c/Program Files (x86)/Steam/steamapps/common/Team Fortress 2/tf/maps/ctf_doublecross.bsp
+/mnt/c/Program Files (x86)/Steam/steamapps/common/Team Fortress 2/tf/maps/cp_dustbowl.bsp
+/mnt/c/Program Files (x86)/Steam/steamapps/common/Team Fortress 2/tf/maps/cp_granary.bsp
+/mnt/c/Program Files (x86)/Steam/steamapps/common/Team Fortress 2/tf/maps/cp_gravelpit.bsp
+/mnt/c/Program Files (x86)/Steam/steamapps/common/Team Fortress 2/tf/maps/cp_well.bsp
+/mnt/c/Program Files (x86)/Steam/steamapps/common/Team Fortress 2/tf/maps/cp_badlands.bsp
+/mnt/c/Program Files (x86)/Steam/steamapps/common/Team Fortress 2/tf/maps/cp_steel.bsp
+/mnt/c/Program Files (x86)/Steam/steamapps/common/Team Fortress 2/tf/maps/cp_process_final.bsp
+/mnt/c/Program Files (x86)/Steam/steamapps/common/Team Fortress 2/tf/maps/pl_badwater.bsp
+/mnt/c/Program Files (x86)/Steam/steamapps/common/Team Fortress 2/tf/maps/pl_upward.bsp
+/mnt/c/Program Files (x86)/Steam/steamapps/common/Team Fortress 2/tf/maps/pl_goldrush.bsp
+/mnt/c/Program Files (x86)/Steam/steamapps/common/Team Fortress 2/tf/maps/koth_viaduct.bsp
+/mnt/c/Program Files (x86)/Steam/steamapps/common/Team Fortress 2/tf/maps/koth_harvest_final.bsp
+/mnt/c/Program Files (x86)/Steam/steamapps/common/Team Fortress 2/tf/maps/koth_lakeside_final.bsp
+/mnt/c/Program Files (x86)/Steam/steamapps/common/Team Fortress 2/tf/maps/arena_well.bsp
+/mnt/c/Program Files (x86)/Steam/steamapps/common/Team Fortress 2/tf/maps/tc_hydro.bsp
+/mnt/c/Program Files (x86)/Steam/steamapps/common/Team Fortress 2/tf/maps/plr_hightower.bsp
+/mnt/c/Program Files (x86)/Steam/steamapps/common/Team Fortress 2/tf/maps/sd_doomsday.bsp
+/mnt/c/Program Files (x86)/Steam/steamapps/common/Team Fortress 2/tf/maps/pd_watergate.bsp
+/mnt/c/Program Files (x86)/Steam/steamapps/common/Team Fortress 2/tf/maps/mvm_mannworks.bsp

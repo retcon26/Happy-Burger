@@ -940,6 +940,8 @@ void game_command(const char *line) {
         g_flashlight = 1;
     } else if (strncmp(line, "noclip", 6) == 0) {
         G.player.noclip = 1;
+    } else if (strncmp(line, "noai", 4) == 0) { // NPCs stand still (Options > NPC thinking off), for looking at them
+        g_settings.npc_think = 0;
     } else if (strncmp(line, "mute", 4) == 0) {
         g_settings.sound = 0;
     } else if (strncmp(line, "host", 4) == 0) {

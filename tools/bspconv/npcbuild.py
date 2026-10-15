@@ -131,9 +131,10 @@ TIERS = {"high": {"tex": 128, "max_tris": 900}, "low": {"tex": 64, "max_tris": 4
          "ps2": {"tex": 64, "max_tris": 450, "ragdolls": True}}
 # npcs.txt game=NAME: the game folder searched first for its model, materials and physics (mounted games'
 # models can share a name with HL2's, e.g. Half-Life: Source's models/barney.mdl)
-STEAM = "/mnt/d/SteamLibrary/steamapps/common/"
+from .steam import game_dir
 GAME_DIRS = {
     "css": ["Counter-Strike Source/cstrike"],
+    "tf": ["Team Fortress 2/tf", "Team Fortress 2/hl2"],
     "hls": ["Half-Life 2/hl1", "Half-Life 1 Source Deathmatch/hl1", "Half-Life 1 Source Deathmatch/hl1mp"],
 }
 
@@ -159,7 +160,7 @@ def build_npcs(npc_list, gmod_root, out_path, tier_name, log=print):
     fss = {"": GameFS(gmod_root)}
     for game, dirs in GAME_DIRS.items():
         if any(game == o.get("game") for _m, _l, o in npc_list):
-            fss[game] = GameFS(gmod_root, [STEAM + d for d in dirs])
+            fss[game] = GameFS(gmod_root, [game_dir(d) for d in dirs])
     fs = fss[""]
     mats = MaterialLoader(fs)
     mats_for = {"": mats}
@@ -256,6 +257,13 @@ def build_npcs(npc_list, gmod_root, out_path, tier_name, log=print):
                 seq_ids.append(0xFFFFFFFF)
                 continue
             fi, desc, loop = found
+            # No walk of its own (TF2's mercenaries only run): walk is the run played at half speed,
+            # or they wander off at a sprint
+            rate = 1.0
+            if kind == "walk":
+                run = sk.find("run", acts.get("run", ()))
+                if run and run[0] == fi and run[1].o == desc.o:
+                    rate = 0.5
             duration = max(1, desc.num_frames - 1) / desc.fps
             nframes = max(1, min(MAX_FRAMES, int(round(duration * BAKE_FPS)) + (0 if loop else 1)))
             fps = nframes / duration if duration > 0 else BAKE_FPS
@@ -266,8 +274,8 @@ def build_npcs(npc_list, gmod_root, out_path, tier_name, log=print):
                 for b in used:
                     mat_data += struct.pack("<12f", *skin[b][0], *skin[b][1], *skin[b][2])
                 counts["mat"] += len(used)
-            speed = desc.speed()
-            seq_data += struct.pack("<If f I I 3I", nframes, fps, speed, 1 if loop else 0, first, 0, 0, 0)
+            speed = desc.speed() * rate
+            seq_data += struct.pack("<If f I I 3I", nframes, fps * rate, speed, 1 if loop else 0, first, 0, 0, 0)
             seq_ids.append(counts["seq"])
             counts["seq"] += 1
             baked.append(f"{kind} {nframes}f {speed:.0f}u/s")

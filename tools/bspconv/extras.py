@@ -26,7 +26,7 @@ from PIL import Image
 from . import pspimage
 from .props import build_pack, read_prop_list
 
-STEAM = "/mnt/d/SteamLibrary/steamapps/common/"
+from .steam import game_dir
 
 # (spawn menu prefix, the game's folders: its own first, then any it builds on)
 GAMES = [
@@ -42,6 +42,7 @@ GAMES = [
     ("Portal 2", ["Portal 2/portal2"]),
     ("FoF", ["Fistful of Frags/fof"]),
     ("Black Mesa", ["Black Mesa/bms"]),
+    ("TF2", ["Team Fortress 2/tf", "Team Fortress 2/hl2"]),
 ]
 PER_GAME = 450   # most models taken from one game, so the others get a look in
 TOTAL = 3800     # the game's spawn menu holds 4096 entries, with the core props
@@ -89,7 +90,7 @@ def _game_files(dirs):
     from .vpk import Vpk
 
     files = set()
-    root = STEAM + dirs[0]
+    root = game_dir(dirs[0])
     for name in sorted(os.listdir(root)):
         if name.endswith("_dir.vpk"):
             try:
@@ -109,7 +110,7 @@ def discover(core_models, log=print):
     seen = set(core_models)
     out = []
     for gi, (prefix, dirs) in enumerate(GAMES):
-        if not os.path.isdir(STEAM + dirs[0]):
+        if not os.path.isdir(game_dir(dirs[0])):
             continue
         files = _game_files(dirs)
         cands = []
@@ -147,7 +148,7 @@ def _fs_for(gi, gmod_root):
     from .vpk import GameFS
 
     if gi not in _FS:
-        _FS[gi] = GameFS(gmod_root, [STEAM + d for d in GAMES[gi][1]])
+        _FS[gi] = GameFS(gmod_root, [game_dir(d) for d in GAMES[gi][1]])
     return _FS[gi]
 
 
