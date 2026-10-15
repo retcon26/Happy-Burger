@@ -68,6 +68,8 @@ static int g_flash_fired;
 // Spawn menu grid entries past the prop model numbers: NPCs and ragdolls by NPC type
 #define GRID_NPC 100000
 #define GRID_RAG 200000
+#define RECENT_MAX 12   // the spawn menu's Recent list
+#define RECENT_CAT (-2) // G.cat for it
 #define PHYSGUN_MIN_DIST 32.0f
 #define PHYSGUN_MAX_DIST 2000.0f
 #define PHYSGUN_PULL 14.0f
@@ -399,8 +401,11 @@ static struct {
     // Spawn menu (GMod's Q menu)
     int qmenu;
     int focus;       // 0 categories, 1 prop grid, 2 tools
-    int cat;         // spawnlist row (row_name)
+    int cat;         // spawnlist shown in the grid (row_name), or RECENT_CAT
     int cat_scroll;  // first row shown
+    int qrow;        // cursor in the spawnlists panel (panel_rows: a list or a game's header)
+    int group_open;  // the game whose spawnlists show under its header (k_games index), or -1
+    int recent[RECENT_MAX], recent_n; // last things spawned from the menu, newest first
     int grid_sel;
     int grid_scroll;
     int tool_row;    // row in the tools panel
@@ -485,6 +490,8 @@ static int god_mode(void) {
 static void send_cmd(int kind, int i0, int i1, uint32_t u, const float *f, int nf);
 static int prop_named(const char *name);
 static void vehicle_enter(int body);
+static void recent_add(int item);
+static void qmenu_test_state(void);
 static int shoot(int weapon, vec3 eye, vec3 f, uint32_t seed, int world, int effects);
 static vec3 view_right(void);
 // autoload.txt test commands: the last prop "spawnat" made, and "autodrive"'s held stick
@@ -682,6 +689,7 @@ static void load_shared(void) {
     G.snd.vehicle_enter = snd_find("vehicle_enter");
     G.snd.vehicle_exit = snd_find("vehicle_exit");
     G.hold_sound = -1;
+    G.group_open = -1; // the spawn menu's game groups start closed
     G.veh = -1;
     G.veh_snd = -1;
     // Drivable vehicles and seats (vehicle.c): which spawnable props they are
@@ -1004,6 +1012,8 @@ void game_command(const char *line) {
                                                v3(0, 0, 0.12f * ((float)(k / 5) - 1.0f)))));
             shoot(G.weapon, eye, d, (uint32_t)k, 1, 1);
         }
+    } else if (strncmp(line, "qtest", 5) == 0) { // spawn menu: a couple of Recent entries, TF2 open, on Vehicles
+        qmenu_test_state();
     } else if (strncmp(line, "thirdperson", 11) == 0) {
         g_settings.third_person = 1;
     } else if (strncmp(line, "drive", 5) == 0) { // get into what spawnat made
@@ -1418,6 +1428,7 @@ static void spawn_ragdoll(int type, vec3 pos, float yaw) {
 }
 
 static void spawn_from_menu(int model) {
+    recent_add(model);
     Aim a = aim_trace(SPAWN_RANGE);
     if (model >= GRID_NPC) {
         // NPCs stand on the floor below where you aim, facing you
@@ -2554,6 +2565,54 @@ static int num_cats(void) {
 }
 
 // The prop category (model_cat's numbering) a row lists; -1 for All Props
+// The extra props' spawnlists are named "<game> <folder>" (extras.py). The panel groups them under one
+// header per game, opened one at a time, so they aren't a list of 160 to scroll through.
+static const struct {
+    const char *prefix, *title;
+} k_games[] = {
+    {"Black Mesa", "Black Mesa"},   {"Episode 1", "HL2 Ep. 1"},     {"Episode 2", "HL2 Ep. 2"},
+    {"Lost Coast", "Lost Coast"},   {"Portal 2", "Portal 2"},       {"CS:S", "Counter-Strike"},
+    {"DoD:S", "Day of Defeat"},     {"L4D2", "Left 4 Dead 2"},      {"L4D", "Left 4 Dead"},
+    {"Portal", "Portal"},           {"FoF", "Fistful (FoF)"},       {"HL2", "Half-Life 2"},
+    {"TF2", "TF2"},
+};
+#define NUM_GAMES (int)(sizeof(k_games) / sizeof(k_games[0]))
+#define MAX_XCATS 512
+#define ROW_HEADER(k) (-100 - (k)) // panel_rows: the header of the k-th game group
+static signed char g_xcat_game[MAX_XCATS]; // per extra spawnlist: its k_games entry (NUM_GAMES: other)
+static int g_game_order[NUM_GAMES + 1], g_num_groups; // groups in the pack's order
+static int g_groups_ready;
+
+static void group_extras(void) {
+    if (g_groups_ready) return;
+    g_groups_ready = 1;
+    g_num_groups = 0;
+    int seen[NUM_GAMES + 1];
+    memset(seen, 0, sizeof(seen));
+    int nx = propx_num_categories();
+    if (nx > MAX_XCATS) nx = MAX_XCATS;
+    for (int e = 0; e < nx; e++) {
+        const char *name = propx_category(e);
+        int g = NUM_GAMES;
+        for (int k = 0; k < NUM_GAMES; k++) {
+            size_t l = strlen(k_games[k].prefix);
+            if (strncmp(name, k_games[k].prefix, l) == 0 && name[l] == ' ') {
+                g = k;
+                break;
+            }
+        }
+        g_xcat_game[e] = (signed char)g;
+        if (!seen[g]) {
+            seen[g] = 1;
+            g_game_order[g_num_groups++] = g;
+        }
+    }
+}
+
+static const char *group_title(int g) {
+    return g < NUM_GAMES ? k_games[g].title : "Other Games";
+}
+
 static int row_prop_cat(int row) {
     if (row == 0) return -1;
     if (row <= G.props.num_categories) return row - 1;
@@ -2561,15 +2620,97 @@ static int row_prop_cat(int row) {
 }
 
 static const char *row_name(int row) {
+    if (row == RECENT_CAT) return "Recent";
     if (row == 0) return "All Props";
     if (row == npc_cat()) return "NPCs";
     if (row == rag_cat()) return "Ragdolls";
     if (row <= G.props.num_categories) return G.props.categories[row - 1];
     return propx_category(row - extra_row0());
 }
+// A spawnlist's name without its game, under the game's header ("HL2 City" -> "City")
+static const char *short_row_name(int row) {
+    const char *n = row_name(row);
+    int e = row - extra_row0();
+    if (row >= extra_row0() && e < MAX_XCATS && g_xcat_game[e] < NUM_GAMES) {
+        size_t l = strlen(k_games[(int)g_xcat_game[e]].prefix);
+        if (strncmp(n, k_games[(int)g_xcat_game[e]].prefix, l) == 0 && n[l] == ' ') return n + l + 1;
+    }
+    return n;
+}
+
+// The spawnlists panel's rows: Recent (once something's been spawned), All Props and the core lists, NPCs,
+// Ragdolls, then a header per game with the open game's lists under it. Entries are spawnlists
+// (row_name), RECENT_CAT, or ROW_HEADER(k) for the k-th game group.
+#define MAX_PANEL_ROWS (MAX_XCATS + 64)
+static int panel_rows(int *out) {
+    group_extras();
+    int n = 0;
+    if (G.recent_n) out[n++] = RECENT_CAT;
+    for (int c = 0; c < extra_row0(); c++) out[n++] = c;
+    int nx = propx_num_categories();
+    if (nx > MAX_XCATS) nx = MAX_XCATS;
+    for (int k = 0; k < g_num_groups; k++) {
+        int g = g_game_order[k];
+        out[n++] = ROW_HEADER(k);
+        if (G.group_open != g) continue;
+        for (int e = 0; e < nx; e++) {
+            if (g_xcat_game[e] == g) out[n++] = extra_row0() + e;
+        }
+    }
+    return n;
+}
+
+static void qmenu_test_state(void) {
+    if (G.props_loaded) {
+        recent_add(prop_named("Wood Crate"));
+        recent_add(prop_named("Jeep"));
+        for (int c = 0; c < G.props.num_categories; c++) {
+            if (strcmp(G.props.categories[c], "Vehicles") == 0) G.cat = c + 1;
+        }
+    }
+    for (int k = 0; k < NUM_GAMES; k++) {
+        if (strcmp(k_games[k].prefix, "TF2") == 0) G.group_open = k;
+    }
+    static int rows[MAX_PANEL_ROWS];
+    int nr = panel_rows(rows);
+    for (int k = 0; k < nr; k++) {
+        if (rows[k] <= ROW_HEADER(0) && g_game_order[-100 - rows[k]] == G.group_open) G.qrow = k;
+    }
+    if (G.qrow + 2 < nr) {
+        G.qrow += 2; // a couple of lists into the game
+        G.cat = rows[G.qrow];
+    }
+}
+
+// Spawned from the menu: to the front of Recent
+
+static void recent_add(int item) {
+    int k = 0;
+    while (k < G.recent_n && G.recent[k] != item) k++;
+    if (k == G.recent_n && G.recent_n < RECENT_MAX) G.recent_n++;
+    if (k == RECENT_MAX) k = RECENT_MAX - 1;
+    memmove(&G.recent[1], &G.recent[0], sizeof(int) * (size_t)k);
+    G.recent[0] = item;
+}
+
+// Props you can drive or sit in (a badge on their icon)
+static int drivable_model(int model) {
+    if (model < 0 || model >= G.props.num_models) return VEH_NONE;
+    Body probe;
+    memset(&probe, 0, sizeof(probe));
+    probe.active = 1;
+    probe.model = model;
+    return vehicle_kind(&probe);
+}
+
 // Grid entries are prop model numbers, GRID_NPC + NPC type, or GRID_RAG + NPC type
 static int grid_items(int *out) {
     int n = 0;
+    if (G.cat == RECENT_CAT) {
+        for (int k = 0; k < G.recent_n; k++) out[n++] = G.recent[k];
+        return n;
+    }
+
     if (G.cat == npc_cat() || G.cat == rag_cat()) {
         // Every character can be a ragdoll; the ragdoll-only ones (no animations) can't be NPCs
         int npcs = G.cat == npc_cat();
@@ -2611,19 +2752,50 @@ static void qmenu_update(const InputState *in) {
     int ncats = num_cats();
     static int items[MAX_SPAWNABLE];
     int n = grid_items(items);
-    int before = G.focus * 1000 + G.cat * 100 + G.grid_sel + G.tool_row * 10000 + G.colour_sel * 100000;
+    int before = G.focus * 1000 + G.cat * 100 + G.grid_sel + G.tool_row * 10000 + G.colour_sel * 100000 +
+                 G.qrow * 7 + G.group_open * 13;
 
     if (in->pressed & PSP_CTRL_RTRIGGER) G.focus = (G.focus + 1) % 3;
     if (in->pressed & PSP_CTRL_LTRIGGER) G.focus = (G.focus + 2) % 3;
 
+    (void)ncats;
     if (G.focus == 0) {
-        if (in->pressed & PSP_CTRL_UP) G.cat = (G.cat + ncats - 1) % ncats;
-        if (in->pressed & PSP_CTRL_DOWN) G.cat = (G.cat + 1) % ncats;
-        if (in->pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) {
-            G.grid_sel = 0;
-            G.grid_scroll = 0;
+        static int rows[MAX_PANEL_ROWS];
+        int nr = panel_rows(rows);
+        if (G.qrow >= nr) G.qrow = nr - 1;
+        if (G.qrow < 0) G.qrow = 0;
+        // Rows move about (Recent appears, groups open): keep the cursor on the list being shown
+        if (rows[G.qrow] > ROW_HEADER(0) && rows[G.qrow] != G.cat) {
+            for (int k = 0; k < nr; k++) {
+                if (rows[k] == G.cat) G.qrow = k;
+            }
         }
-        if (in->pressed & (PSP_CTRL_RIGHT | PSP_CTRL_CROSS)) G.focus = 1;
+        if (in->pressed & PSP_CTRL_UP) G.qrow = (G.qrow + nr - 1) % nr;
+        if (in->pressed & PSP_CTRL_DOWN) G.qrow = (G.qrow + 1) % nr;
+        int r = rows[G.qrow];
+        if (r <= ROW_HEADER(0)) {
+            // A game's header: X or Right opens its spawnlists (and closes the open one), again closes it
+            int g = g_game_order[-100 - r];
+            if (in->pressed & (PSP_CTRL_RIGHT | PSP_CTRL_CROSS)) G.group_open = G.group_open == g ? -1 : g;
+            if ((in->pressed & PSP_CTRL_LEFT) && G.group_open == g) G.group_open = -1;
+        } else {
+            if (r != G.cat) {
+                G.cat = r;
+                G.grid_sel = 0;
+                G.grid_scroll = 0;
+            }
+            if ((in->pressed & PSP_CTRL_LEFT) && r >= extra_row0() && G.group_open >= 0) {
+                // Left inside a game's lists: close it, back on its header
+                int g = G.group_open;
+                G.group_open = -1;
+                nr = panel_rows(rows);
+                for (int k = 0; k < nr; k++) {
+                    if (rows[k] <= ROW_HEADER(0) && g_game_order[-100 - rows[k]] == g) G.qrow = k;
+                }
+            } else if (in->pressed & (PSP_CTRL_RIGHT | PSP_CTRL_CROSS)) {
+                G.focus = 1;
+            }
+        }
     } else if (G.focus == 1) {
         int col = G.grid_sel % GRID_COLS;
         if (in->pressed & PSP_CTRL_LEFT) {
@@ -2673,7 +2845,9 @@ static void qmenu_update(const InputState *in) {
             return;
         }
     }
-    int after = G.focus * 1000 + G.cat * 100 + G.grid_sel + G.tool_row * 10000 + G.colour_sel * 100000;
+    int after = G.focus * 1000 + G.cat * 100 + G.grid_sel + G.tool_row * 10000 + G.colour_sel * 100000 +
+                G.qrow * 7 + G.group_open * 13;
+
     if (after != before) play(G.snd.menu_move, 0.4f);
 }
 
@@ -4956,49 +5130,66 @@ static void draw_qmenu(int props) {
     ui_rrect(fx + 6, fy + 4, 76, 20, 3, C_TAB);
     ui_text(FONT_BOLD, fx + 44, fy + 8, C_TEXT, ALIGN_CENTER, "Spawnlists");
 
-    // Categories
-    float cx = fx + 6, cy = fy + 28, cw = 90, ch = fh - 34;
+    // Spawnlists: Recent, your lists, NPCs, Ragdolls, then one header per game (opened one at a time)
+    float cx = fx + 6, cy = fy + 28, cw = 96, ch = fh - 34;
     ui_rect(cx, cy, cw, ch, C_PANEL);
     if (G.focus == 0) ui_outline(cx, cy, cw, ch, C_BLUE);
-    int ncats = num_cats();
-    // Rows squeeze together a little when there are many spawnlists, then the list scrolls to keep
-    // the selected one in view
-    float rh = (ch - 8) / (float)ncats;
-    if (rh > 17.0f) rh = 17.0f;
-    if (rh < 14.0f) rh = 14.0f;
+    static int rows[MAX_PANEL_ROWS];
+    int nr = panel_rows(rows);
+    float rh = 15.0f;
     int visible = (int)((ch - 8) / rh);
-    if (G.cat < G.cat_scroll) G.cat_scroll = G.cat;
-    if (G.cat >= G.cat_scroll + visible) G.cat_scroll = G.cat - visible + 1;
-    if (G.cat_scroll > ncats - visible) G.cat_scroll = ncats - visible > 0 ? ncats - visible : 0;
-    for (int c = G.cat_scroll; c < ncats && c < G.cat_scroll + visible; c++) {
-        float ry = cy + 4 + (c - G.cat_scroll) * rh;
-        int sel = c == G.cat;
-        if (sel) ui_rect(cx + 2, ry - 1, cw - 4, rh - 1, G.focus == 0 ? C_BLUE : C_BLUE_DIM);
-        // A little folder glyph like GMod's spawnlist tree
-        ui_rect(cx + 6, ry + 4, 9, 7, sel ? 0xFFFFFFFF : 0xFF5AB4E8);
-        ui_rect(cx + 6, ry + 2, 4, 3, sel ? 0xFFFFFFFF : 0xFF5AB4E8);
-        ui_text_clip(FONT_SMALL, cx + 19, ry + 1, cw - 22, sel ? 0xFFFFFFFF : C_TEXT, row_name(c));
+    if (G.qrow < G.cat_scroll) G.cat_scroll = G.qrow;
+    if (G.qrow >= G.cat_scroll + visible) G.cat_scroll = G.qrow - visible + 1;
+    if (G.cat_scroll > nr - visible) G.cat_scroll = nr - visible > 0 ? nr - visible : 0;
+    for (int k = G.cat_scroll; k < nr && k < G.cat_scroll + visible; k++) {
+        float ry = cy + 4 + (k - G.cat_scroll) * rh;
+        int r = rows[k];
+        int cursor = k == G.qrow;
+        int header = r <= ROW_HEADER(0);
+        int shown = !header && r == G.cat; // the list in the grid (dimmer when the cursor's elsewhere)
+        if (cursor || shown) ui_rect(cx + 2, ry - 1, cw - 4, rh - 1, cursor && G.focus == 0 ? C_BLUE : C_BLUE_DIM);
+        unsigned int tc = cursor && G.focus == 0 ? 0xFFFFFFFF : C_TEXT;
+        if (header) {
+            // A game: a +/- box, its name in bold
+            int g = g_game_order[-100 - r];
+            int open = G.group_open == g;
+            ui_rect(cx + 5, ry + 3, 9, 9, cursor && G.focus == 0 ? 0xFFFFFFFF : 0xFF8A8A8A);
+            ui_rect(cx + 6, ry + 4, 7, 7, cursor && G.focus == 0 ? C_BLUE : 0xFFF4F4F4);
+            ui_rect(cx + 7, ry + 7, 5, 1, cursor && G.focus == 0 ? 0xFFFFFFFF : C_TEXT);
+            if (!open) ui_rect(cx + 9, ry + 5, 1, 5, cursor && G.focus == 0 ? 0xFFFFFFFF : C_TEXT);
+            ui_text_clip(FONT_SMALL, cx + 17, ry + 1, cw - 20, tc, group_title(g));
+
+        } else {
+            int sub = r >= extra_row0(); // inside an open game: indented
+            float ix = cx + 6 + (sub ? 8 : 0);
+            // A little folder glyph like GMod's spawnlist tree (Recent's is orange)
+            unsigned int fc = cursor && G.focus == 0 ? 0xFFFFFFFF : r == RECENT_CAT ? 0xFF3A9AF0 : 0xFF5AB4E8;
+            ui_rect(ix, ry + 4, 9, 7, fc);
+            ui_rect(ix, ry + 2, 4, 3, fc);
+            ui_text_clip(FONT_SMALL, ix + 13, ry + 1, cw - (ix - cx) - 17, tc, short_row_name(r));
+        }
     }
-    if (ncats > visible) {
-        float bar = (ch - 8) * visible / ncats;
+    if (nr > visible) {
+        float bar = (ch - 8) * visible / nr;
         ui_rect(cx + cw - 4, cy + 4, 2, ch - 8, 0xFFDDDDDD);
-        ui_rect(cx + cw - 4, cy + 4 + G.cat_scroll * (ch - 8 - bar) / (ncats - visible), 2, bar, 0xFF9A9A9A);
+        ui_rect(cx + cw - 4, cy + 4 + G.cat_scroll * (ch - 8 - bar) / (nr - visible), 2, bar, 0xFF9A9A9A);
     }
 
-    // Icon grid
+    // Icon grid: four columns of 45-pixel tiles, with room for the scroll bar
     propx_new_frame();
     static int items[MAX_SPAWNABLE];
     int n = grid_items(items);
     float gx = cx + cw + 6, gy = cy;
     float gw = fw - cw - 18;
+    const float pitch = 47.0f, tile = 45.0f;
     ui_rect(gx, gy, gw, 164, C_PANEL);
     if (G.focus == 1) ui_outline(gx, gy, gw, 164, C_BLUE);
     for (int k = G.grid_scroll * GRID_COLS; k < n && k < (G.grid_scroll + GRID_ROWS) * GRID_COLS; k++) {
         int r = k / GRID_COLS - G.grid_scroll, c = k % GRID_COLS;
-        float tx = gx + 6 + c * 52, ty = gy + 6 + r * 52;
+        float tx = gx + 5 + c * pitch, ty = gy + 7 + r * 52;
         int sel = k == G.grid_sel;
-        ui_rrect(tx - 1, ty - 1, 50, 50, 3, sel ? (G.focus == 1 ? C_BLUE : C_BLUE_DIM) : 0xFFC8C8C8);
-        ui_rect(tx + 1, ty + 1, 46, 46, 0xFFFFFFFF);
+        ui_rrect(tx - 1, ty - 1, tile + 2, tile + 2, 3, sel ? (G.focus == 1 ? C_BLUE : C_BLUE_DIM) : 0xFFC8C8C8);
+        ui_rect(tx + 1, ty + 1, tile - 2, tile - 2, 0xFFFFFFFF);
         const char *iname = items[k] >= GRID_RAG ? npc_type_name(items[k] - GRID_RAG)
                             : items[k] >= GRID_NPC   ? npc_type_name(items[k] - GRID_NPC)
                                                         : model_name(items[k]);
@@ -5007,16 +5198,24 @@ static void draw_qmenu(int props) {
         int img = ui_image_find(key);
         int extra = items[k] < GRID_NPC && items[k] >= G.props.num_models;
         if (img >= 0) {
-            ui_image(img, tx + 1, ty + 1, 46, 46, 0xFFFFFFFF);
-        } else if (!extra || !propx_draw_icon(items[k] - G.props.num_models, tx + 1, ty + 1, 46, 46)) {
-            ui_text_clip(FONT_SMALL, tx + 3, ty + 18, 42, C_TEXT, iname);
+            ui_image(img, tx + 1, ty + 1, tile - 2, tile - 2, 0xFFFFFFFF);
+        } else if (!extra || !propx_draw_icon(items[k] - G.props.num_models, tx + 1, ty + 1, tile - 2, tile - 2)) {
+            ui_text_clip(FONT_SMALL, tx + 3, ty + 17, tile - 6, C_TEXT, iname);
+        }
+        // Drivable or sittable: a little steering wheel in the corner
+        if (items[k] < GRID_NPC && drivable_model(items[k]) != VEH_NONE) {
+            float bx = tx + tile - 14, by = ty + 2;
+            ui_rrect(bx, by, 12, 12, 6, 0xE0303030);
+            ui_rrect(bx + 2, by + 2, 8, 8, 4, 0xFFFFFFFF);
+            ui_rrect(bx + 3, by + 3, 6, 6, 3, 0xE0303030);
+            ui_rect(bx + 5, by + 5, 2, 2, 0xFFFFFFFF);
         }
     }
-    int rows = (n + GRID_COLS - 1) / GRID_COLS;
-    if (rows > GRID_ROWS) {
-        float bar = 152.0f * GRID_ROWS / rows;
+    int rows_n = (n + GRID_COLS - 1) / GRID_COLS;
+    if (rows_n > GRID_ROWS) {
+        float bar = 152.0f * GRID_ROWS / rows_n;
         ui_rect(gx + gw - 5, gy + 6, 3, 152, 0xFFDDDDDD);
-        ui_rect(gx + gw - 5, gy + 6 + G.grid_scroll * (152.0f - bar) / (rows - GRID_ROWS), 3, bar, 0xFF9A9A9A);
+        ui_rect(gx + gw - 5, gy + 6 + G.grid_scroll * (152.0f - bar) / (rows_n - GRID_ROWS), 3, bar, 0xFF9A9A9A);
     }
     // Selected prop details
     float iy = gy + 170;
@@ -5031,9 +5230,15 @@ static void draw_qmenu(int props) {
         PpakModel tmp;
         const PpakModel *md = model_info(items[G.grid_sel], &tmp);
         ui_text(FONT_BOLD, gx + 6, iy + 5, C_TEXT, ALIGN_LEFT, md->name);
-        ui_textf(FONT_SMALL, gx + 6, iy + 22, C_TEXT_DIM, ALIGN_LEFT, "%.0f kg   %.0f x %.0f x %.0f", md->mass,
-                 md->maxs[0] - md->mins[0], md->maxs[1] - md->mins[1], md->maxs[2] - md->mins[2]);
+        int kind = drivable_model(items[G.grid_sel]);
+        if (kind != VEH_NONE) {
+            ui_text(FONT_SMALL, gx + 6, iy + 22, C_BLUE, ALIGN_LEFT, kind == VEH_SEAT ? "Seat: Use to sit in it" : "Drivable: Use to get in");
+        } else {
+            ui_textf(FONT_SMALL, gx + 6, iy + 22, C_TEXT_DIM, ALIGN_LEFT, "%.0f kg   %.0f x %.0f x %.0f", md->mass,
+                     md->maxs[0] - md->mins[0], md->maxs[1] - md->mins[1], md->maxs[2] - md->mins[2]);
+        }
     }
+    if (n > 0) ui_textf(FONT_SMALL, gx + gw - 6, iy + 22, C_TEXT_DIM, ALIGN_RIGHT, "%d / %d", G.grid_sel + 1, n);
     ui_textf(FONT_SMALL, gx + gw - 6, iy + 5, props >= PLAYER_PROP_LIMIT ? 0xFF3030D0 : C_TEXT_DIM, ALIGN_RIGHT,
              "Props %d/%d", props, PLAYER_PROP_LIMIT);
 

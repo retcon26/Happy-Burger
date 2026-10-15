@@ -1,4 +1,4 @@
-PSP SANDBOX / PS2GMOD - CONTROLS  (v1.5.1)
+PSP SANDBOX / PS2GMOD - CONTROLS  (v1.5.2)
 =========================================
 
 ON FOOT                      PSP                        PS2 (DualShock 2)
@@ -85,7 +85,11 @@ SPAWN MENU (tap Select)
   X                   Spawn the item / pick the tool
   Circle or Select    Close
   Start               Close and pause
-  Categories include Props (by game), NPCs and Ragdolls.
+  Spawnlists: Recent (what you last spawned), your lists, NPCs and Ragdolls, then one
+  header per game (+). On a game: X or Right opens its lists (closing the open one),
+  Left closes it again.
+  A wheel badge marks props you can drive or sit in.
+
 
 
 PAUSE MENU (Start)
