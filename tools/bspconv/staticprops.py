@@ -59,6 +59,7 @@ class MapProps:
         self.statics = []   # (lib index, origin, (x, y, z) axes, solid, fade, path)
         self.physics = []   # (lib index, origin, quat)
         self.bounds = {}    # lib index -> (mins, maxs)
+        self.dynamic = {}   # statics index -> its entity (prop_dynamic, prop_door_rotating)
         self.lib_count = 0
 
 
@@ -109,7 +110,10 @@ def collect(bsp, fs, out_pack_path, tier, log=print, tex_size=None):
         if e.get("classname") in PHYS_CLASSES:
             mp.physics.append((li, o, matrix_to_quat(*axes)))
         else:
-            mp.statics.append((li, o, axes, 6, 0.0, path))
+            # Kept as a static prop for drawing; convert.py may attach it to a door that moves it
+            mp.dynamic[len(mp.statics)] = e
+            solid = 0 if e.get("solid", "6").strip() == "0" else 6
+            mp.statics.append((li, o, axes, solid, 0.0, path))
     log(f"  props: {len(index)} models, {len(mp.statics)} static, {len(mp.physics)} physics -> {out_pack_path}")
     return mp
 
@@ -152,11 +156,13 @@ def static_collision_pieces(fs, path, cache):
     return out
 
 
-def pack_statics(mp):
-    """SPRP records: 3x4 matrix (axes as columns, then origin), lib model, flags, fade distance, pad."""
+def pack_statics(mp, attach=None):
+    """SPRP records: 3x4 matrix (axes as columns, then origin), lib model, flags, fade distance, and the
+    entity it moves with (index + 1, 0 = none). attach: statics index -> entity index."""
+    attach = attach or {}
     data = bytearray()
-    for li, o, (x, y, z), solid, fade, _path in mp.statics:
-        data += struct.pack("<12f2If I", *x, *y, *z, *o, li, 1 if solid else 0, fade, 0)
+    for i, (li, o, (x, y, z), solid, fade, _path) in enumerate(mp.statics):
+        data += struct.pack("<12f2If I", *x, *y, *z, *o, li, 1 if solid else 0, fade, attach.get(i, -1) + 1)
     return data
 
 

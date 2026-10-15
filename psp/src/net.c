@@ -10,6 +10,9 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "settings.h"
+
+
 #define NET_PORT 18256
 #define GROUP_NAME "GmodPSP"
 #define CONNECT_TIMEOUT_US 15000000
@@ -64,7 +67,9 @@ const uint8_t *net_my_mac(void) {
 }
 
 const char *net_nickname(void) {
+    if (g_settings.name[0]) return g_settings.name; // Multiplayer > Profile
     if (!N.nick[0]) {
+
         char buf[128] = "";
         if (sceUtilityGetSystemParamString(PSP_SYSTEMPARAM_ID_STRING_NICKNAME, buf, sizeof(buf)) < 0 || !buf[0]) {
             snprintf(buf, sizeof(buf), "Player");

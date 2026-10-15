@@ -21,7 +21,22 @@ typedef struct {
     int npc_ignore_players; // 0/1: NPCs don't target or follow players (ai_ignoreplayers)
     int unlimited_ammo; // 0/1: guns never run out or need reloading
     int hev_suit;       // 0/1: you wear the HEV suit: 100 suit power at spawn soaks up most damage
+    // Multiplayer > Profile: how other players see you
+    int player_colour;  // profile_colour index: tints your player model and name (0: none)
+    int physgun_colour; // profile_colour index for your physics gun's beam (0: GMod's blue)
+    char name[16];      // your name in games ("": the PSP's nickname)
 } Settings;
+
+#define PROFILE_COLOURS 11
+// ABGR; index 0 is "none" (white) for a player colour, GMod's blue for a physics gun
+unsigned int profile_colour(int i, int physgun);
+const char *profile_colour_name(int i, int physgun);
+
+// Multiplayer > Profile: name, player model and colours. Returns 1 when the player backs out (saved
+// then). profile_frame() goes between gfx_end_frame() and gfx_present() (the on-screen keyboard).
+int profile_update(const InputState *in);
+void profile_draw(float x, float y, float w, float h);
+void profile_frame(void);
 
 extern Settings g_settings;
 

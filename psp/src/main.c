@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "achieve.h"
 #include "audio.h"
 #include "game.h"
 #include "gfx.h"
@@ -97,7 +98,16 @@ static int run_autoload(char *status, int status_len) {
         char nm[32];
         float c[5];
         int n = sscanf(line, "%31s %f %f %f %f %f", nm, &c[0], &c[1], &c[2], &c[3], &c[4]);
+        char page[32];
+        if (strcmp(nm, "menu") == 0 && sscanf(line, "%*s %31s", page) == 1 && strcmp(page, "profile") == 0) {
+            menu_show_profile(); // "menu profile": Multiplayer > Profile
+        }
+        if (strcmp(nm, "menu") == 0 && sscanf(line, "%*s %31s", page) == 1 && strcmp(page, "achievements") == 0) {
+            menu_show_achievements();
+        }
+
         if (n >= 1 && strcmp(nm, "menu") != 0 && start_game(nm, status, status_len)) {
+
             started = 1;
             if (n == 6) game_set_view(c[0], c[1], c[2], c[3], c[4]);
         }
@@ -126,6 +136,7 @@ int main(int argc, char *argv[]) {
     draw_loading(NULL); // plain blue until ui.pak is in
     hud_init();
     settings_load();
+    achieve_init();
     ui_load();
     draw_loading(NULL);
     audio_init();

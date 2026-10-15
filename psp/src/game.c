@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "achieve.h"
 #include "audio.h"
 #include "camera.h"
 #include "pak.h"
@@ -199,7 +200,7 @@ static const char *k_pause_items[] = {"Resume Game", "Options",    "Toggle Nocli
                                       "Clean Up Props", "Disconnect"};
 #define SELECT_HOLD_TIME 0.4f // holding Select this long toggles noclip instead of opening the spawn menu
 #define NUM_PAUSE_ITEMS (int)(sizeof(k_pause_items) / sizeof(k_pause_items[0]))
-enum { NOTE_GENERIC, NOTE_UNDO, NOTE_HINT, NOTE_ERROR, NOTE_CLEANUP };
+enum { NOTE_GENERIC, NOTE_UNDO, NOTE_HINT, NOTE_ERROR, NOTE_CLEANUP, NOTE_CHAT, NOTE_ACHIEVEMENT };
 #define MAX_NOTES 4
 static const unsigned int k_palette[] = {
     0xFFFFFFFF, 0xFF4040FF, 0xFF40C040, 0xFFFF6040, 0xFF40E0FF, 0xFFFF60FF, 0xFF40A0FF, 0xFF606060,
@@ -295,6 +296,7 @@ typedef struct {
     quat hold_rot;
     float health;
     int model;       // NPC type of their player model, or -1
+    int colour, pgun; // Profile colours (profile_colour indices): player and physics gun
     float prop_hurt; // host: until a flying prop can hurt them again
     int veh;         // the vehicle or seat (body) they're in, or -1
     float veh_throttle, veh_steer;
@@ -496,7 +498,7 @@ static int shoot(int weapon, vec3 eye, vec3 f, uint32_t seed, int world, int eff
 static vec3 view_right(void);
 // autoload.txt test commands: the last prop "spawnat" made, and "autodrive"'s held stick
 static int g_test_body = -1, g_test_drive;
-static float g_test_throttle, g_test_steer;
+static float g_test_throttle, g_test_steer, g_test_walk;
 static void net_leave(void);
 static void vm_event(int kind);
 static void vm_tick(float dt);
@@ -596,6 +598,7 @@ static int player_prop_count(void) {
 // --- Lifecycle ---------------------------------------------------------------------------------
 
 static void npc_shot(const char *weapon, vec3 from, vec3 to);
+static void minge_act(int npc, int action, vec3 at, vec3 target);
 
 static void load_shared(void) {
     if (G.props_loaded) return;
@@ -704,6 +707,7 @@ static void load_shared(void) {
     }
     G.npcs_loaded = npcs_load() == 0 && npc_type_count() > 0;
     npc_set_shot_handler(npc_shot);
+    npc_set_minge_handler(minge_act);
     // Options > Player model: the NPC pack's characters marked as player models
     g_pm_count = 0;
     for (int t = 0; t < npc_type_count() && g_pm_count < MAX_PLAYER_MODELS; t++) {
@@ -721,7 +725,28 @@ static void refill_ammo(void) {
     G.fire_cd = 0.0f;
 }
 
+// A static prop's axes and origin in the world: props carried by a door (its model) follow the door.
+static void sprop_frame(const PmapStaticProp *sp, vec3 *ax, vec3 *ay, vec3 *az, vec3 *o) {
+    *ax = v3(sp->axis_x[0], sp->axis_x[1], sp->axis_x[2]);
+    *ay = v3(sp->axis_y[0], sp->axis_y[1], sp->axis_y[2]);
+    *az = v3(sp->axis_z[0], sp->axis_z[1], sp->axis_z[2]);
+    *o = v3(sp->origin[0], sp->origin[1], sp->origin[2]);
+    int p = (int)sp->parent - 1;
+    if (p < 0 || p >= G.map.num_ents || !G.map.ent_state) return;
+    const PmapEnt *e = &G.map.ents[p];
+    const EntState *s = &G.map.ent_state[p];
+    vec3 rel = v3_sub(*o, v3(e->origin[0], e->origin[1], e->origin[2]));
+    if (s->rotated) {
+        *ax = q_rotate(s->rot, *ax);
+        *ay = q_rotate(s->rot, *ay);
+        *az = q_rotate(s->rot, *az);
+        rel = q_rotate(s->rot, rel);
+    }
+    *o = v3_add(s->pos, rel);
+}
+
 static void light_static_props(void) {
+
     int n = G.map.num_sprops;
     G.sprop_ambient = calloc(n > 0 ? n : 1, sizeof(unsigned int));
     G.sprop_sunlit = calloc(n > 0 ? n : 1, 1);
@@ -878,6 +903,7 @@ int game_start(const char *map_name, char *err, int err_len) {
         return -1;
     }
     snprintf(G.map_name, sizeof(G.map_name), "%s", map_name);
+    achieve_map(map_name);
     g_haunt.on = 0;
     if (strncmp(map_name, HAUNT_MAP, strlen(HAUNT_MAP)) == 0) haunt_setup();
     char base[64], perr[96];
@@ -942,6 +968,7 @@ void game_set_view(float x, float y, float z, float yaw, float pitch) {
 }
 
 void game_end(void) {
+    achieve_save(); // the playtime since the last save
     net_leave();
     script_stop();
     if (G.hold_sound >= 0) snd_stop(G.hold_sound);
@@ -1022,7 +1049,13 @@ void game_command(const char *line) {
         g_test_drive = 1;
         g_test_throttle = x;
         g_test_steer = y;
+    } else if (sscanf(line, "autowalk %f", &x) == 1) { // hold the stick forward (or back), for walking into doors
+        g_test_walk = x;
+    } else if (strncmp(line, "use", 3) == 0) { // presses Use on what's in front (doors, buttons)
+        ents_use(&G.map, player_eye(&G.player), view_forward());
+
     } else if (strncmp(line, "mute", 4) == 0) {
+
         g_settings.sound = 0;
     } else if (strncmp(line, "host", 4) == 0) {
         game_host();
@@ -1315,6 +1348,7 @@ static int spawn_prop(int model, vec3 at, vec3 normal, quat rot, unsigned int ti
         float f[10] = {at.x, at.y, at.z, normal.x, normal.y, normal.z, rot.x, rot.y, rot.z, rot.w};
         send_cmd(CMD_SPAWN, model, 0, tint, f, 10);
         play(G.snd.spawn, 0.6f);
+        achieve_prop_spawned();
         return -1;
     }
     if (player_prop_count() >= PLAYER_PROP_LIMIT) {
@@ -1350,6 +1384,7 @@ static int spawn_prop(int model, vec3 at, vec3 normal, quat rot, unsigned int ti
     G.body_owner[i] = G.acting;
     undo_push(i);
     play(G.snd.spawn, 0.6f);
+    if (G.acting == G.my_slot) achieve_prop_spawned(); // ours, not a client's we spawned for them
     return i;
 }
 
@@ -2029,6 +2064,119 @@ static void npc_shot(const char *weapon, vec3 from, vec3 to) {
     if (len > 1.0f) bullet_hole(from, v3_scale(d, 1.0f / len), to, -1); // a hole where it hit a wall (none if it hit someone)
 
 }
+
+// --- Mingebags ------------------------------------------------------------------------------------
+// The NPCs decide when to make mischief (npc.c); the props and chat are the game's. Their props aren't
+// anyone's (no undo, no prop limit) but only the newest MINGE_PROPS of them stay.
+#define MINGE_OWNER 100 // body_owner of mingebag props: not a player slot
+#define MINGE_PROPS 16
+
+static const char *const k_minge_names[] = {"xX_Sn1per_Xx", "[FUN] Bob", "garry", "propkill3r", "Mingebag",
+                                            "darkrp_pro", "kevin", "~*Turbo*~"};
+static const char *const k_minge_lines[] = {"lol", "xD", "get rekt", "gg ez", "how do i noclip", "admin??",
+                                            "can i have admin", "lmao", "NICE", "mic spam", "who stole my crowbar",
+                                            "wat", "brb", "1v1 me", "prop surf time", "hahaha", "u mad?",
+                                            "this server sucks", "i am the admin", "spawning bathtubs"};
+static const char *const k_minge_hurt[] = {"ow", "wtf", "rude", "hey!!", "ur banned", "reported", "lag",
+                                           "i wasnt ready"};
+// What a mingebag spawns: the classics
+static const char *const k_minge_props[] = {"Bathtub", "Fridge", "Couch", "Vending Machine", "Oil Drum",
+                                            "Wood Crate", "Watermelon", "Traffic Cone", "Dumpster", "Toilet",
+                                            "Hula Doll", "Breen Bust", "Lockers", "Mattress", "Washing Machine",
+                                            "Sawblade"};
+#define NUM_MINGE_PROPS (int)(sizeof(k_minge_props) / sizeof(k_minge_props[0]))
+static int g_minge_models[NUM_MINGE_PROPS], g_minge_models_n = -1;
+static int g_minge_bodies[MINGE_PROPS], g_minge_next;
+
+static NetHeader net_header(int type);
+
+static void minge_say(int npc, const char *line) {
+    PkChat c;
+    memset(&c, 0, sizeof(c));
+    snprintf(c.text, sizeof(c.text), "%s: %s", k_minge_names[npc % (int)(sizeof(k_minge_names) / sizeof(k_minge_names[0]))], line);
+    notify(c.text, NOTE_CHAT);
+    if (G.role == ROLE_HOST) { // everyone reads it
+        c.h = net_header(PK_CHAT);
+        net_send(NULL, &c, sizeof(c));
+    }
+}
+
+static int minge_model(void) {
+    if (g_minge_models_n < 0) { // looked up once: prop_named only remembers a few names
+        g_minge_models_n = 0;
+        for (int k = 0; k < NUM_MINGE_PROPS; k++) {
+            for (int i = 0; i < G.props.num_models; i++) {
+                if (strncmp(G.props.models[i].name, k_minge_props[k], 32) == 0) {
+                    g_minge_models[g_minge_models_n++] = i;
+                    break;
+                }
+            }
+        }
+    }
+    return g_minge_models_n ? g_minge_models[rand() % g_minge_models_n] : -1;
+}
+
+static void minge_act(int npc, int action, vec3 at, vec3 target) {
+    if (action == MINGE_CHAT) {
+        minge_say(npc, k_minge_lines[rand() % (int)(sizeof(k_minge_lines) / sizeof(k_minge_lines[0]))]);
+    } else if (action == MINGE_DIED) {
+        achieve_minge_killed();
+    } else if (action == MINGE_HURT) {
+
+        if (rand() % 3 == 0) minge_say(npc, k_minge_hurt[rand() % (int)(sizeof(k_minge_hurt) / sizeof(k_minge_hurt[0]))]);
+    } else if (action == MINGE_SPAWN && G.props_loaded) {
+        int model = minge_model();
+        if (model < 0 || model >= G.props.num_models) return;
+        const PpakModel *md = &G.props.models[model];
+        vec3 mins = v3(md->mins[0], md->mins[1], md->mins[2]), maxs = v3(md->maxs[0], md->maxs[1], md->maxs[2]);
+        // Not inside a wall: back off toward the mingebag if there's something in the way
+        Trace tr;
+        cm_trace_line(&G.map, v3(at.x, at.y, at.z + 20.0f), v3(at.x, at.y, at.z + 20.0f + (maxs.z - mins.z)), MASK_PROPSOLID, NULL, 0, &tr);
+        if (tr.fraction < 1.0f) return;
+
+        // The oldest one goes to make room
+        int old = g_minge_bodies[g_minge_next];
+        if (old > 0 && G.phys.bodies[old - 1].active && G.body_owner[old - 1] == MINGE_OWNER) remove_body(old - 1);
+        g_minge_bodies[g_minge_next] = 0;
+        quat rot = q_axis_angle(v3(0, 0, 1), (float)(rand() % 360) * DEG2RAD);
+        vec3 pos = v3(at.x, at.y, at.z + 20.0f - mins.z);
+        int i = phys_spawn(&G.phys, model, (int)(md->flags & PPAK_SHAPE_MASK), mins, maxs, md->mass, pos, rot);
+        if (i < 0) return;
+        attach_hull(&G.phys.bodies[i], &G.props, model);
+        G.phys.bodies[i].tint_abgr = 0xFFFFFFFF;
+        G.phys.bodies[i].surface = (int)md->surface;
+        G.body_owner[i] = MINGE_OWNER;
+        g_minge_bodies[g_minge_next] = i + 1;
+        g_minge_next = (g_minge_next + 1) % MINGE_PROPS;
+        play_at(G.snd.spawn, pos, 0.6f);
+    } else if (action == MINGE_THROW) {
+        // The nearest loose prop goes flying at the player, physics-gun style
+        int best = -1;
+        float best_d = 300.0f;
+        for (int i = 0; i < MAX_BODIES; i++) {
+            const Body *b = &G.phys.bodies[i];
+            if (!b->active || b->frozen || b->mass > 400.0f || i == G.held || vehicle_kind(b) != VEH_NONE) continue;
+            float d = v3_len(v3_sub(b->pos, at));
+            if (d < best_d) {
+                best_d = d;
+                best = i;
+            }
+        }
+        if (best < 0) {
+            minge_act(npc, MINGE_SPAWN, at, target); // nothing to throw: make something
+            return;
+        }
+        Body *b = &G.phys.bodies[best];
+        vec3 aim = v3_sub(v3(target.x, target.y, target.z + 40.0f), b->pos);
+        float dist = v3_len(aim);
+        if (dist < 1.0f) return;
+        b->vel = v3_add(v3_scale(aim, 560.0f / dist), v3(0, 0, 120.0f + dist * 0.2f));
+
+        phys_wake(&G.phys, best);
+        play_at(G.snd.spawn, b->pos, 0.4f);
+    }
+}
+
 
 // Prop pack index of a model by name (NPC weapons), remembered after the first look
 static int prop_named(const char *name) {
@@ -3050,7 +3198,7 @@ typedef struct {
     int16_t held;
     uint16_t ack; // last command of this player's the host has run
     int16_t veh;  // the vehicle or seat they're in, or -1
-    uint16_t pad2;
+    uint8_t colour, pgun; // Profile colours: player and physics gun (profile_colour indices)
     char name[16];
 } NetPlayer;
 
@@ -3074,6 +3222,13 @@ typedef struct {
 } PkRagPose;
 _Static_assert(sizeof(PkPlayers) <= 1400 && sizeof(PkRagInfo) <= 1400, "packets must fit one datagram");
 
+// A player model's tint for a Profile colour: halfway to it, so the character still looks like itself
+static unsigned int body_tint(int colour) {
+    unsigned int c = profile_colour(colour, 0), out = 0xFF000000u;
+    for (int k = 0; k < 24; k += 8) out |= ((255u + ((c >> k) & 0xFFu)) / 2u) << k;
+    return out;
+}
+
 static uint8_t model_byte(int type) {
     return type >= 0 && type < NET_NO_MODEL ? (uint8_t)type : NET_NO_MODEL;
 }
@@ -3090,7 +3245,7 @@ typedef struct {
     float hold_rot[4];
     int16_t veh;           // the vehicle or seat we're in, or -1...
     int8_t throttle, steer; // ...and how we drive it (x 127)
-    uint8_t veh_brake, vpad[3];
+    uint8_t veh_brake, colour, pgun, vpad; // colour, pgun: Profile colours
     NetCmd cmds[MAX_OUTQ];
 } PkCState;
 
@@ -3431,6 +3586,8 @@ static void host_receive(void) {
             p->weapon = cs->weapon;
             p->flags = cs->flags;
             p->model = cs->model == NET_NO_MODEL ? -1 : cs->model;
+            p->colour = cs->colour;
+            p->pgun = cs->pgun;
             p->held = body_valid(cs->held) ? cs->held : -1;
             p->held_rag = npc_ragdoll_active(cs->held_rag) ? cs->held_rag : -1;
             p->held_bone = cs->held_bone;
@@ -3474,6 +3631,8 @@ static void pack_player(NetPlayer *np, int s) {
         np->pitch = G.pitch;
         np->weapon = (uint8_t)G.weapon;
         np->model = model_byte(player_model());
+        np->colour = (uint8_t)g_settings.player_colour;
+        np->pgun = (uint8_t)g_settings.physgun_colour;
         np->flags = (uint8_t)((G.player.noclip ? PF_NOCLIP : 0) | (G.player.ducked ? PF_DUCKED : 0) | (G.dead_time > 0.0f ? PF_DEAD : 0) | (G.veh >= 0 ? PF_VEHICLE : 0) | god);
         np->health = G.health;
         np->held = (int16_t)G.held;
@@ -3491,6 +3650,8 @@ static void pack_player(NetPlayer *np, int s) {
     np->pitch = p->pitch;
     np->weapon = (uint8_t)p->weapon;
     np->model = model_byte(p->model);
+    np->colour = (uint8_t)p->colour;
+    np->pgun = (uint8_t)p->pgun;
     np->flags = (uint8_t)((p->flags & ~PF_GOD) | god);
     np->health = p->health;
     np->held = (int16_t)p->held;
@@ -3667,6 +3828,7 @@ static void host_update(float dt) {
         }
         if (p->held_rag >= 0) npc_ragdoll_drag(p->held_rag, p->held_bone, p->hold_pos, dt);
         npc_puppet_set(s, p->health > 0.0f && !(p->flags & PF_VEHICLE), p->model, p->pos, p->yaw, dt);
+        npc_puppet_tint(s, body_tint(p->colour));
     }
 }
 
@@ -3742,6 +3904,8 @@ static void client_apply_players(const PkPlayers *pk) {
         p->weapon = np->weapon;
         p->flags = np->flags;
         p->model = np->model == NET_NO_MODEL ? -1 : np->model;
+        p->colour = np->colour;
+        p->pgun = np->pgun;
         p->health = np->health;
         p->veh = np->veh;
         snprintf(p->name, sizeof(p->name), "%.15s", np->name);
@@ -3850,8 +4014,17 @@ static int client_update(float dt) {
         case PK_RAGINFO:
             if (len >= (int)sizeof(PkRagInfo)) npc_ragdoll_net_set_info(&pk.ri.i);
             break;
+        case PK_CHAT:
+            if (len >= (int)sizeof(PkChat)) {
+                const PkChat *c = (const PkChat *)pk.raw;
+                char text[sizeof(c->text)];
+                snprintf(text, sizeof(text), "%.*s", (int)sizeof(c->text) - 1, c->text);
+                notify(text, NOTE_CHAT);
+            }
+            break;
         case PK_VOICE:
             if (len >= (int)sizeof(PkVoice)) {
+
                 const PkVoice *v = (const PkVoice *)pk.raw;
                 if (v->speaker != G.my_slot && v->speaker < NET_MAX_PLAYERS) {
                     voice_play(v->speaker, &v->frame);
@@ -3891,6 +4064,8 @@ static int client_update(float dt) {
         cs.pitch = G.pitch;
         cs.weapon = (uint8_t)G.weapon;
         cs.model = model_byte(player_model());
+        cs.colour = (uint8_t)g_settings.player_colour;
+        cs.pgun = (uint8_t)g_settings.physgun_colour;
         cs.flags = (uint8_t)((G.player.noclip ? PF_NOCLIP : 0) | (G.player.ducked ? PF_DUCKED : 0) | (G.dead_time > 0.0f ? PF_DEAD : 0) | (G.veh >= 0 ? PF_VEHICLE : 0));
         cs.held = (int16_t)((carries_props(G.weapon) || G.use_carry) && G.held >= 0 ? G.held : -1);
         cs.held_rag = (int8_t)(G.held_rag >= 0 ? G.held_rag : -1);
@@ -3928,6 +4103,7 @@ static int client_update(float dt) {
         const Peer *p = &G.peers[s];
         npc_puppet_set(s, s != G.my_slot && p->active && p->health > 0.0f && !(p->flags & PF_VEHICLE), p->model, p->pos,
                        p->yaw, dt);
+        npc_puppet_tint(s, body_tint(p->colour));
     }
     return 1;
 }
@@ -4001,7 +4177,35 @@ static void draw_voice_hud(void) {
     }
 }
 
+// Other players' names over their heads, in their Profile colours (when you can see them)
+static void draw_name_tags(void) {
+    if (G.role == ROLE_OFFLINE) return;
+    float cy = cosf(G.cam.yaw * DEG2RAD), sy = sinf(G.cam.yaw * DEG2RAD);
+    float cp = cosf(G.cam.pitch * DEG2RAD), sp = sinf(G.cam.pitch * DEG2RAD);
+    vec3 f = v3(cp * cy, cp * sy, sp), r = v3(sy, -cy, 0.0f), u = v3(-cy * sp, -sy * sp, cp);
+    vec3 eye = v3(G.cam.pos.x, G.cam.pos.y, G.cam.pos.z);
+    float th = tanf(G.cam.fov_y * 0.5f * DEG2RAD), tw = th * 480.0f / 272.0f;
+    for (int s = 0; s < NET_MAX_PLAYERS; s++) {
+        const Peer *p = &G.peers[s];
+        if (s == G.my_slot || !p->active || p->health <= 0.0f || !p->name[0]) continue;
+        vec3 head = v3_add(p->pos, v3(0, 0, (p->flags & PF_DUCKED) ? 56.0f : 82.0f));
+        vec3 d = v3_sub(head, eye);
+        float z = v3_dot(d, f), dist = v3_len(d);
+        if (z < 16.0f || dist > 1500.0f) continue;
+        float sx = 240.0f + v3_dot(d, r) / (z * tw) * 240.0f, sy2 = 136.0f - v3_dot(d, u) / (z * th) * 136.0f;
+        if (sx < -40.0f || sx > 520.0f || sy2 < 0.0f || sy2 > 272.0f) continue;
+        Trace tr;
+        cm_trace_line(&G.map, eye, head, MASK_PROPSOLID, NULL, 0, &tr);
+        if (tr.fraction < 0.98f) continue; // behind a wall
+        unsigned int a = dist > 1100.0f ? (unsigned int)(255.0f * (1500.0f - dist) / 400.0f) : 255u;
+        float w = ui_text_width(FONT_SMALL, p->name) + 10.0f;
+        ui_rrect(sx - w * 0.5f, sy2 - 9.0f, w, 16.0f, 3, ((a * 0x90u / 255u) << 24) | 0x202020);
+        ui_text(FONT_SMALL, sx, sy2 - 7.0f, (a << 24) | (profile_colour(p->colour, 0) & 0xFFFFFFu), ALIGN_CENTER, p->name);
+    }
+}
+
 void game_host(void) {
+
     G.role = ROLE_HOST;
     G.my_slot = 0;
     G.net_was_ready = 0;
@@ -4297,8 +4501,22 @@ static int world_step(float dt) {
     return 1;
 }
 
+// Achievements: playtime and who's in the game; anything newly unlocked pops up
+static void achievements_tick(float dt) {
+    int players = 1;
+    for (int s = 0; s < NET_MAX_PLAYERS && G.role != ROLE_OFFLINE; s++) players += s != G.my_slot && G.peers[s].active;
+    achieve_update(dt, players);
+    for (int a; (a = achieve_pop()) >= 0;) {
+        char msg[48];
+        snprintf(msg, sizeof(msg), "Achievement: %s", achieve_name(a));
+        notify(msg, NOTE_ACHIEVEMENT);
+        play(G.snd.spawn, 0.8f);
+    }
+}
+
 GameResult game_update(const InputState *in, float dt) {
     phys_set_quality(g_settings.physics);
+    achievements_tick(dt);
     for (int i = 0; i < MAX_NOTES; i++) G.notes[i].time += dt;
     if (g_haunt.on && !G.paused) haunt_update(dt);
     G.hurt_flash -= dt;
@@ -4405,7 +4623,7 @@ GameResult game_update(const InputState *in, float dt) {
         if (G.veh >= 0) {
             vehicle_controls(in, dt); // driving: the stick steers, Use gets out
         } else {
-            cmd.forward = -in->ay;
+            cmd.forward = g_test_walk != 0.0f ? g_test_walk : -in->ay;
             cmd.side = in->ax;
             cmd.yaw = G.yaw;
             cmd.pitch = G.pitch;
@@ -4519,6 +4737,7 @@ GameResult game_update(const InputState *in, float dt) {
     if (G.veh < 0) player_move(&G.player, &G.map, &cmd, boxes, nb, dt); // in a vehicle, it carries you
     // Your body, in third person or seen from a camera (not while driving: it would stand up through the roof)
     npc_self_set((third_person() || G.cam_view >= 0) && G.veh < 0, player_model(), G.player.origin, G.yaw, dt);
+    npc_puppet_tint(-1, body_tint(g_settings.player_colour));
 
     vec3 pmin, pmax;
     player_hull(&G.player, &pmin, &pmax);
@@ -4714,20 +4933,20 @@ static void draw_props(void) {
             const PmapStaticProp *sp = &G.map.sprops[i];
             if ((int)sp->model >= G.maplib.num_models) continue;
             const PpakModel *md = &G.maplib.models[sp->model];
+            vec3 ax, ay, az, o;
+            sprop_frame(sp, &ax, &ay, &az, &o);
             vec3 lc = v3((md->mins[0] + md->maxs[0]) * 0.5f, (md->mins[1] + md->maxs[1]) * 0.5f, (md->mins[2] + md->maxs[2]) * 0.5f);
-            vec3 c = v3(sp->origin[0] + sp->axis_x[0] * lc.x + sp->axis_y[0] * lc.y + sp->axis_z[0] * lc.z,
-                        sp->origin[1] + sp->axis_x[1] * lc.x + sp->axis_y[1] * lc.y + sp->axis_z[1] * lc.z,
-                        sp->origin[2] + sp->axis_x[2] * lc.x + sp->axis_y[2] * lc.y + sp->axis_z[2] * lc.z);
+            vec3 c = v3_add(o, v3_add(v3_scale(ax, lc.x), v3_add(v3_scale(ay, lc.y), v3_scale(az, lc.z))));
             float radius = 0.5f * sqrtf((md->maxs[0] - md->mins[0]) * (md->maxs[0] - md->mins[0]) +
                                         (md->maxs[1] - md->mins[1]) * (md->maxs[1] - md->mins[1]) +
                                         (md->maxs[2] - md->mins[2]) * (md->maxs[2] - md->mins[2]));
             float dist = sp->fade_dist > 0.0f ? fminf(sp->fade_dist, max_dist) : max_dist;
             if (!in_view(c, radius, dist + radius)) continue;
             ScePspFMatrix4 m;
-            m.x = (ScePspFVector4){sp->axis_x[0], sp->axis_x[1], sp->axis_x[2], 0.0f};
-            m.y = (ScePspFVector4){sp->axis_y[0], sp->axis_y[1], sp->axis_y[2], 0.0f};
-            m.z = (ScePspFVector4){sp->axis_z[0], sp->axis_z[1], sp->axis_z[2], 0.0f};
-            m.w = (ScePspFVector4){sp->origin[0], sp->origin[1], sp->origin[2], 1.0f};
+            m.x = (ScePspFVector4){ax.x, ax.y, ax.z, 0.0f};
+            m.y = (ScePspFVector4){ay.x, ay.y, ay.z, 0.0f};
+            m.z = (ScePspFVector4){az.x, az.y, az.z, 0.0f};
+            m.w = (ScePspFVector4){o.x, o.y, o.z, 1.0f};
             PropLight l;
             make_light(&l, G.sprop_ambient[i], G.sprop_sunlit[i], 0xFFFFFFFF);
             proplib_draw(&G.maplib, (int)sp->model, &m, &l);
@@ -4969,8 +5188,17 @@ static void draw_blood(void) {
     sceGuDisable(GU_BLEND);
 }
 
+// The bright middle of a physics gun beam: its colour, most of the way to white
+static unsigned int beam_core(unsigned int c) {
+    unsigned int out = 0xFF000000u;
+    for (int k = 0; k < 24; k += 8) out |= ((((c >> k) & 0xFFu) + 3u * 255u) / 4u) << k;
+    return out;
+}
+
 static void draw_beams(void) {
     vec3 muzzle = gun_muzzle();
+    unsigned int pgun = profile_colour(g_settings.physgun_colour, 1);
+
     if (G.weapon == WEAPON_PHYSGUN && !G.use_carry && (G.held >= 0 || G.held_rag >= 0)) {
         vec3 end;
         if (G.held_rag >= 0) {
@@ -4988,10 +5216,27 @@ static void draw_beams(void) {
                 float t = (float)i / 11.0f;
                 vec3 p = v3_add(v3_add(v3_scale(muzzle, (1 - t) * (1 - t)), v3_scale(ctrl, 2 * t * (1 - t))), v3_scale(end, t * t));
                 p = v3_add(p, off);
-                pts[i] = (ColVert){pass == 1 ? 0xFFFFF0C0 : 0xFFFFA040, p.x, p.y, p.z};
+                pts[i] = (ColVert){pass == 1 ? beam_core(pgun) : pgun, p.x, p.y, p.z};
             }
             draw_lines(pts, 12, 1);
         }
+    }
+    // Other players' physics gun beams, in their colours: from their gun to what they hold
+    for (int s = 0; s < NET_MAX_PLAYERS && G.role != ROLE_OFFLINE; s++) {
+        const Peer *p = &G.peers[s];
+        if (s == G.my_slot || !p->active || p->weapon != WEAPON_PHYSGUN || !body_valid(p->held) || p->health <= 0.0f) continue;
+        float yr = p->yaw * DEG2RAD, pr = p->pitch * DEG2RAD;
+        vec3 f = v3(cosf(pr) * cosf(yr), cosf(pr) * sinf(yr), -sinf(pr)), r = v3(sinf(yr), -cosf(yr), 0.0f);
+        vec3 from = v3_add(v3_add(p->pos, v3(0, 0, (p->flags & PF_DUCKED) ? 30.0f : 52.0f)), v3_add(v3_scale(f, 22.0f), v3_scale(r, 8.0f)));
+        vec3 to = G.phys.bodies[p->held].pos, ctrl = v3_mad(from, f, v3_len(v3_sub(to, from)) * 0.5f);
+        unsigned int c = profile_colour(p->pgun, 1);
+        ColVert pts[12];
+        for (int i = 0; i < 12; i++) {
+            float t = (float)i / 11.0f;
+            vec3 q = v3_add(v3_add(v3_scale(from, (1 - t) * (1 - t)), v3_scale(ctrl, 2 * t * (1 - t))), v3_scale(to, t * t));
+            pts[i] = (ColVert){i & 1 ? beam_core(c) : c, q.x, q.y, q.z};
+        }
+        draw_lines(pts, 12, 1);
     }
     if (G.weapon == WEAPON_TOOLGUN && G.beam_time > 0.0f) {
         ColVert pts[2] = {{0xFFFFFFFF, muzzle.x, muzzle.y, muzzle.z}, {0xFF80FFFF, G.beam_end.x, G.beam_end.y, G.beam_end.z}};
@@ -5320,8 +5565,9 @@ static void draw_qmenu(int props) {
 }
 
 static void draw_notifications(void) {
-    static const unsigned int kind_colour[] = {0xFFE6A03D, 0xFF50C0FF, 0xFF60C060, 0xFF4040E0, 0xFF40A0FF};
-    static const char *kind_glyph[] = {"i", "<", "!", "x", "*"};
+    static const unsigned int kind_colour[] = {0xFFE6A03D, 0xFF50C0FF, 0xFF60C060, 0xFF4040E0, 0xFF40A0FF, 0xFF909090,
+                                               0xFF30B8F0};
+    static const char *kind_glyph[] = {"i", "<", "!", "x", "*", ">", "+"};
     float y = is_gun(G.weapon) && k_ws[G.weapon].clip ? 190 : 226; // above the ammo box
     for (int i = 0; i < MAX_NOTES; i++) {
         float t = G.notes[i].time;
@@ -5597,6 +5843,7 @@ void game_render(float fps) {
 
     ui_begin();
     if (!G.paused) {
+        draw_name_tags();
         draw_hud(fps);
         draw_voice_hud();
         script_hud();

@@ -18,6 +18,8 @@ void menu_close(void); // frees it (before a game loads)
 MenuResult menu_update(const InputState *in, float dt, char *map_out, int map_out_len);
 void menu_render(float fps);
 void menu_set_error(const char *msg);
+void menu_show_achievements(void); // autoload.txt "menu achievements"
+void menu_show_profile(void); // opens Multiplayer > Profile (autoload.txt "menu profile")
 void menu_join_info(int *slot, unsigned char mac[6]);
 
 // Shared look for the main menu and the in-game pause menu

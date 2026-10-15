@@ -146,7 +146,8 @@ typedef struct {
 } PmapEnt;
 
 // "EOUT": an output fires 'input' on entity 'target' after 'delay' when 'event' happens
-enum { PMAP_EV_ACTIVATE = 0, PMAP_EV_OPEN, PMAP_EV_CLOSE };
+// UNTOUCH: the player left a trigger; STARTOPEN/STARTCLOSE: a door began moving (double doors)
+enum { PMAP_EV_ACTIVATE = 0, PMAP_EV_OPEN, PMAP_EV_CLOSE, PMAP_EV_UNTOUCH, PMAP_EV_STARTOPEN, PMAP_EV_STARTCLOSE };
 enum { PMAP_IN_OPEN = 1, PMAP_IN_CLOSE, PMAP_IN_TOGGLE, PMAP_IN_START, PMAP_IN_STOP, PMAP_IN_PRESS, PMAP_IN_REVERSE };
 typedef struct {
     uint32_t event;
@@ -162,7 +163,7 @@ typedef struct {
     uint32_t model;
     uint32_t solid;
     float fade_dist; // 0 = default draw distance
-    uint32_t reserved;
+    uint32_t parent;  // entity index + 1 that carries it (a door's model), 0 = none
 } PmapStaticProp;
 
 // "SPVS": count = clusters; each row is a bitset over static props, sprp_row_words long

@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "achieve.h"
 #include "audio.h"
 #include "camera.h"
 #include "gfx.h"
@@ -19,7 +20,7 @@
 #define MAX_MAPS 320
 #define BG_ABGR 0xFF201810
 
-typedef enum { PAGE_MAIN, PAGE_NEWGAME, PAGE_OPTIONS, PAGE_MULTI, PAGE_JOIN } Page;
+typedef enum { PAGE_MAIN, PAGE_NEWGAME, PAGE_OPTIONS, PAGE_MULTI, PAGE_JOIN, PAGE_PROFILE, PAGE_ACHIEVEMENTS } Page;
 #define MAX_HOSTS 8
 
 // Map browser categories, by name prefix like GMod's New Game screen
@@ -39,9 +40,10 @@ static const struct {
 #define NUM_CATS (int)(sizeof(k_cats) / sizeof(k_cats[0]))
 #define GRID_COLS 3
 
-static const char *k_main_items[] = {"Start New Game", "Multiplayer", "Options"};
+static const char *k_main_items[] = {"Start New Game", "Multiplayer", "Achievements", "Options"};
 #define NUM_MAIN_ITEMS (int)(sizeof(k_main_items) / sizeof(k_main_items[0]))
-static const char *k_multi_items[] = {"Host Game", "Join Game", "Back"};
+static const char *k_multi_items[] = {"Host Game", "Join Game", "Profile", "Back"};
+#define NUM_MULTI_ITEMS 4
 
 static struct {
     Page page;
@@ -125,7 +127,19 @@ void menu_close(void) {
     M.bg_loaded = 0;
 }
 
+void menu_show_achievements(void) {
+    M.page = PAGE_ACHIEVEMENTS;
+    M.sel = 2;
+}
+
+void menu_show_profile(void) {
+
+    M.page = PAGE_PROFILE;
+    M.multi_sel = 2;
+}
+
 void menu_set_error(const char *msg) {
+
     snprintf(M.error, sizeof(M.error), "%s", msg);
 }
 
@@ -138,6 +152,14 @@ MenuResult menu_update(const InputState *in, float dt, char *map_out, int map_ou
     M.t += dt;
     if (M.page == PAGE_OPTIONS) {
         if (options_update(in)) M.page = PAGE_MAIN;
+        return MENU_STAY;
+    }
+    if (M.page == PAGE_PROFILE) {
+        if (profile_update(in)) M.page = PAGE_MULTI;
+        return MENU_STAY;
+    }
+    if (M.page == PAGE_ACHIEVEMENTS) {
+        if (achievements_update(in)) M.page = PAGE_MAIN;
         return MENU_STAY;
     }
     if (M.page == PAGE_MAIN) {
@@ -160,6 +182,8 @@ MenuResult menu_update(const InputState *in, float dt, char *map_out, int map_ou
             } else if (M.sel == 1) {
                 M.page = PAGE_MULTI;
                 M.multi_sel = 0;
+            } else if (M.sel == 2) {
+                M.page = PAGE_ACHIEVEMENTS;
             } else {
                 M.page = PAGE_OPTIONS;
             }
@@ -168,14 +192,14 @@ MenuResult menu_update(const InputState *in, float dt, char *map_out, int map_ou
     }
     if (M.page == PAGE_MULTI) {
         if (in->pressed & PSP_CTRL_UP) {
-            M.multi_sel = (M.multi_sel + 2) % 3;
+            M.multi_sel = (M.multi_sel + NUM_MULTI_ITEMS - 1) % NUM_MULTI_ITEMS;
             click(M.snd_move, 0.4f);
         }
         if (in->pressed & PSP_CTRL_DOWN) {
-            M.multi_sel = (M.multi_sel + 1) % 3;
+            M.multi_sel = (M.multi_sel + 1) % NUM_MULTI_ITEMS;
             click(M.snd_move, 0.4f);
         }
-        if (in->pressed & PSP_CTRL_CIRCLE || ((in->pressed & PSP_CTRL_CROSS) && M.multi_sel == 2)) {
+        if (in->pressed & PSP_CTRL_CIRCLE || ((in->pressed & PSP_CTRL_CROSS) && M.multi_sel == 3)) {
             M.page = PAGE_MAIN;
             click(M.snd_move, 0.4f);
         } else if (in->pressed & PSP_CTRL_CROSS) {
@@ -186,6 +210,8 @@ MenuResult menu_update(const InputState *in, float dt, char *map_out, int map_ou
                 M.host = 1;
                 M.map_sel = 0;
                 M.scroll = 0;
+            } else if (M.multi_sel == 2) {
+                M.page = PAGE_PROFILE;
             } else {
                 M.page = PAGE_JOIN;
                 M.num_hosts = 0;
@@ -418,7 +444,12 @@ void menu_render(float fps) {
     } else if (M.page == PAGE_MULTI) {
         draw_logo();
         ui_text_shadow(FONT_BOLD, 24, 94, 0xFFA0A0A0, ALIGN_LEFT, "MULTIPLAYER (AD-HOC, UP TO 4)");
-        menu_draw_buttons(k_multi_items, 3, M.multi_sel, 112, 26);
+        menu_draw_buttons(k_multi_items, NUM_MULTI_ITEMS, M.multi_sel, 112, 26);
+    } else if (M.page == PAGE_PROFILE) {
+        draw_logo();
+        profile_draw(150, 60, 300, 186);
+    } else if (M.page == PAGE_ACHIEVEMENTS) {
+        achievements_draw(40, 20, 400, 228);
     } else if (M.page == PAGE_JOIN) {
         draw_join();
     } else if (M.page == PAGE_NEWGAME) {
@@ -437,5 +468,7 @@ void menu_render(float fps) {
     if (g_settings.show_fps) ui_textf(FONT_SMALL, 474, 4, 0xA0FFFFFF, ALIGN_RIGHT, "%.0f fps", fps);
     ui_end();
     gfx_end_frame();
+    profile_frame(); // the on-screen keyboard draws itself over the frame
     gfx_present(1);
 }
+

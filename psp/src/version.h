@@ -2,4 +2,4 @@
 
 // Shown in the main menu's corner. Bump it with every release: the last number for fixes, the middle
 // one for new features (shared by the PS2 and PSP versions)
-#define GAME_VERSION "1.5.2"
+#define GAME_VERSION "1.5.3"

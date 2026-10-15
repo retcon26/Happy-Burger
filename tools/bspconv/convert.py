@@ -153,7 +153,7 @@ def convert_map(bsp_path, gmod_root, out_path, tier_name, log=print):
     for e in ents:
         idx = entities.model_index(e)
         if (0 < idx < len(bsp.models) and idx not in skip_models and not e.get("classname", "").startswith("trigger_")
-                and not entities.starts_off(e)):
+                and not entities.starts_off(e) and e.get("classname") not in entities.HIDDEN):
             jobs.append((idx, (0.0, 0.0, 0.0) if idx in moving_slot else _parse_vec(e.get("origin", ""))))
 
     mat_index = {}
@@ -388,10 +388,28 @@ def convert_map(bsp_path, gmod_root, out_path, tier_name, log=print):
     # or as a box when the model has none
     prop_boxes = []
     prop_hulls = []
+    # Props that move with an entity: HL2's model doors (prop_door_rotating, each becoming a swinging
+    # door entity of its own; locked ones stay shut) and props parented to a brush door, like TF2's
+    # sliding spawn doors. They collide through their entity, not the world.
+    prop_doors = []  # (statics index, entity)
+    attach = {}      # statics index -> entity index (moving entities come first, then prop doors)
+    moving_by_name = {}
+    for i, (e, _mi) in enumerate(moving):
+        moving_by_name.setdefault(e.get("targetname", "").lower(), i)
+    moving_by_name.pop("", None)
+    if mprops:
+        for si, e in sorted(mprops.dynamic.items()):
+            li = mprops.statics[si][0]
+            if (e.get("classname") == "prop_door_rotating" and li in mprops.bounds
+                    and not int(float(e.get("spawnflags", "0") or 0)) & 2048):
+                attach[si] = len(moving) + len(prop_doors)
+                prop_doors.append((si, e))
+            elif e.get("parentname", "").lower() in moving_by_name:
+                attach[si] = moving_by_name[e["parentname"].lower()]
     if mprops:
         hull_cache = {}
-        for li, o, axes, solid, _fade, path in mprops.statics:
-            if solid and li in mprops.bounds:
+        for si, (li, o, axes, solid, _fade, path) in enumerate(mprops.statics):
+            if solid and li in mprops.bounds and si not in attach:
                 box = staticprops.static_collision_box(mprops.bounds[li], path)
                 if not box:
                     continue
@@ -432,7 +450,7 @@ def convert_map(bsp_path, gmod_root, out_path, tier_name, log=print):
     spvs_data = bytearray()
     sprp_words = 0
     if mprops and mprops.statics:
-        sprp_data = staticprops.pack_statics(mprops)
+        sprp_data = staticprops.pack_statics(mprops, attach)
         sprp_words = (len(mprops.statics) + 31) // 32
         cluster_props = defaultdict(list)
         for pi, (li, o, (ax, ay, az), _s, _f, _p) in enumerate(mprops.statics):
@@ -455,7 +473,8 @@ def convert_map(bsp_path, gmod_root, out_path, tier_name, log=print):
 
     # Collision: map brushes, displacement prisms, static brush entities and solid static props
     static_list = [(mi, _parse_vec(e.get("origin", ""))) for e, mi in static_ents]
-    cd = build_collision(bsp, faces, min(2, tier["disp_power"]), static_list, prop_boxes, prop_hulls)
+    door_boxes = [(mprops.statics[si][2],) + tuple(mprops.bounds[mprops.statics[si][0]]) for si, _e in prop_doors]
+    cd = build_collision(bsp, faces, min(2, tier["disp_power"]), static_list, prop_boxes, prop_hulls, door_boxes)
     log(f"  collision: {len(cd.brushes)} brushes ({cd.disp_tris} from displacements, "
         f"{cd.static_ent_brushes} from brush entities, {len(prop_boxes)} prop boxes, {len(prop_hulls)} prop hulls"
         f" in {cd.prop_hull_pieces} pieces), {len(cd.planes)} planes")
@@ -465,8 +484,8 @@ def convert_map(bsp_path, gmod_root, out_path, tier_name, log=print):
     # Named lights with a switchable style (vrad gives them style >= 32) can be turned on and off by outputs
     light_ents = [e for e in ents if e.get("classname", "").startswith("light") and e.get("targetname")
                   and int(float(e.get("style", "0") or 0)) >= 32]
-    ent_list = ([(e, mi, "moving") for e, mi in moving] + [(e, mi, "trigger") for e, mi in triggers]
-                + [(e, None, "light") for e in light_ents])
+    ent_list = ([(e, mi, "moving") for e, mi in moving] + [(e, k, "propdoor") for k, (_si, e) in enumerate(prop_doors)]
+                + [(e, mi, "trigger") for e, mi in triggers] + [(e, None, "light") for e in light_ents])
     names_to_index = defaultdict(list)
     for i, (e, _mi, _k) in enumerate(ent_list):
         tn = e.get("targetname", "").lower()
@@ -483,6 +502,26 @@ def convert_map(bsp_path, gmod_root, out_path, tier_name, log=print):
                 "axis": (0.0, 0.0, 0.0), "distance": float(e.get("style", "0")), "speed": 0.0, "wait": -1.0,
                 "solid": 0, "mins": (0.0, 0.0, 0.0), "maxs": (0.0, 0.0, 0.0), "first_batch": 0, "num_batches": 0,
                 "first_brush": 0, "num_brushes": 0, "first_output": len(outputs), "num_outputs": 0})
+            continue
+        if kind == "propdoor":
+            # Swings about its model's origin (the hinge) on the world Z axis; Use opens and closes it
+            si = prop_doors[mi][0]
+            li, o, (ax, ay, az) = mprops.statics[si][:3]
+            bmin, bmax = mprops.bounds[li]
+            corners = [tuple(ax[k] * x + ay[k] * y + az[k] * z for k in range(3))
+                       for x in (bmin[0], bmax[0]) for y in (bmin[1], bmax[1]) for z in (bmin[2], bmax[2])]
+            dflags = 256 | (flags & 4096) | (1 if e.get("spawnpos", "0").strip() not in ("", "0") else 0)
+            outs = entities.resolve_outputs(e, names_to_index)
+            ent_records.append({
+                "type": entities.ENT_DOOR_ROTATING, "flags": dflags, "name": e.get("targetname", ""), "origin": o,
+                "axis": (0.0, 0.0, 1.0), "distance": float(e.get("distance", "90") or 90),
+                "speed": float(e.get("speed", "100") or 100), "wait": float(e.get("returndelay", "-1") or -1),
+                "solid": 1, "mins": tuple(min(c[k] for c in corners) for k in range(3)),
+                "maxs": tuple(max(c[k] for c in corners) for k in range(3)), "first_batch": 0, "num_batches": 0,
+                "first_brush": len(ebrush_list), "num_brushes": 1,
+                "first_output": len(outputs), "num_outputs": len(outs)})
+            ebrush_list.append(cd.ent_box_brushes[mi])
+            outputs.extend(outs)
             continue
         md = bsp.models[mi]
         if kind == "moving":

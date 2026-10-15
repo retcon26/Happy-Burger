@@ -5,6 +5,7 @@
 #   health=N                    hit points
 #   ai=combine|rebel            soldiers: Combine shoot at you, rebels and monsters; rebels follow you and fight them
 #   weapon=pistol|smg1|ar2|shotgun|357|stunstick|crowbar   what it holds (and shoots)
+#   ai=minge                    a mingebag: runs rings round you, spams and throws props, whacks you, talks rubbish
 #   ai=ragdoll                  only in the Ragdolls list (no animations are baked, so it's cheap)
 #   player                      can be picked as your player model (Options > Player model)
 #   halves                      a thrown Sawblade cuts it in two: legs ragdoll + a live Zombie Torso
@@ -50,6 +51,7 @@ models/player/engineer.mdl               | Engineer     | ai=citizen health=125 
 models/player/medic.mdl                  | Medic (TF2)  | ai=citizen health=150 player game=tf decimate
 models/player/sniper.mdl                 | Sniper       | ai=citizen health=125 player game=tf decimate
 models/player/spy.mdl                    | Spy          | ai=citizen health=125 player game=tf decimate
+models/humans/group02/male_02.mdl        | Mingebag     | ai=minge health=60 weapon=crowbar voice=male
 
 # Ragdolls only
 models/humans/group01/male_04.mdl        | Citizen 2    | ai=ragdoll

@@ -2,7 +2,7 @@ TARGET = sandbox
 OBJS = src/main.o src/gfx.o src/hud.o src/input.o src/camera.o src/mem.o src/pak.o src/map.o \
        src/collision.o src/player.o src/sky.o src/proplib.o src/propx.o src/physics.o src/game.o \
        src/audio.o src/ents.o src/script.o src/ui.o src/settings.o src/menu.o src/npc.o src/net.o src/vmodel.o \
-       src/vehicle.o src/voice.o
+       src/vehicle.o src/voice.o src/osk.o src/achieve.o
 
 INCDIR = src
 # -MMD -MP: each .o also depends on the headers it includes (the -include at the end), so changing

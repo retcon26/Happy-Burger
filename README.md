@@ -140,11 +140,37 @@ Use (D-pad Right) on a prop switches its thrusters and hoverballs on and off.
   carries on crawling as a Zombie Torso, headcrab and all.
 - **Combine** shoot at you, rebels and monsters. **Rebels and medics** follow you and fight them. **Citizens**
   wander and run away. Armed NPCs hold their guns the way HL2 bone-merges them.
+- **Mingebags** behave like GMod's worst players. They run rings round you, bunny-hopping and swinging a
+  crowbar now and then (it barely hurts). Every few seconds one spawns a bathtub, fridge or couch next to itself,
+  throws a nearby prop at you, or says something in chat ("gg ez", "can i have admin"). Only their 16 newest props
+  stay, and they don't count towards your prop limit. Zombies and the Combine go after them too.
 - **Voices:** NPCs say pain, death and alert lines in their own voices.
 - **Ragdolls:** NPCs fall as verlet ragdolls when they die. Shots and props push them, and the physics gun drags
   and freezes them.
 - **Options > NPC thinking** freezes them in place (GMod's `ai_disabled`), and **NPCs ignore players** stops them
   targeting or following you (`ai_ignoreplayers`).
+
+## Achievements
+
+Main menu > Achievements lists 12, with progress bars for the counted ones. They're saved to
+`data/achievements.cfg`, and a notification pops up in game when you unlock one.
+
+| Achievement | How |
+|---|---|
+| Getting Started / Regular / Addict | Play for 10 minutes / an hour / 10 hours (time in games, menus don't count) |
+| Not Alone | Play a game with at least one other real person (hosting or joining) |
+| Full House | Play a game with all four players |
+| The Real Deal | Play on a real PSP, not an emulator |
+| Old Faithful / Slim and Bright / On the Go | Play on a PSP-1000 / PSP-2000 or 3000 / PSP Go |
+| Creator | Spawn 100 props |
+| Mingebag Hunter | Kill 10 mingebags |
+| Explorer | Play on 10 different maps |
+
+The PSP doesn't let a game read its model directly, so the page's "Playing on" line works it out:
+- **PPSSPP:** spotted by its settings files on the memory stick. The game only checks they exist and never reads them.
+- **PSP-1000:** has 32 MB of RAM.
+- **PSP Go:** has internal storage.
+- **PSP-2000 or 3000:** anything else. These two can't be told apart.
 
 ## Options
 
@@ -174,6 +200,15 @@ gm_construct's files, so it takes no extra space.
 ## Multiplayer
 
 Up to 4 players. The host runs the physics, NPCs, ragdolls and doors. Pick Multiplayer > Host Game or Join Game.
+
+**Multiplayer > Profile** is how other players see you:
+
+- **Name:** X opens the PSP's on-screen keyboard. Leave it empty to use the PSP's nickname.
+- **Player model.**
+- **Player colour:** tints your player model and your name tag.
+- **Physics gun colour:** the colour of your beam.
+
+Everyone sees each other's names over their heads, and each other's physics gun beams in their colours.
 Everyone needs the same version (the menu's corner shows it). Guns and the crowbar hurt other players (not with God
 mode on), and everyone sees the same ragdolls: the host simulates them and sends their poses. Vehicles work for
 everyone: the host drives them for whoever is inside.
@@ -279,12 +314,19 @@ your hands moves. Without the pack the game shows the still models from the prop
   over an edge are made smaller. Pause > Clean Up Props clears them.
 - **Vehicles:** one rigid body each. The Jeep rides on four raycast wheels with springs, grip, steering and
   all-wheel drive; the Airboat on four floats that also sit on water, pushed by its fan and turned by its rudders.
+- **Doors:** brush doors slide and swing, and Source's I/O wires them to buttons and triggers. That includes
+  triggers' OnEndTouch outputs (TF2's spawn doors close behind you) and wildcard targets. Models parented to a
+  door move with it, such as TF2's sliding door panels and handles. HL2's model doors (`prop_door_rotating`)
+  swing open with Use, away from you, and double doors open together. Locked ones stay shut.
 
 ## Versions
 
 | Version | Changes |
 |---|---|
+| 1.5.3 | Doors: TF2's spawn doors open and close, with their models; HL2's model doors swing open; Mingebag NPCs; Multiplayer > Profile (name, player model, player and physics gun colours) and name tags; achievements (playtime, playing with others, playing on a real PSP by model, and more) |
+
 | 1.5.2 | Spawn menu: the other games' spawnlists grouped under a header per game; a Recent list; a badge on drivable vehicles and seats; all four grid columns fit |
+
 | 1.5.1 | Voice chat in multiplayer: hold D-pad Up to talk (PSP-3000's built-in mic, or a headset) |
 | 1.5.0 | Drivable Jeep and Airboat; seats for riding your contraptions; bullet holes; blood and holes with HL2's decal textures, no more flicker |
 | 1.4.0 | Team Fortress 2: 22 maps, its nine mercenaries as NPCs, ragdolls and player models, and about 390 of its props |

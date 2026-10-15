@@ -15,7 +15,10 @@
 #define MAX_NPCS 16
 #define NPC_ID_BASE 1000 // CmBox ids for NPCs: NPC_ID_BASE + index
 
-enum { AI_CITIZEN, AI_ZOMBIE, AI_ANTLION, AI_COMBINE, AI_REBEL };
+//   minge: a mingebag - runs rings round players, bunny-hops, whacks them with a crowbar, spams and
+//          throws props and talks rubbish (through npc_set_minge_handler)
+enum { AI_CITIZEN, AI_ZOMBIE, AI_ANTLION, AI_COMBINE, AI_REBEL, AI_MINGE };
+enum { MINGE_SPAWN, MINGE_THROW, MINGE_CHAT, MINGE_HURT, MINGE_DIED };
 
 int npcs_load(void);
 int npc_type_count(void);
@@ -43,7 +46,11 @@ void npcs_draw(Map *m, const Camera *cam);
 // The weapon NPC i holds, as drawn this frame by npcs_draw: its prop pack name ("_smg1"...) and world
 // matrix. 0 if it holds nothing or wasn't drawn. game.c draws it from the prop pack.
 int npc_weapon(int i, const char **model_name, ScePspFMatrix4 *world);
+// A mingebag's mischief, done by the game: spawn a prop at `at`, throw one near `at` at `target`, or say
+// something (chat, or MINGE_HURT: it just got hurt)
+void npc_set_minge_handler(void (*act)(int npc, int action, vec3 at, vec3 target));
 // Called for every shot an NPC fires (weapon: its prop name), for the game's sound and tracer
+
 void npc_set_shot_handler(void (*shot)(const char *weapon, vec3 from, vec3 to));
 
 // For the player's movement and the guns (other players' puppets get ids PUPPET_ID_BASE + slot)
@@ -63,6 +70,9 @@ void npcs_animate(float dt);
 void npc_puppet_set(int slot, int active, int type, vec3 pos, float yaw, float dt);
 // The local player's own body, for the third-person view: drawn, but not solid and not hit by shots
 void npc_self_set(int active, int type, vec3 pos, float yaw, float dt);
+// A player's character tinted (their Profile colour); slot -1 is the local player's own body
+void npc_puppet_tint(int slot, unsigned int abgr);
+
 int npc_raycast(vec3 origin, vec3 dir, float max_t, float *t_out);
 void npc_damage(int i, float amount);
 void npc_damage_dir(int i, float amount, vec3 dv); // dv: velocity kick for the ragdoll if it dies

@@ -36,6 +36,8 @@ DEFAULT_STYLE_PATTERNS = [
 MOVING = {"func_door": ENT_DOOR, "func_door_rotating": ENT_DOOR_ROTATING, "func_button": ENT_BUTTON,
           "func_rotating": ENT_ROTATING}
 TRIGGERS = {"trigger_multiple", "trigger_once"}
+# Never drawn: TF2's spawn-room force fields (only enemies see them, close up) and its spawn-room volumes
+HIDDEN = {"func_respawnroomvisualizer", "func_respawnroom", "func_nobuild", "func_regenerate", "func_capturezone"}
 STATIC_SOLID = {"func_brush", "func_wall", "func_wall_toggle", "func_reflective_glass", "func_breakable",
                 "func_physbox", "func_physbox_multiplayer", "func_movelinear", "func_tracktrain", "func_train",
                 "func_breakable_surf", "func_detail_blocker", "func_monitor", "func_lod"}
@@ -44,9 +46,15 @@ STATIC_SOLID = {"func_brush", "func_wall", "func_wall_toggle", "func_reflective_
 EV_ACTIVATE = 0  # button pressed / trigger touched
 EV_OPEN = 1
 EV_CLOSE = 2
+EV_UNTOUCH = 3     # the player left a trigger
+EV_STARTOPEN = 4   # a door began opening (a double door's other half follows)
+EV_STARTCLOSE = 5
+IN_OPEN, IN_CLOSE = 1, 2
 INPUTS = {"open": 1, "close": 2, "toggle": 3, "start": 4, "stop": 5, "press": 6, "use": 6, "reverse": 7,
           "turnon": 4, "turnoff": 5, "lock": 0, "unlock": 0}
-EVENTS = {"onpressed": EV_ACTIVATE, "onuse": EV_ACTIVATE, "onstarttouch": EV_ACTIVATE, "ontrigger": EV_ACTIVATE,
+# TF2's spawn doors open on a trigger's OnStartTouchAll and close on its OnEndTouchAll
+EVENTS = {"onpressed": EV_ACTIVATE, "onuse": EV_ACTIVATE, "onstarttouch": EV_ACTIVATE, "onstarttouchall": EV_ACTIVATE,
+          "ontrigger": EV_ACTIVATE, "onendtouch": EV_UNTOUCH, "onendtouchall": EV_UNTOUCH,
           "onopen": EV_OPEN, "onfullyopen": EV_OPEN, "onclose": EV_CLOSE, "onfullyclosed": EV_CLOSE}
 
 
@@ -148,8 +156,22 @@ def pack_entities(records, outputs):
     return ents, outs
 
 
+def targets(name, names_to_index):
+    """Entity indices a target name refers to; a trailing * matches any name starting with the rest."""
+    if name.endswith("*"):
+        prefix = name[:-1]
+        return [i for n, lst in names_to_index.items() if n.startswith(prefix) for i in lst]
+    return names_to_index.get(name, [])
+
+
 def resolve_outputs(e, names_to_index):
     out = []
+    # A double door's halves (prop_door_rotating's slavename) open and close together
+    slave = e.get("slavename", "").strip().lower()
+    if slave:
+        for ti in targets(slave, names_to_index):
+            out.append((EV_STARTOPEN, ti, IN_OPEN, 0.0))
+            out.append((EV_STARTCLOSE, ti, IN_CLOSE, 0.0))
     for key, val in e.get("_outputs", []):
         ev = EVENTS.get(key.lower())
         if ev is None:
@@ -165,6 +187,6 @@ def resolve_outputs(e, names_to_index):
             delay = float(parts[3]) if len(parts) > 3 and parts[3].strip() else 0.0
         except ValueError:
             delay = 0.0
-        for ti in names_to_index.get(target, []):
+        for ti in targets(target, names_to_index):
             out.append((ev, ti, code, delay))
     return out

@@ -1,5 +1,5 @@
 # Builds release\PSP\GAME\PSPSandbox\ (EBOOT.PBP + data\), laid out the way a PSP memory stick or PPSSPP
-# expects. Files are hard links to the build's own (no extra disk space); the PS2-only NPC pack is left out.
+# expects. Files are hard links to the build's own (no extra disk space); the PS2-only NPC pack and saves are left out.
 # Copy the release\PSP folder onto the memory stick / PPSSPP's folder, merging with any PSP folder there.
 $ErrorActionPreference = "Stop"
 $psp = $PSScriptRoot
@@ -7,7 +7,8 @@ $out = Join-Path $psp "release\PSP\GAME\PSPSandbox"
 if (Test-Path (Join-Path $psp "release")) { Remove-Item (Join-Path $psp "release") -Recurse -Force }
 New-Item -ItemType Directory -Force $out | Out-Null
 
-$skip = @("npcs.ps2.pnpc")
+# Your own saves and test files stay out: a fresh install starts with default settings and no achievements
+$skip = @("npcs.ps2.pnpc", "settings.cfg", "achievements.cfg", "autoload.txt")
 function Link($src, $dst) {
     New-Item -ItemType Directory -Force (Split-Path $dst) | Out-Null
     try { New-Item -ItemType HardLink -Path $dst -Target $src | Out-Null } catch { Copy-Item $src $dst }

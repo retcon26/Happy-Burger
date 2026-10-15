@@ -82,7 +82,7 @@ def model_brushes(bsp, model_idx):
     return out
 
 
-def build_collision(bsp, faces, disp_power, static_ents=(), prop_boxes=(), prop_hulls=()):
+def build_collision(bsp, faces, disp_power, static_ents=(), prop_boxes=(), prop_hulls=(), ent_boxes=()):
     """static_ents: (model index, origin) of brush entities that never move (func_brush...), merged
     into the world. prop_boxes: (x, y, z axes, origin, local mins, local maxs) for solid static props.
     prop_hulls: (x, y, z axes, origin, [(local planes, local points)]) for props with .phy pieces."""
@@ -240,4 +240,29 @@ def build_collision(bsp, faces, disp_power, static_ents=(), prop_boxes=(), prop_
             for l in leaves:
                 cd.leaf_brushes[l].append(nb)
             cd.prop_hull_pieces += 1
+
+    # Model doors (prop_door_rotating): a box each in the door entity's own frame, in no leaf (the
+    # entity's brush list finds it)
+    cd.ent_box_brushes = []
+    for (ax, ay, az), lmin, lmax in ent_boxes:
+        axes = (ax, ay, az)
+        lc = [(lmin[k] + lmax[k]) / 2 for k in range(3)]
+        half = [(lmax[k] - lmin[k]) / 2 for k in range(3)]
+        c = tuple(ax[k] * lc[0] + ay[k] * lc[1] + az[k] * lc[2] for k in range(3))
+        sides = []
+        for i in range(3):
+            a = axes[i]
+            sides.append(plane_index(a, _dot(a, c) + half[i]))
+            na = (-a[0], -a[1], -a[2])
+            sides.append(plane_index(na, _dot(na, c) + half[i]))
+        ext = [sum(abs(axes[i][k]) * half[i] for i in range(3)) for k in range(3)]
+        for k in range(3):
+            v = [0.0, 0.0, 0.0]
+            v[k] = 1.0
+            sides.append(plane_index(tuple(v), c[k] + ext[k]) | BEVEL_BIT)
+            v[k] = -1.0
+            sides.append(plane_index(tuple(v), -(c[k] - ext[k])) | BEVEL_BIT)
+        cd.ent_box_brushes.append(len(cd.brushes))
+        cd.brushes.append((len(cd.sides), len(sides), CONTENTS_SOLID))
+        cd.sides.extend(sides)
     return cd

@@ -24,6 +24,7 @@ typedef struct {
     float time;
     int target;
     int input;
+    vec3 from; // who set it off (a door swings away from them)
 } Pending;
 
 static Pending g_pending[MAX_PENDING];
@@ -115,12 +116,12 @@ static vec3 ent_center_world(const Map *m, int i, float progress, float sign) {
     return v3_add(v3(e->origin[0], e->origin[1], e->origin[2]), q_rotate(q, c));
 }
 
-static void fire(Map *m, int i, unsigned int event) {
+static void fire(Map *m, int i, unsigned int event, vec3 from) {
     const PmapEnt *e = &m->ents[i];
     for (uint32_t k = 0; k < e->num_outputs; k++) {
         const PmapOutput *o = &m->outputs[e->first_output + k];
         if (o->event != event || o->target < 0 || o->target >= m->num_ents) continue;
-        if (g_num_pending < MAX_PENDING) g_pending[g_num_pending++] = (Pending){g_clock + o->delay, o->target, (int)o->input};
+        if (g_num_pending < MAX_PENDING) g_pending[g_num_pending++] = (Pending){g_clock + o->delay, o->target, (int)o->input, from};
     }
 }
 
@@ -142,6 +143,7 @@ static void door_open(Map *m, int i, vec3 from) {
     }
     s->state = ENT_OPENING;
     play_at(m, i, g_snd_move);
+    fire(m, i, PMAP_EV_STARTOPEN, from);
 }
 
 static void door_close(Map *m, int i) {
@@ -149,6 +151,7 @@ static void door_close(Map *m, int i) {
     if (s->state == ENT_CLOSED || s->state == ENT_CLOSING) return;
     s->state = ENT_CLOSING;
     play_at(m, i, g_snd_move);
+    fire(m, i, PMAP_EV_STARTCLOSE, s->pos);
 }
 
 static void activate(Map *m, int i, vec3 from) {
@@ -167,7 +170,7 @@ static void activate(Map *m, int i, vec3 from) {
         if (s->state != ENT_CLOSED) break;
         s->state = ENT_OPENING;
         snd_play_at(g_snd_button, v3_scale(v3_add(s->wmin, s->wmax), 0.5f), 0.9f);
-        fire(m, i, PMAP_EV_ACTIVATE);
+        fire(m, i, PMAP_EV_ACTIVATE, from);
         break;
     case PMAP_ENT_ROTATING:
         s->on = !s->on;
@@ -177,10 +180,9 @@ static void activate(Map *m, int i, vec3 from) {
     }
 }
 
-static void apply_input(Map *m, int i, int input) {
+static void apply_input(Map *m, int i, int input, vec3 from) {
     const PmapEnt *e = &m->ents[i];
     EntState *s = &m->ent_state[i];
-    vec3 from = v3_add(v3(e->origin[0], e->origin[1], e->origin[2]), v3(0, 0, -1000)); // no player: any side
     if (e->type == PMAP_ENT_LIGHT) {
         if (input == PMAP_IN_START || input == PMAP_IN_OPEN) s->on = 1;
         if (input == PMAP_IN_STOP || input == PMAP_IN_CLOSE) s->on = 0;
@@ -221,7 +223,7 @@ void ents_update(Map *m, float dt, vec3 pmin, vec3 pmax) {
         if (g_pending[i].time <= g_clock) {
             Pending p = g_pending[i];
             g_pending[i] = g_pending[--g_num_pending];
-            apply_input(m, p.target, p.input);
+            apply_input(m, p.target, p.input, p.from);
         } else {
             i++;
         }
@@ -236,8 +238,10 @@ void ents_update(Map *m, float dt, vec3 pmin, vec3 pmax) {
             vec3 tmax = v3(e->origin[0] + e->maxs[0], e->origin[1] + e->maxs[1], e->origin[2] + e->maxs[2]);
             int in = boxes_touch(pmin, pmax, tmin, tmax);
             if (in && !s->inside && !s->done) {
-                fire(m, i, PMAP_EV_ACTIVATE);
+                fire(m, i, PMAP_EV_ACTIVATE, pcenter);
                 if (e->flags & PMAP_ENT_TRIGGER_ONCE) s->done = 1;
+            } else if (!in && s->inside) {
+                fire(m, i, PMAP_EV_UNTOUCH, pcenter); // e.g. TF2's spawn doors close behind you
             }
             s->inside = in;
             continue;
@@ -268,7 +272,7 @@ void ents_update(Map *m, float dt, vec3 pmin, vec3 pmax) {
                 s->timer = e->wait;
                 if (e->type != PMAP_ENT_BUTTON) {
                     play_at(m, i, g_snd_stop);
-                    fire(m, i, PMAP_EV_OPEN);
+                    fire(m, i, PMAP_EV_OPEN, pcenter);
                 }
             }
             update_transform(m, i);
@@ -286,7 +290,7 @@ void ents_update(Map *m, float dt, vec3 pmin, vec3 pmax) {
                 s->state = ENT_CLOSED;
                 if (e->type != PMAP_ENT_BUTTON) {
                     play_at(m, i, g_snd_stop);
-                    fire(m, i, PMAP_EV_CLOSE);
+                    fire(m, i, PMAP_EV_CLOSE, pcenter);
                 }
             }
         } else if (s->state == ENT_OPEN && s->timer >= 0.0f) {

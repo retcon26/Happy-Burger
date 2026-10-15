@@ -106,6 +106,19 @@ OPTIONS
   Credits.
 
 
+MULTIPLAYER > PROFILE
+  Name: X opens the on-screen keyboard (empty = the PSP's nickname).
+  Player model, Player colour (tints your model and name tag) and
+  Physics gun colour: X or Right / Left to change. Circle to go back.
+
+
+ACHIEVEMENTS (main menu)
+  D-pad Up / Down to scroll, Circle to go back. Shows what you've unlocked,
+  progress on the counted ones, what you're playing on and your playtime.
+
+
 MAIN MENU
   D-pad to choose, X to select, Circle to go back.
+
+
   The version number is in the bottom-left corner.

@@ -119,6 +119,11 @@ typedef struct {
     float think;               // until the next look round for an enemy
     float fire_timer;
     int burst_left;
+    // Mingebags
+    unsigned int tint; // players' characters: their Profile colour (0: none)
+    float minge_timer; // until its next bit of mischief
+    float minge_turn;  // until it switches which way it circles
+    int minge_side;    // +1 / -1
     // The held weapon as drawn this frame
     ScePspFMatrix4 weapon_world;
     int weapon_drawn;
@@ -188,6 +193,7 @@ static int g_crab_type = -1;          // the Headcrab NPC a zombie's crab become
 static int g_torso_type = -1;         // the Zombie Torso a sawblade leaves crawling on
 static int g_blade_model = -1;        // the spawnable prop (lib 0) that cuts zombies in half
 static void (*g_shot)(const char *weapon, vec3 from, vec3 to);
+static void (*g_minge)(int npc, int action, vec3 at, vec3 target);
 static Npc g_npcs[MAX_NPCS];
 static int g_snd_hit = -1, g_snd_die = -1;
 
@@ -283,6 +289,7 @@ static int ai_of(const NpcModel *md) {
     if (strcmp(md->ai, "antlion") == 0) return AI_ANTLION;
     if (strcmp(md->ai, "combine") == 0) return AI_COMBINE;
     if (strcmp(md->ai, "rebel") == 0) return AI_REBEL;
+    if (strcmp(md->ai, "minge") == 0) return AI_MINGE;
     return AI_CITIZEN;
 }
 
@@ -461,6 +468,8 @@ void npc_damage_dir(int i, float amount, vec3 dv) {
     if (n->health <= 0.0f) {
         npc_die(n, dv);
         npc_say(n, VOICE_DIE);
+        if (n->ai == AI_MINGE && g_minge) g_minge(i, MINGE_DIED, n->mover.origin, n->mover.origin);
+
         // Its headcrab lives on: off the corpse and after you
         if (g_flags && (g_flags[n->type] & NPCF_RELEASE_CRAB) && g_crab_type >= 0) {
             vec3 at = v3(n->mover.origin.x, n->mover.origin.y, n->mover.origin.z + 24.0f);
@@ -470,11 +479,12 @@ void npc_damage_dir(int i, float amount, vec3 dv) {
         return;
     }
     npc_say(n, VOICE_PAIN);
-    if (n->ai == AI_CITIZEN) {
+    if (n->ai == AI_CITIZEN || n->ai == AI_MINGE) {
         n->state = ST_FLEE;
         n->state_time = 0.0f;
         n->wander_yaw = n->yaw + 180.0f; // run the other way
     }
+    if (n->ai == AI_MINGE && g_minge) g_minge((int)(n - g_npcs), MINGE_HURT, n->mover.origin, n->mover.origin);
 }
 
 static const NpcSeq *seq_of(const Npc *n, int kind) {
@@ -530,6 +540,10 @@ int npc_weapon(int i, const char **model_name, ScePspFMatrix4 *world) {
     return 1;
 }
 
+void npc_set_minge_handler(void (*act)(int npc, int action, vec3 at, vec3 target)) {
+    g_minge = act;
+}
+
 void npc_set_shot_handler(void (*shot)(const char *weapon, vec3 from, vec3 to)) {
     g_shot = shot;
 }
@@ -550,16 +564,16 @@ static const NpcGun *gun_of(const Npc *n) {
 
 // Who fights whom. Rebels are on the player's side; everything else armed or with claws isn't.
 static int hates_players(int ai) {
-    return ai == AI_ZOMBIE || ai == AI_ANTLION || ai == AI_COMBINE;
+    return ai == AI_ZOMBIE || ai == AI_ANTLION || ai == AI_COMBINE || ai == AI_MINGE;
 }
 
 static int hates(int ai, int other) {
     switch (ai) {
     case AI_ZOMBIE:
     case AI_ANTLION:
-        return other == AI_CITIZEN || other == AI_REBEL || other == AI_COMBINE;
+        return other == AI_CITIZEN || other == AI_REBEL || other == AI_COMBINE || other == AI_MINGE;
     case AI_COMBINE:
-        return other == AI_REBEL || other == AI_ZOMBIE || other == AI_ANTLION;
+        return other == AI_REBEL || other == AI_ZOMBIE || other == AI_ANTLION || other == AI_MINGE;
     case AI_REBEL:
         return other == AI_COMBINE || other == AI_ZOMBIE || other == AI_ANTLION;
     default:
@@ -756,6 +770,8 @@ void npcs_update(Map *m, float dt, const NpcTarget *targets, int num_targets, Ph
         float speed = 0.0f;
         int want_seq = SEQ_IDLE;
         float melee_damage = gun && gun->melee ? gun->damage : n->ai == AI_ANTLION ? 8.0f : 12.0f;
+        if (n->ai == AI_MINGE) melee_damage = 4.0f; // annoying, not deadly
+        int hop = 0;
 
         if (n->state == ST_DEAD) {
             want_seq = SEQ_DEATH;
@@ -774,7 +790,8 @@ void npcs_update(Map *m, float dt, const NpcTarget *targets, int num_targets, Ph
             if (n->state_time >= dur) {
                 n->state = ST_CHASE;
                 n->state_time = 0.0f;
-                n->attack_cooldown = 0.6f;
+                n->attack_cooldown = n->ai == AI_MINGE ? 2.0f + frand() * 2.0f : 0.6f;
+
             }
         } else if (gunner && n->enemy_kind) {
             // Close in to two thirds of the gun's range, then stand, face the enemy and fire bursts
@@ -794,6 +811,40 @@ void npcs_update(Map *m, float dt, const NpcTarget *targets, int num_targets, Ph
                     n->burst_left--;
                     n->fire_timer = n->burst_left > 0 ? gun->interval : 0.8f + frand() * 0.9f;
                 }
+            }
+        } else if (n->ai == AI_MINGE && n->enemy_kind == 1 && !(n->state == ST_FLEE && n->state_time < 1.2f)) {
+            // A mingebag: runs rings round the player, bunny-hopping, now and then darting in for a crowbar
+            // whack; every few seconds it spawns a prop, throws one at them or says something
+            float toward = yaw_to(n->mover.origin, pp);
+            n->minge_turn -= dt;
+            if (n->minge_turn <= 0.0f || !n->minge_side) {
+                n->minge_turn = 1.0f + frand() * 2.5f;
+                n->minge_side = rand() & 1 ? 1 : -1;
+            }
+            if (to_enemy < 60.0f && n->attack_cooldown <= 0.0f) {
+                n->state = ST_ATTACK;
+                n->state_time = 0.0f;
+                n->hit_done = 0;
+                n->anim_time = 0.0f;
+                n->attack_cooldown = 1.5f + frand() * 2.0f;
+            } else {
+                n->state = ST_CHASE;
+                int dart = n->attack_cooldown <= 0.0f && n->minge_turn < 0.6f;
+                float aim = to_enemy > 300.0f || dart ? toward : toward + (to_enemy < 140.0f ? 120.0f : 75.0f) * n->minge_side;
+                n->yaw = turn_towards(n->yaw, aim, 400.0f * dt);
+                n->wander_yaw = n->yaw;
+                speed = move_speed(n, SEQ_RUN);
+                want_seq = SEQ_RUN;
+                hop = frand() < dt * 1.2f;
+            }
+            n->minge_timer -= dt;
+            if (n->minge_timer <= 0.0f) {
+                n->minge_timer = 2.0f + frand() * 3.5f;
+                int r = rand() % 10;
+                int action = r < 4 ? MINGE_SPAWN : r < 7 ? MINGE_THROW : MINGE_CHAT;
+                float fy = n->yaw * DEG2RAD;
+                vec3 front = v3_add(n->mover.origin, v3(cosf(fy) * 60.0f, sinf(fy) * 60.0f, 40.0f));
+                if (g_minge) g_minge((int)(n - g_npcs), action, front, pp);
             }
         } else if (n->enemy_kind && n->ai != AI_CITIZEN) {
             // Claws, or a stunstick: chase and swing
@@ -819,7 +870,7 @@ void npcs_update(Map *m, float dt, const NpcTarget *targets, int num_targets, Ph
         } else {
             n->burst_left = 0;
             vec3 threat;
-            if (n->ai == AI_CITIZEN && n->state == ST_FLEE && n->state_time < 4.0f) {
+            if ((n->ai == AI_CITIZEN || n->ai == AI_MINGE) && n->state == ST_FLEE && n->state_time < (n->ai == AI_MINGE ? 1.2f : 4.0f)) {
                 // Keep running from where it got hurt
                 speed = move_speed(n, SEQ_RUN);
                 want_seq = SEQ_RUN;
@@ -871,6 +922,8 @@ void npcs_update(Map *m, float dt, const NpcTarget *targets, int num_targets, Ph
             cmd.forward = speed / 250.0f;
             cmd.walk_speed = speed;
             cmd.yaw = n->yaw;
+            cmd.jump = hop;
+
             player_move(&n->mover, m, &cmd, pboxes, npb, dt);
         }
         n->speed = sqrtf(n->mover.velocity.x * n->mover.velocity.x + n->mover.velocity.y * n->mover.velocity.y);
@@ -985,6 +1038,11 @@ void npc_puppet_set(int slot, int active, int type, vec3 pos, float yaw, float d
     n->net_yaw = yaw;
     follow_net(n, dt);
     player_body_animate(n, dt);
+}
+
+void npc_puppet_tint(int slot, unsigned int abgr) {
+    Npc *n = slot < 0 ? &g_self : slot < MAX_PUPPETS ? &g_puppets[slot] : NULL;
+    if (n) n->tint = abgr;
 }
 
 void npc_self_set(int active, int type, vec3 pos, float yaw, float dt) {
@@ -1781,7 +1839,10 @@ void npcs_draw(Map *m, const Camera *cam) {
         sceGumMatrixMode(GU_MODEL);
         sceGumLoadMatrix(&w);
         blended_palette(n, palette);
+        if (n->tint) sceGuColor(n->tint);
         draw_skinned(&g_models[n->type], palette, MAX_PALETTE, NULL);
+        if (n->tint) sceGuColor(0xFFFFFFFF);
+
         n->weapon_drawn = 0;
         const NpcWeapon *wp = i < MAX_NPCS ? weapon_of(n) : NULL;
         if (wp && wp->bone >= 0 && wp->bone < MAX_PALETTE) {

@@ -5,11 +5,15 @@
 #include <string.h>
 
 #include "audio.h"
+#include "net.h"
+#ifndef PS2
+#include "osk.h"
+#endif
 #include "ui.h"
 
 #define SETTINGS_PATH "data/settings.cfg"
 
-Settings g_settings = {1, 3, 0, 1, 0, 1, 1, 1, 4, 3, 0, 0, 0, 1, 0, 0, 1};
+Settings g_settings = {1, 3, 0, 1, 0, 1, 1, 1, 4, 3, 0, 0, 0, 1, 0, 0, 1, 0, 0, ""};
 
 // Values with names show the name; other multi-step options show dots; 0/1 options a checkbox
 static const char *const k_dist_names[] = {"Near", "Medium", "Far", "Full"};
@@ -195,17 +199,57 @@ static void credits_draw(float x, float y, float w, float h) {
     ui_text(FONT_SMALL, x + 10, y + h - 18, 0xFF606060, ALIGN_LEFT, "Up / Down: scroll      O: back");
 }
 
+// --- Profile ----------------------------------------------------------------------------------
+// Multiplayer > Profile: what other players see of you
+
+static const char *const k_colour_names[PROFILE_COLOURS] = {"None", "Red", "Orange", "Yellow", "Green", "Cyan",
+                                                            "Blue", "Purple", "Pink", "White", "Black"};
+static const unsigned int k_colours[PROFILE_COLOURS] = {0xFFFFFFFF, 0xFF3030E0, 0xFF2080F0, 0xFF30D8F0, 0xFF40C040,
+                                                        0xFFD8D040, 0xFFF07830, 0xFFC04090, 0xFFB070F0, 0xFFFFFFFF,
+                                                        0xFF383838};
+
+unsigned int profile_colour(int i, int physgun) {
+    if (i <= 0 || i >= PROFILE_COLOURS) return physgun ? 0xFFFFA040 : 0xFFFFFFFF; // GMod's blue beam
+    return k_colours[i];
+}
+
+const char *profile_colour_name(int i, int physgun) {
+    if (i <= 0 || i >= PROFILE_COLOURS) return physgun ? "Blue (GMod)" : "None";
+    return k_colour_names[i];
+}
+
+static const char *const k_colour_rows[1] = {NULL}; // marks a colour option
+
+static Option k_profile[] = {
+    {NULL, "Name", NULL, 0, 0, NULL}, // a button: the on-screen keyboard
+    {"player_model", "Player model", &g_settings.player_model, 0, 255, k_model_names},
+    {"player_colour", "Player colour", &g_settings.player_colour, 0, PROFILE_COLOURS - 1, k_colour_rows},
+    {"physgun_colour", "Physics gun colour", &g_settings.physgun_colour, 0, PROFILE_COLOURS - 1, k_colour_rows},
+};
+#define NUM_PROFILE (int)(sizeof(k_profile) / sizeof(k_profile[0]))
+static int g_psel;
+
+static void set_option(const Option *table, int n, const char *key, int v) {
+    for (int i = 0; i < n; i++) {
+        if (table[i].value && strcmp(key, table[i].key) == 0 && v >= table[i].min && v <= table[i].max) *table[i].value = v;
+    }
+}
+
 void settings_load(void) {
     FILE *f = fopen(SETTINGS_PATH, "r");
     if (!f) return;
-    char key[32];
-    int v;
-    while (fscanf(f, "%31s %d", key, &v) == 2) {
-        for (int i = 0; i < NUM_OPTIONS; i++) {
-            if (k_options[i].value && strcmp(key, k_options[i].key) == 0 && v >= k_options[i].min && v <= k_options[i].max) {
-                *k_options[i].value = v;
-            }
+    char line[96], key[32];
+    int v, n;
+    while (fgets(line, sizeof(line), f)) {
+        if (sscanf(line, "%31s %n", key, &n) != 1) continue;
+        if (strcmp(key, "name") == 0) {
+            snprintf(g_settings.name, sizeof(g_settings.name), "%s", line + n);
+            g_settings.name[strcspn(g_settings.name, "\r\n")] = 0;
+            continue;
         }
+        if (sscanf(line + n, "%d", &v) != 1) continue;
+        set_option(k_options, NUM_OPTIONS, key, v);
+        set_option(k_profile, NUM_PROFILE, key, v);
     }
     fclose(f);
 }
@@ -216,8 +260,109 @@ void settings_save(void) {
     for (int i = 0; i < NUM_OPTIONS; i++) {
         if (k_options[i].value) fprintf(f, "%s %d\n", k_options[i].key, *k_options[i].value);
     }
+    for (int i = 0; i < NUM_PROFILE; i++) {
+        if (k_profile[i].value && k_profile[i].value != &g_settings.player_model) {
+            fprintf(f, "%s %d\n", k_profile[i].key, *k_profile[i].value);
+        }
+    }
+    if (g_settings.name[0]) fprintf(f, "name %s\n", g_settings.name);
     fclose(f);
 }
+
+int profile_update(const InputState *in) {
+#ifndef PS2
+    char typed[16];
+    if (osk_active()) return 0;
+    if (osk_result(typed, sizeof(typed))) {
+        // Trim spaces; nothing left means the PSP's nickname again
+        char *s = typed;
+        while (*s == ' ') s++;
+        int len = (int)strlen(s);
+        while (len > 0 && s[len - 1] == ' ') s[--len] = 0;
+        snprintf(g_settings.name, sizeof(g_settings.name), "%s", s);
+        settings_save();
+    }
+#endif
+    int click = snd_find("menu_move");
+    int changed = 0;
+    if (in->pressed & PSP_CTRL_UP) {
+        g_psel = (g_psel + NUM_PROFILE - 1) % NUM_PROFILE;
+        changed = 1;
+    }
+    if (in->pressed & PSP_CTRL_DOWN) {
+        g_psel = (g_psel + 1) % NUM_PROFILE;
+        changed = 1;
+    }
+    Option *o = &k_profile[g_psel];
+    if (!o->value) {
+#ifndef PS2
+        if (in->pressed & PSP_CTRL_CROSS) {
+            osk_start("Your name in multiplayer games", net_nickname(), 15);
+            changed = 1;
+        }
+#endif
+    } else {
+        int count = o->names == k_model_names ? g_pm_count : o->max + 1;
+        int before = *o->value;
+        if (count > 0 && (in->pressed & (PSP_CTRL_RIGHT | PSP_CTRL_CROSS))) *o->value = (*o->value + 1) % count;
+        if (count > 0 && (in->pressed & PSP_CTRL_LEFT)) *o->value = (*o->value + count - 1) % count;
+        if (*o->value != before) changed = 1;
+    }
+    if (changed && g_settings.sound) snd_play(click, 0.4f, 0.0f);
+    if (in->pressed & (PSP_CTRL_CIRCLE | PSP_CTRL_START)) {
+        settings_save();
+        return 1;
+    }
+    return 0;
+}
+
+void profile_frame(void) {
+#ifndef PS2
+    osk_frame();
+#endif
+}
+
+void profile_draw(float x, float y, float w, float h) {
+    ui_rrect(x, y, w, h, 4, 0xF0E8E8E8);
+    ui_gradient(x, y, w, 22, 0xFF8C6A3D, 0xFF6E5230);
+    ui_text(FONT_BOLD, x + 8, y + 5, 0xFFFFFFFF, ALIGN_LEFT, "Profile");
+    for (int i = 0; i < NUM_PROFILE; i++) {
+        const Option *o = &k_profile[i];
+        float ry = y + 30 + i * ROW_H;
+        int selected = i == g_psel;
+        if (selected) ui_rrect(x + 6, ry - 2, w - 12, 20, 3, 0xFFE6A03D);
+        unsigned int tc = selected ? 0xFFFFFFFF : 0xFF303030;
+        ui_text(FONT_SMALL, x + 14, ry + 2, tc, ALIGN_LEFT, o->label);
+        const char *value;
+        float vx = x + w - 22;
+        if (!o->value) {
+            value = net_nickname();
+        } else if (o->names == k_model_names) {
+            value = model_name(*o->value);
+        } else {
+            // The colour's name, and a swatch of it
+            int physgun = o->value == &g_settings.physgun_colour;
+            value = profile_colour_name(*o->value, physgun);
+            vx -= 18;
+            ui_rect(x + w - 38, ry + 1, 14, 14, selected ? 0xFFFFFFFF : 0xFF909090);
+            ui_rect(x + w - 37, ry + 2, 12, 12, profile_colour(*o->value, physgun));
+        }
+        ui_text(FONT_SMALL, vx, ry + 2, tc, ALIGN_RIGHT, value);
+        if (selected && o->value) {
+            ui_text(FONT_SMALL, vx - 10 - ui_text_width(FONT_SMALL, value), ry + 2, tc, ALIGN_LEFT, "<");
+            ui_text(FONT_SMALL, x + w - 16, ry + 2, tc, ALIGN_LEFT, ">");
+        }
+    }
+    // How other players will see you: your name tag
+    float py = y + 30 + NUM_PROFILE * ROW_H + 12;
+    ui_text(FONT_SMALL, x + 14, py, 0xFF606060, ALIGN_LEFT, "Others see:");
+    float tw = ui_text_width(FONT_BOLD, net_nickname());
+    ui_rrect(x + 90, py - 3, tw + 14, 20, 3, 0xC0202020);
+    ui_text(FONT_BOLD, x + 97, py, profile_colour(g_settings.player_colour, 0), ALIGN_LEFT, net_nickname());
+    ui_text(FONT_SMALL, x + 10, y + h - 18, 0xFF606060, ALIGN_LEFT,
+            g_psel == 0 ? "X: type your name      O: back" : "X / Left / Right: change      O: back");
+}
+
 
 int options_update(const InputState *in) {
     if (g_credits) {
