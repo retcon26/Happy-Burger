@@ -414,6 +414,9 @@ your hands moves. Without the pack the game shows the still models from the prop
 
 ## Versions
 
+The latest three. Every version, with dates, what's in each and which ones can play together, is in
+[docs/CHANGELOG.md](docs/CHANGELOG.md).
+
 | Version | Changes |
 |---|---|
 | 1.7.1 | Server list: Online Servers shows every public dedicated server on a server list (R sets its address); PSP Sandbox becomes Retcon's Mod: its own logo (no Garry's Mod branding), the XMB name and icon, menus and credits; achievement "Yes, I'm the real Retcon" |
