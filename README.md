@@ -1,6 +1,6 @@
 # Retcon's Mod
 
-A physics sandbox for the PSP, by Retcon. Current version: **1.7.1** (shown in the main menu's corner,
+A physics sandbox for the PSP, by Retcon. Current version: **1.8.0** (shown in the main menu's corner,
 set in `psp/src/version.h`).
 
 **Retcon's Mod is PSP Sandbox's new name.** The name is changing step by step: the game (the XMB, the menus, the
@@ -12,8 +12,8 @@ keep working.
   directly and has its own physics, ragdolls, sound mixer, NPCs, multiplayer and Lua scripting.
 - **`tools/bspconv/`**: a PC-side converter (Python). It reads maps, models, textures and sounds from your own
   Garry's Mod and Valve game installs and turns them into compact files the consoles can load.
-- **[PS2-GMOD](https://github.com/retcon26/PS2-GMOD)** (a separate repo): the PS2 port. It runs the same engine
-  code on the PS2 and reads the same converted data, packed onto a bootable disc image.
+- **[PS2-GMOD](https://github.com/retcon26/PS2-GMOD)** (a separate repo): the PS2 port, **no longer supported**
+  from 1.8.0. It stays up as it was (on the 1.3.0 engine); new versions are for the PSP only.
 - **[psp-sandbox-server](https://github.com/retcon26/psp-sandbox-server)** (a separate repo): a dedicated server.
   It runs this engine on a Linux PC or server, with nobody playing on it, and hosts games that PSPs join over Wi-Fi
   and the internet (see [Multiplayer](#multiplayer)).
@@ -38,7 +38,7 @@ contain it are for your own use. Don't share them.
   in about 160 spawnlists. The extra ones load from the memory stick only when spawned.
 - **48 NPCs and 98 ragdolls**, including Team Fortress 2's nine mercenaries on both teams (also as player
   models), mingebags, and characters from Counter-Strike: Source and Half-Life: Source.
-- **9 weapons and 24 tool gun tools**, blood and bullet holes, a flashlight, an HEV suit, Lua addons and
+- **14 weapons and 24 tool gun tools**, blood and bullet holes, a flashlight, an HEV suit, Lua addons and
   4-player multiplayer with voice chat: ad-hoc, over Wi-Fi, or on a dedicated server.
 - **Saves:** your builds saved to the memory stick and loaded back on any map (see [Saves](#saves)).
 - **Drivable vehicles:** HL2's Jeep and Airboat, and seats to sit on your own contraptions (R switches all their
@@ -50,7 +50,6 @@ contain it are for your own use. Don't share them.
 |---|---|---|
 | PSP-2000 / 3000 / Go / Street (primary) | ~52 MB | full detail: `name.pmap`, `props.ppak`, `npcs.pnpc`, `sounds.psnd` |
 | PSP-1000 | ~24 MB | `*.low.*`: half-size textures, coarser geometry, 16 kHz sound, no ragdoll-only characters |
-| PS2 | 32 MB | full detail when it fits, otherwise the `.low` version of that map |
 
 The game measures free memory at startup and picks the right files. If a full-detail map doesn't fit when you
 load it, it falls back to the map's low-detail version.
@@ -75,22 +74,22 @@ props of its own.
 
 The full list is in [psp/CONTROLS.txt](psp/CONTROLS.txt).
 
-| Action | PSP | PS2 (DualShock 2) |
-|---|---|---|
-| Walk (swim in deep water) | Analog stick | Left stick |
-| Look | Triangle / Cross / Square / Circle | Right stick |
-| Fire / primary | R | R1 or R2 |
-| Jump (noclip: fly up) | L | X, or L1 / L2 |
-| Next weapon | D-pad Left (tap) | D-pad Left |
-| Reload | D-pad Left (hold) | Circle |
-| Use (doors, buttons, thrusters) | D-pad Right (tap) | D-pad Right or Triangle |
-| Carry a light prop | D-pad Right (hold, on the prop) | D-pad Right or Triangle (hold) |
-| Flashlight | D-pad Right (hold) | Square |
-| Undo the last spawn | D-pad Up | D-pad Up |
-| Crouch on/off (noclip: fly down) | D-pad Down | D-pad Down |
-| Spawn menu (L/R switch panel, X selects, O closes) | Select (tap) | Select (tap) |
-| Noclip on/off | Select (hold) | Select (hold) |
-| Pause menu | Start | Start |
+| Action | PSP |
+|---|---|
+| Walk (swim in deep water) | Analog stick |
+| Look | Triangle / Cross / Square / Circle |
+| Fire / primary | R |
+| Jump (noclip: fly up) | L |
+| Next weapon | D-pad Left (tap) |
+| Reload | D-pad Left (hold) |
+| Use (doors, buttons, thrusters) | D-pad Right (tap) |
+| Carry a light prop | D-pad Right (hold, on the prop) |
+| Flashlight | D-pad Right (hold) |
+| Undo the last spawn | D-pad Up |
+| Crouch on/off (noclip: fly down) | D-pad Down |
+| Spawn menu (L/R switch panel, X selects, O closes) | Select (tap) |
+| Noclip on/off | Select (hold) |
+| Pause menu | Start |
 
 While you carry a prop, jumping, crouching, undo and switching weapons are off. The D-pad turns, pushes and
 pulls the prop instead.
@@ -101,9 +100,15 @@ pulls the prop instead.
 |---|---|
 | Hands | R picks up something light (up to 35 kg, close by) or drops it. L throws it. |
 | Physics Gun | Hold R to grab any prop or any ragdoll limb, at any distance. L freezes it in place. D-pad turns it and moves it nearer or further. |
-| Gravity Gun | PSP: R pulls in a prop up to 250 kg from up to 1000 units and holds it, R again drops it, L launches it. PS2: L1 picks up and drops, R1 punts. On both, picking up something too heavy within 250 units punts it instead. |
+| Gravity Gun | R pulls in a prop up to 250 kg from up to 1000 units and holds it, R again drops it, L launches it. Picking up something too heavy within 250 units punts it instead. |
 | Tool Gun | R uses the tool picked in the spawn menu's Tools panel. |
-| Crowbar, Pistol, .357, SMG, Shotgun | R fires. Reload when empty (or turn on Options > Unlimited ammo). |
+| Crowbar, Pistol, .357, SMG, Shotgun, AR2 | R fires. Reload when empty (or turn on Options > Unlimited ammo). The AR2 is automatic and hits harder than the SMG. |
+| Crossbow | R fires a bolt: fast, dropping a little over distance, 100 damage. Bolts stick in walls. It reloads after every shot. |
+| RPG | R fires a rocket that steers towards wherever you aim until it hits (HL2's laser guidance), so keep aiming at the target. 3 rockets. |
+| Grenade | R throws a grenade that bounces about and goes off after 2.5 seconds. 5 grenades. |
+| Bug Bait | Tap R to throw it: antlions swarm where it lands. Hold R to squeeze it: antlions come to you and follow you. Once you've used it, antlions are on your side for the rest of the map and fight the Combine, zombies and mingebags (headcrabs and antlion guards aren't fooled). |
+
+Explosions (rockets, grenades, the Explosive tool) hurt everyone near them, other players included.
 
 Every weapon is shown with GMod's first-person model and the citizen's arms.
 
@@ -308,11 +313,8 @@ everyone: the host drives them for whoever is inside.
 microphone, or a headset's on a PSP-2000. The mic is only switched on while you hold Up. Speech is sent as
 4-bit ADPCM at 11 kHz (about 5.5 KB/s), and the host passes it on to everyone else.
 
-- **PSP:** ad-hoc wifi between PSPs (or PPSSPP instances with ad-hoc networking set up), or Wi-Fi through an
-  access point (PPSSPP: with networking enabled).
-- **PS2:** over a network adapter on the same local network (a fat PS2 with the adapter, a slim PS2, or PCSX2).
-
-The PSP and PS2 versions can't play together.
+Ad-hoc wifi between PSPs (or PPSSPP instances with ad-hoc networking set up), or Wi-Fi through an access point
+(PPSSPP: with networking enabled).
 
 ## Lua addons
 
@@ -329,8 +331,7 @@ launches it.
 1. WSL with Ubuntu, then in Ubuntu:
    `sudo apt-get install -y build-essential cmake pkgconf libusb-0.1-4 fakeroot python3-numpy python3-pil mpg123`
    (mpg123 decodes TF2's MP3 voice lines for the sound pack)
-2. The PSP SDK ([pspdev](https://github.com/pspdev/pspdev)) in `~/pspdev`. For the PS2 build, the PS2 SDK
-   (ps2dev) in `~/ps2dev`.
+2. The PSP SDK ([pspdev](https://github.com/pspdev/pspdev)) in `~/pspdev`.
 3. Garry's Mod, plus whichever other Valve games you want maps and props from, installed through Steam. The
    converter looks for each game in `/mnt/d/SteamLibrary/steamapps/common/`, then in Steam's own folder on C:
    (change `DEFAULT_GMOD` in `tools/bspconv/__main__.py` and `LIBRARIES` in `tools/bspconv/steam.py` if your
@@ -360,11 +361,11 @@ also run the steps on their own:
 | PSP EBOOT | `psp/build.sh` | `psp/src/` |
 | Ready-to-copy folder | `powershell -File psp/make_release.ps1` | `psp/EBOOT.PBP`, `psp/data/` |
 
-The NPC step writes three packs: `npcs.pnpc` (full detail), `npcs.low.pnpc` (PSP-1000) and `npcs.ps2.pnpc` (the
-PS2's: low detail but with the ragdoll-only characters).
+The NPC step writes three packs: `npcs.pnpc` (full detail), `npcs.low.pnpc` (PSP-1000) and `npcs.ps2.pnpc` (for
+the old PS2 port, which is no longer supported; the PSP doesn't use it).
 
 The weapons step bakes GMod's `c_` weapon models, with the player's arms bone-merged on, into `vmodels.pvmd` (full
-detail) and `vmodels.low.pvmd` (PSP-1000 and PS2): their draw, idle, fire and reload animations, so the weapon in
+detail) and `vmodels.low.pvmd` (PSP-1000): their draw, idle, fire and reload animations, so the weapon in
 your hands moves. Without the pack the game shows the still models from the prop pack instead.
 
 ## What gets converted
@@ -419,9 +420,9 @@ The latest three. Every version, with dates, what's in each and which ones can p
 
 | Version | Changes |
 |---|---|
+| 1.8.0 | More weapons: AR2, crossbow, laser-guided RPG, grenades and bug bait (antlions follow you and fight on your side); explosions hurt other players too; the PS2 port is no longer supported |
 | 1.7.1 | Server list: Online Servers shows every public dedicated server on a server list (R sets its address); PSP Sandbox becomes Retcon's Mod: its own logo (no Garry's Mod branding), the XMB name and icon, menus and credits; achievement "Yes, I'm the real Retcon" |
 | 1.7.0 | Saves: builds saved to the memory stick and loaded back on any map; Wi-Fi multiplayer (Host on Wi-Fi, Online Servers) and dedicated servers ([psp-sandbox-server](https://github.com/retcon26/psp-sandbox-server)); doors and triggers react to every player; 4 new achievements |
-| 1.6.2 | Workshop page: maps listed by game, each opened to show its maps and switched as a whole; Half-Life Deathmatch: Source's maps get their own game in Workshop and Start New Game |
 
 ## Roadmap
 
@@ -448,12 +449,11 @@ The latest three. Every version, with dates, what's in each and which ones can p
 - [x] More tools: Wheel, Winch, Hydraulic, Lamp, Light, Button and Emitter
 - [x] Workshop menu: maps (by game), Lua addons and custom characters switched on and off
 - [x] Save and load: builds saved to the memory stick and loaded back on any map
+- [x] More weapons: AR2, crossbow, RPG, grenades and bug bait (antlions follow you)
 - [x] Wi-Fi multiplayer (Host on Wi-Fi, Online Servers) and dedicated servers
       ([psp-sandbox-server](https://github.com/retcon26/psp-sandbox-server)); doors and triggers for every player
 - [x] Server list: every public dedicated server in Online Servers, without typing addresses
 
-- [ ] **PS2 saves:** Options and builds saved to the PS2's memory card
-- [ ] **More weapons:** RPG, crossbow, grenades, AR2 and bugbait (antlions follow you)
 - [ ] **NPC navigation:** routes along the map's own node graph (`info_node`), so NPCs walk round walls instead
       of into them
 - [ ] **Face and finger posing:** Face Poser expressions and Finger Poser hands for ragdolls
@@ -471,6 +471,6 @@ The latest three. Every version, with dates, what's in each and which ones can p
       empty), plus a password, map rotation and the build saved every few minutes
 - [ ] **Server on Windows:** psp-sandbox-server built for Windows too (it runs on Linux and WSL now)
 - [ ] **Day, night and weather:** a time-of-day option with fog and rain, built on gm_construct_13's fog
-- [ ] **Screenshots:** a pause menu button that saves the screen to the memory stick or memory card
+- [ ] **Screenshots:** a pause menu button that saves the screen to the memory stick
 - [ ] **Workshop maps:** convert maps from your GMod Workshop downloads too (the converter already reads their
       .gma files for characters), listed under Workshop

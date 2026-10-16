@@ -1,56 +1,68 @@
-RETCON'S MOD (FORMERLY PSP SANDBOX) / PS2GMOD - CONTROLS  (v1.7.1)
+RETCON'S MOD (FORMERLY PSP SANDBOX) - CONTROLS  (v1.8.0)
 =========================================
 
-ON FOOT                      PSP                        PS2 (DualShock 2)
----------------------------  -------------------------  ---------------------------
-Move                         Analog nub                 Left stick
-Look                         Square / Circle (left /    Right stick
+ON FOOT                      PSP
+---------------------------  -------------------------
+Move                         Analog nub
+Look                         Square / Circle (left /
                              right), Triangle / Cross
                              (up / down)
-Jump                         L                          X  (or L1 / L2)
-Crouch (toggle)              D-pad Down                 D-pad Down
-Fire / use weapon            R                          R1 / R2
-Reload                       Hold D-pad Left            Circle
-Next weapon                  Tap D-pad Left             D-pad Left
-Use (doors, buttons,         D-pad Right                D-pad Right or Triangle
+Jump                         L
+Crouch (toggle)              D-pad Down
+Fire / use weapon            R
+Reload                       Hold D-pad Left
+Next weapon                  Tap D-pad Left
+Use (doors, buttons,         D-pad Right
   thrusters, hoverballs)
-Carry a light prop           Hold D-pad Right           Hold D-pad Right or Triangle
+Carry a light prop           Hold D-pad Right
   (let go to drop, R throws)
-Flashlight                   Hold D-pad Right           Square
-Undo last prop/NPC/ragdoll   D-pad Up (multiplayer:     D-pad Up
+Flashlight                   Hold D-pad Right
+Undo last prop/NPC/ragdoll   D-pad Up (multiplayer:
                                a quick tap)
-Talk (multiplayer, with a    Hold D-pad Up              -
+Talk (multiplayer, with a    Hold D-pad Up
   mic: the PSP-3000's
   built-in one, or a headset)
-Spawn menu                   Tap Select                 Tap Select
-Noclip (fly)                 Hold Select                Hold Select
+Spawn menu                   Tap Select
+Noclip (fly)                 Hold Select
   - in noclip: Jump = up, hold D-pad Down = down
-Pause menu                   Start                      Start
-Respawn after dying          X or R                     X or R1
+Pause menu                   Start
+Respawn after dying          X or R
 
 
 WEAPONS (D-pad Left cycles through them)
-  Hands, Physics Gun, Gravity Gun, Tool Gun, Crowbar, Pistol, .357 Magnum, SMG, Shotgun
+  Hands, Physics Gun, Gravity Gun, Tool Gun, Crowbar, Pistol, .357 Magnum, SMG, Shotgun,
+  AR2, Crossbow, RPG, Grenade, Bug Bait
 
-Physics Gun                  PSP                        PS2
-  Grab and hold              Hold R                     Hold R1
-  Freeze in place            L (while holding)          L1 (while holding)
-  Push away / pull closer    D-pad Up / Down            D-pad Up / Down
-  Rotate                     D-pad Left / Right         D-pad Left / Right
+Physics Gun
+  Grab and hold              Hold R
+  Freeze in place            L (while holding)
+  Push away / pull closer    D-pad Up / Down
+  Rotate                     D-pad Left / Right
   Works on props and on ragdolls (grab any limb).
 
-Gravity Gun                  PSP                        PS2
-  Pick up / drop             R                          L1
-  Launch (punt)              L                          R1
+Gravity Gun
+  Pick up / drop             R
+  Launch (punt)              L
   Lifts up to 250 kg from a distance.
 
-Hands                        PSP                        PS2
-  Pick up / drop             R                          R1
-  Throw                      L                          L1
+Hands
+  Pick up / drop             R
+  Throw                      L
   Close, light things only.
 
+AR2                          R fires (hold for automatic)
+Crossbow                     R fires a bolt: fast, drops a little, sticks in walls.
+                             Reloads after every shot.
+RPG                          R fires a rocket. It steers towards wherever you aim
+                             until it hits, so keep aiming at the target.
+Grenade                      R throws one. It bounces and goes off after 2.5 seconds.
+Bug Bait                     Tap R: throw it. Antlions swarm where it lands.
+                             Hold R: squeeze it. Antlions come to you and follow you.
+                             After you've used it, antlions are on your side for the
+                             rest of the map (headcrabs and antlion guards aren't).
+
 Tool Gun
-  Pick the tool in the spawn menu's Tools panel, then press R (PS2: R1).
+  Pick the tool in the spawn menu's Tools panel, then press R.
   The top-left box shows what the tool does and what to press next.
   Tools: Remover, Colour, Balloon, Duplicator, Weld, Rope, Ball Socket, Elastic,
          No-Collide, Weight, Thruster, Hoverball, Explosive, Slider,
@@ -60,18 +72,18 @@ Tool Gun
   motors, winches, hydraulics, lamps, lights and emitters. Use on a button
   switches the whole contraption it was linked to.
 
-Camera tool (Tool Gun)       PSP                        PS2
-  Place a camera             R                          R1
-  Look through the next      L                          L1
+Camera tool (Tool Gun)
+  Place a camera             R
+  Look through the next      L
     camera (after the last
     one, back to your eyes)
   A camera faces the way you were looking when you placed it, and stays put.
   Move or weld it like any prop (Physics Gun), e.g. onto a car.
-  Putting the tool away returns to your own view. On the PSP, L doesn't jump
-  while the Camera tool is out (on the PS2, X still jumps).
+  Putting the tool away returns to your own view. L doesn't jump while the
+  Camera tool is out.
 
 
-VEHICLES AND SEATS (PSP; not on the PS2 yet)
+VEHICLES AND SEATS
   Spawn the Jeep, Airboat or a seat from the spawn menu's Vehicles category.
   Get in / out               Use (D-pad Right), aiming at it from close by
   Drive                      Analog nub: up / down is throttle and brake (and reverse),

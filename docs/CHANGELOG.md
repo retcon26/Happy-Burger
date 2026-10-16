@@ -8,6 +8,7 @@ another protocol don't show up in Join Game or Online Servers.
 
 | Version | Date | Plays with | In short |
 |---|---|---|---|
+| [1.8.0](#180) | 2026-10-16 | 1.8.0 | More weapons: AR2, crossbow, RPG, grenades, bug bait; PS2 support ends |
 | [1.7.1](#171) | 2026-10-15 | 1.7.0 – 1.7.1 | Server list; the Retcon's Mod name and logo |
 | [1.7.0](#170) | 2026-10-15 | 1.7.0 – 1.7.1 | Saves; Wi-Fi multiplayer and dedicated servers |
 | [1.6.2](#162) | 2026-10-15 | 1.6.1 – 1.6.2 | Workshop page lists maps by game |
@@ -23,6 +24,23 @@ another protocol don't show up in Join Game or Online Servers.
 | [1.1.0](#110) | before 2026-10-11 | not recorded | Camera tool |
 | [1.0.1](#101) | before 2026-10-11 | not recorded | Ragdoll crash fixes |
 | [1.0.0](#100) | before 2026-10-11 | not recorded | Version label, new options, more ragdolls |
+
+## 1.8.0
+
+- **AR2:** an automatic rifle that hits harder than the SMG.
+- **Crossbow:** fast bolts that drop a little over distance and do 100 damage; they stick in walls. It reloads
+  after every shot.
+- **RPG:** laser-guided rockets: each one steers towards wherever you aim until it hits. 3 rockets.
+- **Grenades:** thrown, they bounce about with the physics and go off after 2.5 seconds. 5 grenades.
+- **Bug bait:** tap R to throw it and antlions swarm where it lands; hold R to squeeze it and they come to you
+  and follow you. From the first use until the map ends, antlions fight on your side, against the Combine,
+  zombies and mingebags. Headcrabs and antlion guards aren't fooled.
+- Explosions (rockets, grenades and the Explosive tool) hurt other players near them too, and clients see
+  every explosion.
+- The weapon selector's slots shrink to fit all 14 weapons.
+- **The PS2 port is no longer supported.** [PS2-GMOD](https://github.com/retcon26/PS2-GMOD) stays up as it was
+  (on the 1.3.0 engine); new versions are for the PSP only.
+- Network protocol 10. Dedicated servers need the game 1.8.0 too (psp-sandbox-server's game submodule).
 
 ## 1.7.1
 

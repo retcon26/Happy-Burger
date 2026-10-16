@@ -203,6 +203,13 @@ models/weapons/w_357.mdl                          | _357             | hidden
 models/weapons/w_smg1.mdl                         | _smg1            | hidden
 models/weapons/w_shotgun.mdl                      | _shotgun         | hidden
 models/weapons/w_irifle.mdl                       | _ar2             | hidden
+# 1.8.0's weapons, and what the RPG and crossbow fire (a grenade in flight is a _grenade prop)
+models/weapons/w_rocket_launcher.mdl              | _rpg             | hidden
+models/weapons/w_crossbow.mdl                     | _crossbow        | hidden
+models/weapons/w_grenade.mdl                      | _grenade         | hidden
+models/weapons/w_bugbait.mdl                      | _bugbait         | hidden
+models/weapons/w_missile.mdl                      | _missile         | hidden
+models/crossbow_bolt.mdl                          | _bolt            | hidden
 models/weapons/w_stunbaton.mdl                    | _stunstick       | hidden
 # TF2's mercenaries' guns (from TF2's own files, after GMod's)
 models/weapons/w_models/w_scattergun.mdl          | _tf_scatter      | hidden
@@ -223,6 +230,11 @@ models/weapons/c_pistol.mdl                       | _vm_pistol       | hidden vm
 models/weapons/c_357.mdl                          | _vm_357          | hidden vm
 models/weapons/c_smg1.mdl                         | _vm_smg1         | hidden vm
 models/weapons/c_shotgun.mdl                      | _vm_shotgun      | hidden vm
+models/weapons/c_irifle.mdl                       | _vm_ar2          | hidden vm
+models/weapons/c_rpg.mdl                          | _vm_rpg          | hidden vm
+models/weapons/c_crossbow.mdl                     | _vm_crossbow     | hidden vm
+models/weapons/c_grenade.mdl                      | _vm_grenade      | hidden vm
+models/weapons/c_bugbait.mdl                      | _vm_bugbait      | hidden vm
 models/dav0r/camera.mdl                           | _camera          | hidden shape=box
 # The Wheel, Lamp, Light, Button and Emitter tools' models (GMod's own)
 models/props_phx/normal_tire.mdl                  | _wheel           | hidden shape=cylinder

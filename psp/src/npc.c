@@ -121,6 +121,7 @@ typedef struct {
     int ragdolled; // died and became a ragdoll: invisible, removed shortly
     // Fighting
     int enemy_kind, enemy_idx; // 0 none, 1 player target, 2 NPC
+    int bait;                  // an antlion that bug bait controls (not headcrabs or guards, though they share its AI)
     vec3 enemy_pos;
     float think;               // until the next look round for an enemy
     float fire_timer;
@@ -202,6 +203,14 @@ static int g_torso_type = -1;         // the Zombie Torso a sawblade leaves craw
 static int g_blade_model = -1;        // the spawnable prop (lib 0) that cuts zombies in half
 static void (*g_shot)(const char *weapon, vec3 from, vec3 to);
 static void (*g_minge)(int npc, int action, vec3 at, vec3 target);
+
+// Bug bait (as in HL2): once a player has used it, antlions are on the players' side for the rest of the
+// map. They follow whoever squeezed it last, or swarm the spot it was thrown at, and fight what players fight.
+static int g_ant_allies;
+static int g_ant_leader = -1; // the target (player) they follow, or -1
+static vec3 g_bait_pos;
+static float g_bait_time;     // > 0 while they make for a thrown bait
+#define BAIT_SWARM_TIME 15.0f
 static Npc g_npcs[MAX_NPCS];
 static int g_snd_hit = -1, g_snd_die = -1;
 
@@ -317,6 +326,8 @@ int npc_spawn(int type, vec3 pos, float yaw) {
         n->active = 1;
         n->type = type;
         n->ai = ai_of(&g_models[type]);
+        n->bait = n->ai == AI_ANTLION && strncmp(g_models[type].name, "Antlion", 7) == 0 &&
+                  !strstr(g_models[type].name, "Guard");
         n->health = g_models[type].health;
         n->yaw = yaw;
         n->wander_yaw = yaw;
@@ -332,7 +343,26 @@ void npc_remove(int i) {
     if (i >= 0 && i < MAX_NPCS) g_npcs[i].active = 0;
 }
 
+void npc_bugbait_squeeze(int target) {
+    g_ant_allies = 1;
+    g_ant_leader = target;
+    g_bait_time = 0.0f; // back to whoever squeezed it
+}
+
+void npc_bugbait_throw(vec3 at) {
+    g_ant_allies = 1;
+    g_bait_pos = at;
+    g_bait_time = BAIT_SWARM_TIME;
+}
+
+int npc_antlions_allied(void) {
+    return g_ant_allies;
+}
+
 void npcs_clear(void) {
+    g_ant_allies = 0;
+    g_ant_leader = -1;
+    g_bait_time = 0.0f;
     memset(g_npcs, 0, sizeof(g_npcs));
     memset(g_puppets, 0, sizeof(g_puppets));
     memset(&g_self, 0, sizeof(g_self));
@@ -526,12 +556,17 @@ static float turn_towards(float yaw, float target, float max_step) {
     return yaw + d;
 }
 
+// An antlion bug bait has put on the players' side
+static int bait_ally(const Npc *n) {
+    return n->bait && g_ant_allies;
+}
+
 static int nearest_hostile(const Npc *self, vec3 *pos) {
     float best = 400.0f;
     int found = 0;
     for (int i = 0; i < MAX_NPCS; i++) {
         const Npc *o = &g_npcs[i];
-        if (!o->active || o == self || o->state == ST_DEAD || o->ai == AI_CITIZEN || o->ai == AI_REBEL) continue;
+        if (!o->active || o == self || o->state == ST_DEAD || o->ai == AI_CITIZEN || o->ai == AI_REBEL || bait_ally(o)) continue;
         float d = v3_len(v3_sub(o->mover.origin, self->mover.origin));
         if (d < best) {
             best = d;
@@ -601,6 +636,14 @@ static int hates(int ai, int other) {
     }
 }
 
+// Once bug bait's been used, the antlions it controls fight the Combine, zombies and mingebags, and rebels
+// leave them be
+static int npc_hates(const Npc *n, const Npc *o) {
+    if (bait_ally(n)) return o->ai == AI_COMBINE || o->ai == AI_ZOMBIE || o->ai == AI_MINGE;
+    if (bait_ally(o) && n->ai == AI_REBEL) return 0;
+    return hates(n->ai, o->ai);
+}
+
 static vec3 eye_of(vec3 feet) {
     return v3(feet.x, feet.y, feet.z + 56.0f);
 }
@@ -616,7 +659,7 @@ static void find_enemy(Npc *n, Map *m, const NpcTarget *targets, int num_targets
     float best = range;
     int had = n->enemy_kind;
     n->enemy_kind = 0;
-    if (hates_players(n->ai)) {
+    if (hates_players(n->ai) && !bait_ally(n)) {
         for (int t = 0; t < num_targets; t++) {
             if (!targets[t].valid) continue;
             float d = v3_len(v3_sub(targets[t].pos, n->mover.origin));
@@ -630,7 +673,7 @@ static void find_enemy(Npc *n, Map *m, const NpcTarget *targets, int num_targets
     }
     for (int i = 0; i < MAX_NPCS; i++) {
         const Npc *o = &g_npcs[i];
-        if (!o->active || o == n || o->state == ST_DEAD || !hates(n->ai, o->ai)) continue;
+        if (!o->active || o == n || o->state == ST_DEAD || !npc_hates(n, o)) continue;
         float d = v3_len(v3_sub(o->mover.origin, n->mover.origin));
         if (d < best && (!need_sight || can_see(m, n->mover.origin, o->mover.origin))) {
             best = d;
@@ -721,6 +764,8 @@ void npcs_update(Map *m, float dt, const NpcTarget *targets, int num_targets, Ph
     }
     // Options > NPCs ignore players: players still block them, but nobody targets or follows one
     if (g_ignore_players) num_targets = 0;
+    if (g_bait_time > 0.0f) g_bait_time -= dt;
+    int ant_leader_ok = g_ant_leader >= 0 && g_ant_leader < num_targets && targets[g_ant_leader].valid;
     for (int i = 0; i < MAX_NPCS; i++) {
         Npc *n = &g_npcs[i];
         if (!n->active) continue;
@@ -880,6 +925,16 @@ void npcs_update(Map *m, float dt, const NpcTarget *targets, int num_targets, Ph
                 want_seq = kind;
                 n->yaw = turn_towards(n->yaw, yaw_to(n->mover.origin, pp), 270.0f * dt);
             }
+        } else if (bait_ally(n) &&
+                   ((g_bait_time > 0.0f && v3_len(v3_sub(g_bait_pos, n->mover.origin)) > 80.0f) ||
+                    (g_bait_time <= 0.0f && ant_leader_ok &&
+                     v3_len(v3_sub(targets[g_ant_leader].pos, n->mover.origin)) > 180.0f))) {
+            // Bug bait: nothing to fight, so make for the thrown bait, or keep up with whoever squeezed it
+            vec3 goal = g_bait_time > 0.0f ? g_bait_pos : targets[g_ant_leader].pos;
+            n->state = ST_CHASE;
+            speed = move_speed(n, SEQ_RUN);
+            want_seq = SEQ_RUN;
+            n->yaw = turn_towards(n->yaw, yaw_to(n->mover.origin, goal), 300.0f * dt);
         } else if (n->ai == AI_REBEL && near_player >= 0 && to_player > 220.0f && to_player < 3000.0f) {
             // Nothing to fight: keep up with the player
             n->state = ST_CHASE;

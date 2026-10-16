@@ -1,0 +1,37 @@
+# The maps in the development build (make_release.ps1 -Dev): a few of each game's, chosen to test the main
+# features, about 223 MB of maps (the whole build about 470 MB, under 500). One map name per line.
+
+# Sandbox (gm_construct_13 comes with gm_construct)
+gm_construct
+gm_flatgrass
+
+# Half-Life 2: doors and NPCs, water, the coast road, City 17
+d1_trainstation_01
+d1_canals_01
+d2_coast_01
+d3_c17_01
+
+# HL2 Deathmatch and Half-Life Deathmatch: Source
+dm_lockdown
+dm_powerhouse
+crossfire
+frenzy
+
+# Half-Life
+hl1_c0a0
+hl1_c1a0
+hl1_t0a0
+
+# Counter-Strike: Source
+de_dust2
+cs_office
+
+# Day of Defeat: Source
+dod_flash
+
+# Team Fortress 2: spawn doors (2fort), capture points, arena, king of the hill, payload
+ctf_2fort
+ctf_turbine
+arena_well
+koth_harvest_final
+pl_badwater

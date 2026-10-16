@@ -39,7 +39,7 @@ KINDS = ["idle", "draw", "fire", "alt", "reload", "reload_start", "reload_end", 
 ACTS = {
     "idle": ["ACT_VM_IDLE"],
     "draw": ["ACT_VM_DRAW"],
-    "fire": ["ACT_VM_PRIMARYATTACK", "ACT_VM_MISSCENTER"],
+    "fire": ["ACT_VM_PRIMARYATTACK", "ACT_VM_MISSCENTER", "ACT_VM_THROW"],  # throw: grenades, bugbait
     "alt": ["ACT_VM_HITCENTER", "ACT_VM_SECONDARYATTACK"],
     "reload": ["ACT_VM_RELOAD"],
     "reload_start": ["ACT_SHOTGUN_RELOAD_START"],

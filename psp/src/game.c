@@ -104,6 +104,11 @@ typedef enum {
     WEAPON_357,
     WEAPON_SMG,
     WEAPON_SHOTGUN,
+    WEAPON_AR2,
+    WEAPON_CROSSBOW, // from here on they fire things that fly (is_launcher): the host's projectiles
+    WEAPON_RPG,
+    WEAPON_GRENADE,
+    WEAPON_BUGBAIT,
     WEAPON_COUNT
 } Weapon;
 typedef enum {
@@ -135,12 +140,15 @@ typedef enum {
 } Tool;
 
 static const char *k_weapon_names[WEAPON_COUNT] = {"Hands", "Physics Gun", "Gravity Gun", "Tool Gun", "Crowbar",
-                                                   "Pistol", ".357 Magnum", "SMG", "Shotgun"};
+                                                   "Pistol", ".357 Magnum", "SMG", "Shotgun", "AR2",
+                                                   "Crossbow", "RPG", "Grenade", "Bug Bait"};
 // World models (the old way of showing a weapon), then first-person models with arms (c_ models)
 static const char *k_weapon_models[WEAPON_COUNT] = {NULL, "_physgun", "_physgun", "_toolgun", "_crowbar",
-                                                    "_pistol", "_357", "_smg1", "_shotgun"};
+                                                    "_pistol", "_357", "_smg1", "_shotgun", "_ar2",
+                                                    "_crossbow", "_rpg", "_grenade", "_bugbait"};
 static const char *k_weapon_vms[WEAPON_COUNT] = {NULL, "_vm_physgun", "_vm_gravgun", "_vm_toolgun", "_vm_crowbar",
-                                                 "_vm_pistol", "_vm_357", "_vm_smg1", "_vm_shotgun"};
+                                                 "_vm_pistol", "_vm_357", "_vm_smg1", "_vm_shotgun", "_vm_ar2",
+                                                 "_vm_crossbow", "_vm_rpg", "_vm_grenade", "_vm_bugbait"};
 // Source draws first-person models with their own field of view (viewmodel_fov 54, horizontal at 4:3)
 #define VM_FOV_Y 41.4f
 
@@ -172,9 +180,18 @@ static const WeaponStats k_ws[WEAPON_COUNT] = {
     [WEAPON_357] = {6, 36, 0.75f, 0, 1, 75.0f, 0.004f, 4096.0f, 900.0f, 3.0f, 5.0f, "357_fire"},
     [WEAPON_SMG] = {45, 270, 0.075f, 1, 1, 8.0f, 0.035f, 4096.0f, 160.0f, 1.6f, 0.7f, "smg1_fire"},
     [WEAPON_SHOTGUN] = {6, 34, 0.85f, 0, 7, 9.0f, 0.07f, 2048.0f, 180.0f, 2.6f, 4.0f, "shotgun_fire"},
+    [WEAPON_AR2] = {30, 90, 0.1f, 1, 1, 11.0f, 0.025f, 4096.0f, 200.0f, 1.6f, 1.0f, "ar2_fire"},
+    // The rest fire projectiles: their damage is the projectile's own (see Projectiles)
+    [WEAPON_CROSSBOW] = {1, 10, 0.4f, 0, 1, 0.0f, 0.0f, 0.0f, 0.0f, 1.8f, 2.5f, "crossbow_fire"},
+    [WEAPON_RPG] = {1, 2, 1.0f, 0, 1, 0.0f, 0.0f, 0.0f, 0.0f, 2.0f, 4.0f, "rpg_fire"},
+    [WEAPON_GRENADE] = {1, 4, 0.6f, 0, 1, 0.0f, 0.0f, 0.0f, 0.0f, 0.8f, 0.0f, "grenade_throw"},
+    [WEAPON_BUGBAIT] = {0, 0, 0.6f, 0, 1, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, "grenade_throw"}, // never runs out
 };
 static int is_gun(int w) {
     return w >= WEAPON_CROWBAR && w < WEAPON_COUNT;
+}
+static int is_launcher(int w) {
+    return w >= WEAPON_CROSSBOW && w < WEAPON_COUNT;
 }
 static const char *k_tool_names[TOOL_COUNT] = {"Remover",     "Colour",  "Balloon",  "Duplicator", "Weld",
                                                "Rope",        "Ball Socket", "Elastic", "No-Collide", "Weight",
@@ -256,6 +273,11 @@ static const ViewModel k_vm[WEAPON_COUNT] = {
     [WEAPON_357] = {15.0f, 4.5f, 6.5f, 7.0f, 0.0f, 1, 0.0f, 0.0f},
     [WEAPON_SMG] = {16.0f, 5.0f, 7.0f, 9.0f, 180.0f, 1, 0.0f, 0.0f},
     [WEAPON_SHOTGUN] = {19.0f, 5.0f, 7.0f, 15.0f, 180.0f, 1, 0.0f, 0.0f},
+    [WEAPON_AR2] = {17.0f, 5.0f, 7.0f, 12.0f, 0.0f, 1, 0.0f, 0.0f},
+    [WEAPON_CROSSBOW] = {18.0f, 5.0f, 7.0f, 14.0f, 0.0f, 1, 0.0f, 0.0f},
+    [WEAPON_RPG] = {14.0f, 6.0f, 6.0f, 20.0f, 0.0f, 1, 0.0f, 0.0f},
+    [WEAPON_GRENADE] = {16.0f, 7.0f, 8.0f, 4.0f, 0.0f, 1, 0.0f, 0.0f},
+    [WEAPON_BUGBAIT] = {16.0f, 7.0f, 8.0f, 4.0f, 0.0f, 1, 0.0f, 0.0f},
 };
 
 // Weapons that carry a prop the way the physics gun does
@@ -300,6 +322,8 @@ enum {
     CMD_SEAT_TOGGLE, // i0 seat: switch the thrusters and hoverballs of everything joined to it
     CMD_TOOL,        // i0 body aimed at, i1 Tool (wheel...emitter); u: first pick's body + 1 | colour << 16 |
                      // emitter effect << 24; f: point, surface normal, then view direction or the first pick
+    CMD_LAUNCH,      // i0 weapon (crossbow, RPG, grenade, bug bait), f: eye[3] dir[3]
+    CMD_SQUEEZE,     // bug bait squeezed: antlions follow this player
 };
 #define MAX_OUTQ 8
 
@@ -461,6 +485,7 @@ static struct {
             land, splash, remove, weld, impact[NUM_SURF];
         int fire[WEAPON_COUNT], crowbar_hit, reload, pump, empty, bullet_impact, bullet_flesh;
         int jeep_engine, airboat_engine, vehicle_enter, vehicle_exit;
+        int bolt_hit, bolt_flesh, gren_tick, bait_squeeze, bait_splat;
     } snd;
 
     // Multiplayer (see the Multiplayer section). Slot 0 is the host.
@@ -491,6 +516,9 @@ static struct {
     float prop_hurt; // until a flying prop can hurt this player again
     float left_hold; // PSP: how long D-pad Left has been held (tap: next weapon, hold: reload)
     int left_fired;
+    // Bug bait: R went down (bait_down) and how long it's been held; it was squeezed, not thrown
+    float bait_hold;
+    int bait_down, bait_squeezed;
     char exit_msg[64];
 } G;
 
@@ -633,6 +661,8 @@ static void devices_clear(void);
 static void toolgun_fire(void);
 static void test_use_aim(void);
 static void test_use_body(int body);
+static void launch(int w, vec3 eye, vec3 f);
+static void projectiles_clear(void);
 static void save_build(const char *name);
 static int load_build(const char *name, int in_place);
 static void cleanup_props(void);
@@ -728,6 +758,11 @@ static void load_shared(void) {
     G.snd.airboat_engine = snd_find("airboat_engine");
     G.snd.vehicle_enter = snd_find("vehicle_enter");
     G.snd.vehicle_exit = snd_find("vehicle_exit");
+    G.snd.bolt_hit = snd_find("crossbow_hit");
+    G.snd.bolt_flesh = snd_find("crossbow_hitbod");
+    G.snd.gren_tick = snd_find("grenade_tick");
+    G.snd.bait_squeeze = snd_find("bugbait_squeeze");
+    G.snd.bait_splat = snd_find("bugbait_splat");
     G.hold_sound = -1;
     G.group_open = -1; // the spawn menu's game groups start closed
     G.veh = -1;
@@ -959,6 +994,7 @@ int game_start(const char *map_name, char *err, int err_len) {
     ents_init(&G.map);
     phys_init(&G.phys);
     devices_clear();
+    projectiles_clear();
     memset(G.impact_cooldown, 0, sizeof(G.impact_cooldown));
 
     blood_clear();
@@ -1034,10 +1070,36 @@ static int spawn_prop(int model, vec3 at, vec3 normal, quat rot, unsigned int ti
 static quat yaw_quat(float yaw_deg);
 static quat spawn_rot(int model);
 
+// autoload.txt "after SECONDS COMMAND": a command run that far into the game (timed tests: rockets, fuses)
+#define MAX_LATER 64
+static struct {
+    float t;
+    char line[96];
+} g_later[MAX_LATER];
+
+static void later_update(float dt) {
+    for (int k = 0; k < MAX_LATER; k++) {
+        if (g_later[k].t <= 0.0f) continue;
+        g_later[k].t -= dt;
+        if (g_later[k].t > 0.0f) continue;
+        char line[96];
+        snprintf(line, sizeof(line), "%s", g_later[k].line);
+        game_command(line);
+    }
+}
+
 void game_command(const char *line) {
     int i;
     float x, y, z, yaw;
-    if (sscanf(line, "prop %d %f %f %f %f", &i, &x, &y, &z, &yaw) == 5) {
+    if (sscanf(line, "after %f %n", &x, &i) == 1 && i > 0) {
+        for (int k = 0; k < MAX_LATER; k++) {
+            if (g_later[k].t > 0.0f) continue;
+            g_later[k].t = x > 0.001f ? x : 0.001f;
+            snprintf(g_later[k].line, sizeof(g_later[k].line), "%s", line + i);
+            g_later[k].line[strcspn(g_later[k].line, "\r\n")] = 0;
+            break;
+        }
+    } else if (sscanf(line, "prop %d %f %f %f %f", &i, &x, &y, &z, &yaw) == 5) {
         spawn_prop(i, v3(x, y, z), v3(0, 0, 1), yaw_quat(yaw), 0xFFFFFFFF);
     } else if (sscanf(line, "npc %d %f %f %f %f", &i, &x, &y, &z, &yaw) == 5) {
         npc_spawn(i, v3(x, y, z), yaw);
@@ -1147,6 +1209,10 @@ void game_command(const char *line) {
     } else if (sscanf(line, "vmloop %d", &i) == 1) { // loops one first-person animation (VM_*), for tests
         G.vm_last_weapon = (int)G.weapon;
         if (G.vm_anim[G.weapon] >= 0) vmodel_play(G.vm_anim[G.weapon], i, 1);
+    } else if (strncmp(line, "launch", 6) == 0) { // fires the weapon in hand's projectile (crossbow, RPG...)
+        if (is_launcher(G.weapon)) launch(G.weapon, player_eye(&G.player), view_forward());
+    } else if (strncmp(line, "squeeze", 7) == 0) { // squeezes bug bait: antlions follow
+        npc_bugbait_squeeze(G.my_slot);
     } else if (strncmp(line, "killall", 7) == 0) { // every NPC dies, knocked away from the player
         for (int n = 0; n < MAX_NPCS; n++) npc_damage_dir(n, 10000.0f, v3_scale(view_forward(), 400.0f));
     }
@@ -1325,10 +1391,12 @@ static void show_explosion(vec3 c) {
 static int break_group(const Body *b);
 static void break_body(int i);
 
-static void do_explode(int i) {
-    Body *b = &G.phys.bodies[i];
-    vec3 c = b->pos;
-    remove_body(i);
+static void fx_explosion(vec3 c);
+static void pvp_damage(int victim, int attacker, float amount);
+
+// An explosion at c (the Explosive tool, rockets, grenades): breakables near it shatter, everything's thrown,
+// and NPCs and players near it are hurt. attacker: the player slot behind it, for kill notices.
+static void explode_at(vec3 c, int attacker) {
     // Breakables close by shatter, then everything gets thrown
     for (int k = 0; k < MAX_BODIES; k++) {
         const Body *o = &G.phys.bodies[k];
@@ -1336,6 +1404,7 @@ static void do_explode(int i) {
     }
     phys_blast(&G.phys, c, EXPLOSION_RADIUS, EXPLOSION_SPEED);
     show_explosion(c);
+    fx_explosion(c); // and multiplayer clients see it too
     for (int n = 0; n < MAX_NPCS; n++) {
         if (!npc_active(n)) continue;
         NpcNet nn;
@@ -1356,6 +1425,19 @@ static void do_explode(int i) {
         G.player.velocity = v3_mad(G.player.velocity, v3_norm(v3(d.x, d.y, d.z + 60.0f)), 500.0f * k);
         G.player.on_ground = 0;
     }
+    // The other players, when hosting (their PSPs move them, so they're hurt but not thrown)
+    for (int s = 1; s < NET_MAX_PLAYERS && G.role == ROLE_HOST; s++) {
+        const Peer *p = &G.peers[s];
+        if (!p->active || p->health <= 0.0f || (p->flags & PF_NOCLIP)) continue;
+        float pd = v3_len(v3_sub(v3_add(p->pos, v3(0, 0, 36)), c));
+        if (pd < EXPLOSION_RADIUS) pvp_damage(s, attacker, EXPLOSION_DAMAGE * 0.6f * (1.0f - pd / EXPLOSION_RADIUS));
+    }
+}
+
+static void do_explode(int i) {
+    vec3 c = G.phys.bodies[i].pos;
+    remove_body(i);
+    explode_at(c, G.acting ? G.acting : G.my_slot);
 }
 
 static int body_valid(int i);
@@ -2448,7 +2530,8 @@ static void npc_shot(const char *weapon, vec3 from, vec3 to) {
 
             : strcmp(weapon, "_shotgun") == 0 ? WEAPON_SHOTGUN
             : strcmp(weapon, "_357") == 0     ? WEAPON_357
-                                              : WEAPON_SMG; // SMG and AR2
+            : strcmp(weapon, "_ar2") == 0     ? WEAPON_AR2
+                                              : WEAPON_SMG;
     if (g_settings.sound && G.snd.fire[w] >= 0) snd_play_at(G.snd.fire[w], from, 0.7f);
     add_tracer(from, to);
     vec3 d = v3_sub(to, from);
@@ -3003,6 +3086,390 @@ static int shoot(int weapon, vec3 eye, vec3 f, uint32_t seed, int world, int eff
     return first;
 }
 
+static float rand01(void);
+
+// --- Projectiles: rockets, crossbow bolts and bug bait, and grenades ------------------------------
+// The host (or single player) flies them, tracing ahead each frame; multiplayer clients get them in
+// PK_PROJ to draw (moving them on between packets), with the latest explosions. Grenades are props that
+// bounce about (synced as bodies) until their fuse burns down.
+
+#define MAX_PROJECTILES 16
+#define MAX_GRENADES 8
+enum { PROJ_ROCKET = 1, PROJ_BOLT, PROJ_BAIT };
+#define ROCKET_SPEED 1300.0f
+#define ROCKET_TURN 2.5f   // rad/s: how fast a rocket swings round to the RPG's laser
+#define ROCKET_LIFE 8.0f
+#define BOLT_SPEED 3500.0f
+#define BOLT_DROP 120.0f   // u/s^2
+#define BOLT_DAMAGE 100.0f
+#define BOLT_STUCK_TIME 10.0f
+#define BAIT_SPEED 900.0f
+#define THROWN_GRAVITY 600.0f
+#define GRENADE_SPEED 850.0f
+#define GRENADE_FUSE 2.5f
+
+typedef struct {
+    int type;    // PROJ_*, 0 = free
+    int owner;   // the player slot that fired it
+    vec3 pos, vel;
+    float life;  // flying: until it gives out; a stuck bolt: until it goes
+    int stuck;   // a bolt in a wall
+    float trail; // a rocket: until its next puff of smoke
+} Projectile;
+static Projectile g_proj[MAX_PROJECTILES];
+static struct {
+    int body, owner;
+    float fuse, tick; // fuse <= 0: a free slot
+} g_gren[MAX_GRENADES];
+// The latest explosions, for clients: g_fx_seq counts them and g_fx_pos[k] is number g_fx_seq - k
+static uint8_t g_fx_seq, g_fx_seen;
+static int g_fx_synced;        // client: g_fx_seen is set
+static vec3 g_fx_pos[4];
+static float g_fx_age = 99.0f; // host: seconds since the last one (sent for a second after)
+
+static void fx_explosion(vec3 c) {
+    memmove(&g_fx_pos[1], &g_fx_pos[0], sizeof(vec3) * 3);
+    g_fx_pos[0] = c;
+    g_fx_seq++;
+    g_fx_age = 0.0f;
+}
+
+static void projectiles_clear(void) {
+    memset(g_proj, 0, sizeof(g_proj));
+    memset(g_gren, 0, sizeof(g_gren));
+    g_fx_synced = 0;
+    g_fx_age = 99.0f;
+}
+
+// A puff of an emitter's particles (rocket smoke, bug bait splats)
+static void puff(int effect, vec3 pos, vec3 vel, float life, float size) {
+    for (int k = 0; k < MAX_PARTICLES; k++) {
+        Particle *p = &g_parts[k];
+        if (p->life > 0.0f) continue;
+        p->effect = effect;
+        p->pos = pos;
+        p->vel = vel;
+        p->max_life = p->life = life;
+        p->size = size;
+        return;
+    }
+}
+
+// Where a player is looking: this PSP's view, or a remote player's from their last state. 0 if they're
+// not in the game (or dead); weapon gets what they hold.
+static int player_view(int slot, vec3 *eye, vec3 *dir, int *weapon) {
+    if (slot == G.my_slot) {
+        if (G.dead_time > 0.0f || (g_dedicated && slot == 0)) return 0;
+        *eye = player_eye(&G.player);
+        *dir = view_forward();
+        *weapon = G.weapon;
+        return 1;
+    }
+    if (slot <= 0 || slot >= NET_MAX_PLAYERS) return 0;
+    const Peer *p = &G.peers[slot];
+    if (!p->active || p->health <= 0.0f) return 0;
+    float cp = cosf(p->pitch * DEG2RAD), sp = sinf(p->pitch * DEG2RAD);
+    float cy = cosf(p->yaw * DEG2RAD), sy = sinf(p->yaw * DEG2RAD);
+    *eye = v3_add(p->pos, v3(0, 0, (p->flags & PF_DUCKED) ? 28.0f : 64.0f));
+    *dir = v3(cp * cy, cp * sy, sp);
+    *weapon = p->weapon;
+    return 1;
+}
+
+static void grenade_throw(int owner, vec3 eye, vec3 dir) {
+    int m = prop_named("_grenade");
+    if (m < 0) {
+        toast("No grenade model in the prop pack");
+        return;
+    }
+    int k;
+    for (k = 0; k < MAX_GRENADES && g_gren[k].fuse > 0.0f; k++) {
+    }
+    if (k == MAX_GRENADES) return;
+    int i = new_body(m, v3_mad(eye, dir, 20.0f), q_axis_angle(v3(0, 0, 1), rand01() * 6.28f), 0xFFFFFFFF, NULL);
+    if (i < 0) {
+        toast("Too many physics objects");
+        return;
+    }
+    Body *b = &G.phys.bodies[i];
+    b->vel = v3_add(v3_scale(dir, GRENADE_SPEED), v3(0, 0, 120.0f));
+    b->angvel = v3(rand01() * 8.0f - 4.0f, rand01() * 8.0f - 4.0f, rand01() * 4.0f - 2.0f);
+    b->life = GRENADE_FUSE + 1.0f; // a live grenade isn't a spawned prop (limit, saves), and goes if it's lost
+    G.body_owner[i] = owner;
+    phys_wake(&G.phys, i);
+    g_gren[k].body = i;
+    g_gren[k].owner = owner;
+    g_gren[k].fuse = GRENADE_FUSE;
+    g_gren[k].tick = 0.0f;
+}
+
+// Fires (or throws) weapon w's projectile for player `owner`, from eye along dir. Host and single player.
+static void proj_launch(int owner, int w, vec3 eye, vec3 dir) {
+    dir = v3_norm(dir);
+    if (w == WEAPON_GRENADE) {
+        grenade_throw(owner, eye, dir);
+        return;
+    }
+    Projectile *p = NULL;
+    for (int k = 0; k < MAX_PROJECTILES && !p; k++) {
+        if (!g_proj[k].type) p = &g_proj[k];
+    }
+    for (int k = 0; k < MAX_PROJECTILES && !p; k++) {
+        if (g_proj[k].stuck) p = &g_proj[k]; // full: an old bolt in a wall makes way
+    }
+    if (!p) return;
+    memset(p, 0, sizeof(*p));
+    p->owner = owner;
+    p->pos = v3_mad(eye, dir, 16.0f);
+    if (w == WEAPON_RPG) {
+        p->type = PROJ_ROCKET;
+        p->vel = v3_scale(dir, ROCKET_SPEED);
+        p->life = ROCKET_LIFE;
+    } else if (w == WEAPON_CROSSBOW) {
+        p->type = PROJ_BOLT;
+        p->vel = v3_scale(dir, BOLT_SPEED);
+        p->life = 4.0f;
+    } else {
+        p->type = PROJ_BAIT;
+        p->vel = v3_add(v3_scale(dir, BAIT_SPEED), v3(0, 0, 120.0f));
+        p->life = 6.0f;
+    }
+}
+
+// The nearest thing on the way from a to b: 0 nothing, 1 the world, 2 a prop, 3 an NPC, 4 a ragdoll,
+// 5 a player (never `skip`). Fills how far along (0..1), what was hit (idx, bone) and the world's normal.
+static int proj_trace(vec3 a, vec3 b, int skip, float *frac, int *idx, int *bone, vec3 *normal) {
+    vec3 d = v3_sub(b, a);
+    float len = v3_len(d), t;
+    if (len < 1e-3f) return 0;
+    d = v3_scale(d, 1.0f / len);
+    Trace tr;
+    cm_trace_line(&G.map, a, b, MASK_PROPSOLID, NULL, 0, &tr);
+    float best = tr.fraction * len;
+    int kind = tr.fraction < 1.0f;
+    *normal = tr.normal;
+    int i = phys_raycast(&G.phys, a, d, best, &t);
+    if (i >= 0) {
+        best = t;
+        kind = 2;
+        *idx = i;
+    }
+    i = npc_raycast(a, d, best, &t);
+    if (i >= 0) {
+        best = t;
+        kind = 3;
+        *idx = i;
+    }
+    int rb;
+    i = npc_ragdoll_raycast(a, d, best, &t, &rb);
+    if (i >= 0) {
+        best = t;
+        kind = 4;
+        *idx = i;
+        *bone = rb;
+    }
+    i = player_raycast(a, d, best, skip, &t);
+    if (i >= 0) {
+        best = t;
+        kind = 5;
+        *idx = i;
+    }
+    *frac = best / len;
+    return kind;
+}
+
+// A crossbow bolt arriving: hurts what it hits, sticks in walls
+static void bolt_hit(Projectile *p, int kind, int idx, int bone, vec3 hit, vec3 dir) {
+    p->type = 0;
+    if (kind == 3) {
+        npc_damage_dir(idx, BOLT_DAMAGE, v3_scale(dir, 600.0f));
+        blood_spray(hit, dir, 8);
+    } else if (kind == 5) {
+        pvp_damage(idx, p->owner, BOLT_DAMAGE);
+        blood_spray(hit, dir, 8);
+    } else if (kind == 4) {
+        npc_ragdoll_push(idx, bone, v3_scale(dir, 900.0f));
+    } else if (kind == 2 && break_group(&G.phys.bodies[idx])) {
+        break_body(idx);
+    } else if (kind == 2) {
+        Body *b = &G.phys.bodies[idx];
+        if (!b->frozen) {
+            phys_wake(&G.phys, idx);
+            b->vel = v3_mad(b->vel, dir, fminf(600.0f * 50.0f / b->mass, 1500.0f));
+        }
+    } else {
+        // The world: it stays in the wall a while, sticking out
+        p->type = PROJ_BOLT;
+        p->stuck = 1;
+        p->pos = v3_mad(hit, dir, -6.0f);
+        p->life = BOLT_STUCK_TIME;
+    }
+    if (g_settings.sound) snd_play_at(kind >= 3 ? G.snd.bolt_flesh : G.snd.bolt_hit, hit, 0.8f);
+}
+
+// Host and single player, each frame: grenades' fuses, then everything in flight
+static void projectiles_update(float dt) {
+    g_fx_age += dt;
+    for (int k = 0; k < MAX_GRENADES; k++) {
+        if (g_gren[k].fuse <= 0.0f) continue;
+        int i = g_gren[k].body;
+        if (!body_valid(i)) { // removed (cleaned up, undone)
+            g_gren[k].fuse = 0.0f;
+            continue;
+        }
+        g_gren[k].fuse -= dt;
+        g_gren[k].tick -= dt;
+        if (g_gren[k].tick <= 0.0f && g_gren[k].fuse > 0.0f) {
+            g_gren[k].tick = g_gren[k].fuse < 1.0f ? 0.25f : 0.5f; // ticks faster at the end, like HL2's
+            play_at(G.snd.gren_tick, G.phys.bodies[i].pos, 0.6f);
+        }
+        if (g_gren[k].fuse <= 0.0f) {
+            vec3 c = G.phys.bodies[i].pos;
+            remove_body(i);
+            explode_at(c, g_gren[k].owner);
+        }
+    }
+    for (int k = 0; k < MAX_PROJECTILES; k++) {
+        Projectile *p = &g_proj[k];
+        if (!p->type) continue;
+        p->life -= dt;
+        if (p->life <= 0.0f) {
+            if (p->type == PROJ_ROCKET && !p->stuck) explode_at(p->pos, p->owner); // out of fuel
+            p->type = 0;
+            continue;
+        }
+        if (p->stuck) continue;
+        if (p->type == PROJ_ROCKET) {
+            // Laser guided: it turns towards wherever its owner aims, while they hold the RPG
+            vec3 eye, dir;
+            int w;
+            if (player_view(p->owner, &eye, &dir, &w) && w == WEAPON_RPG) {
+                Trace tr;
+                vec3 far = v3_mad(eye, dir, 8192.0f);
+                cm_trace_line(&G.map, eye, far, MASK_PROPSOLID, NULL, 0, &tr);
+                vec3 aim = tr.endpos, cur = v3_norm(p->vel), want = v3_sub(aim, p->pos);
+                if (v3_len(want) > 32.0f) {
+                    want = v3_norm(want);
+                    float k2 = clampf(ROCKET_TURN * dt, 0.0f, 1.0f);
+                    p->vel = v3_scale(v3_norm(v3_add(cur, v3_scale(v3_sub(want, cur), k2))), ROCKET_SPEED);
+                }
+            }
+        } else {
+            p->vel.z -= (p->type == PROJ_BOLT ? BOLT_DROP : THROWN_GRAVITY) * dt;
+        }
+        vec3 next = v3_mad(p->pos, p->vel, dt), n;
+        float frac;
+        int idx = -1, bone = 0;
+        int kind = proj_trace(p->pos, next, p->owner, &frac, &idx, &bone, &n);
+        if (!kind) {
+            p->pos = next;
+            continue;
+        }
+        vec3 hit = v3_add(p->pos, v3_scale(v3_sub(next, p->pos), frac)), dir = v3_norm(p->vel);
+        if (p->type == PROJ_ROCKET) {
+            p->type = 0;
+            explode_at(v3_mad(hit, dir, -8.0f), p->owner);
+        } else if (p->type == PROJ_BOLT) {
+            bolt_hit(p, kind, idx, bone, hit, dir);
+        } else {
+            // Bug bait bursts: antlions make for the spot
+            p->type = 0;
+            vec3 at = v3_mad(hit, kind == 1 ? n : v3_scale(dir, -1.0f), 8.0f);
+            npc_bugbait_throw(at);
+            play_at(G.snd.bait_splat, hit, 0.9f);
+            for (int s = 0; s < 6; s++) {
+                puff(EMIT_SPARKS, at, v3((rand01() - 0.5f) * 160.0f, (rand01() - 0.5f) * 160.0f, rand01() * 120.0f), 0.5f, 1.6f);
+            }
+        }
+    }
+}
+
+// Smoke behind rockets, on everyone's screen
+static void projectiles_trails(float dt) {
+    for (int k = 0; k < MAX_PROJECTILES; k++) {
+        Projectile *p = &g_proj[k];
+        if (p->type != PROJ_ROCKET || p->stuck) continue;
+        p->trail -= dt;
+        if (p->trail > 0.0f) continue;
+        p->trail = 0.03f;
+        puff(EMIT_SMOKE, v3_mad(p->pos, v3_norm(p->vel), -14.0f), v3(0, 0, 15.0f), 1.2f, 5.0f);
+    }
+}
+
+// Multiplayer client: moves them on between the host's packets (it does the hitting)
+static void projectiles_client_update(float dt) {
+    for (int k = 0; k < MAX_PROJECTILES; k++) {
+        Projectile *p = &g_proj[k];
+        if (!p->type || p->stuck) continue;
+        if (p->type != PROJ_ROCKET) p->vel.z -= (p->type == PROJ_BOLT ? BOLT_DROP : THROWN_GRAVITY) * dt;
+        p->pos = v3_mad(p->pos, p->vel, dt);
+    }
+}
+
+static void draw_projectiles(void) {
+    static const char *const models[] = {NULL, "_missile", "_bolt", "_bugbait"};
+    if (!G.props_loaded) return;
+    proplib_begin();
+    for (int k = 0; k < MAX_PROJECTILES; k++) {
+        const Projectile *p = &g_proj[k];
+        if (!p->type) continue;
+        int model = prop_named(models[p->type]);
+        if (model < 0) continue;
+        // The model's +X along its flight
+        vec3 x = v3_len(p->vel) > 1e-3f ? v3_norm(p->vel) : v3(1, 0, 0), up = fabsf(x.z) > 0.95f ? v3(1, 0, 0) : v3(0, 0, 1);
+        vec3 y = v3_norm(v3_cross(up, x)), z = v3_cross(x, y);
+        ScePspFMatrix4 m = {{x.x, x.y, x.z, 0}, {y.x, y.y, y.z, 0}, {z.x, z.y, z.z, 0}, {p->pos.x, p->pos.y, p->pos.z, 1}};
+        int leaf = map_point_leaf(&G.map, &p->pos);
+        unsigned int amb = (leaf >= 0 && leaf < G.map.num_leafs) ? G.map.leafs[leaf].ambient_abgr : G.map.info->ambient_abgr;
+        PropLight l;
+        make_light(&l, amb, 1, 0xFFFFFFFF);
+        proplib_draw(&G.props, model, &m, &l);
+    }
+    proplib_end();
+}
+
+// What the weapon in hand fires: the host's projectile, or a command asking it for one
+static void launch(int w, vec3 eye, vec3 f) {
+    if (is_client()) {
+        float v[6] = {eye.x, eye.y, eye.z, f.x, f.y, f.z};
+        send_cmd(CMD_LAUNCH, w, 0, 0, v, 6);
+        return;
+    }
+    proj_launch(G.my_slot, w, eye, f);
+}
+
+// Bug bait: tap R to throw it (antlions swarm the spot), hold R to squeeze it (they come and follow you)
+#define BAIT_SQUEEZE_HOLD 0.45f
+static void bugbait_update(const InputState *in, float dt) {
+    if (in->pressed & PSP_CTRL_RTRIGGER) {
+        G.bait_hold = 0.0f;
+        G.bait_squeezed = 0;
+        G.bait_down = 1;
+    }
+    if (!G.bait_down) return;
+    if (in->held & PSP_CTRL_RTRIGGER) {
+        G.bait_hold += dt;
+        if (G.bait_hold >= BAIT_SQUEEZE_HOLD && !G.bait_squeezed) {
+            G.bait_squeezed = 1;
+            play(G.snd.bait_squeeze, 0.8f);
+            vm_event(VM_ALT);
+            if (is_client()) {
+                send_cmd(CMD_SQUEEZE, 0, 0, 0, NULL, 0);
+            } else {
+                npc_bugbait_squeeze(G.my_slot);
+            }
+            notify("Antlions follow you now", NOTE_HINT);
+        }
+        return;
+    }
+    G.bait_down = 0;
+    if (G.bait_squeezed || G.fire_cd > 0.0f) return;
+    G.fire_cd = k_ws[WEAPON_BUGBAIT].delay;
+    if (g_settings.sound) snd_play_chan(G.snd.fire[WEAPON_BUGBAIT], 0.6f, SND_CHAN_WEAPON);
+    vm_event(VM_FIRE);
+    launch(WEAPON_BUGBAIT, player_eye(&G.player), view_forward());
+}
+
 static void start_reload(void) {
     const WeaponStats *ws = &k_ws[G.weapon];
     if (!ws->clip || G.clip[G.weapon] >= ws->clip || G.ammo[G.weapon] <= 0 || G.reload_left > 0.0f) return;
@@ -3015,6 +3482,10 @@ static void start_reload(void) {
 static void gun_update(const InputState *in, float dt) {
     int w = G.weapon;
     const WeaponStats *ws = &k_ws[w];
+    if (w == WEAPON_BUGBAIT) {
+        bugbait_update(in, dt);
+        return;
+    }
     if (G.reload_left > 0.0f) {
         G.reload_left -= dt;
         int vm = G.vm_anim[w];
@@ -3057,14 +3528,20 @@ static void gun_update(const InputState *in, float dt) {
 #endif
     G.kick = ws->clip ? ws->kick * 0.6f : 4.0f;
     G.pitch = clampf(G.pitch + ws->kick * 0.4f, -89.0f, 89.0f); // view punch
-    if (ws->clip) G.muzzle_time = 0.05f;
-    uint32_t seed = sceKernelGetSystemTimeLow();
+    if (ws->clip && w != WEAPON_CROSSBOW && w != WEAPON_GRENADE) G.muzzle_time = 0.05f;
     vec3 eye = player_eye(&G.player), f = view_forward();
-    int hit = shoot(w, eye, f, seed, !is_client(), 1);
-    vm_event(ws->clip ? VM_FIRE : hit ? VM_ALT : VM_FIRE); // the crowbar: a hit, or a swing through air
-    if (is_client()) {
-        float v[6] = {eye.x, eye.y, eye.z, f.x, f.y, f.z};
-        send_cmd(CMD_SHOOT, w, (int)seed, 0, v, 6);
+    if (is_launcher(w)) {
+        // The crossbow, the RPG and grenades: what they fire flies (see Projectiles)
+        launch(w, eye, f);
+        vm_event(VM_FIRE);
+    } else {
+        uint32_t seed = sceKernelGetSystemTimeLow();
+        int hit = shoot(w, eye, f, seed, !is_client(), 1);
+        vm_event(ws->clip ? VM_FIRE : hit ? VM_ALT : VM_FIRE); // the crowbar: a hit, or a swing through air
+        if (is_client()) {
+            float v[6] = {eye.x, eye.y, eye.z, f.x, f.y, f.z};
+            send_cmd(CMD_SHOOT, w, (int)seed, 0, v, 6);
+        }
     }
     if (ws->clip && G.clip[w] == 0) start_reload(); // like HL2, reload as soon as it's empty
 }
@@ -4202,8 +4679,18 @@ static void exec_cmd(int slot, const NetCmd *c) {
     case CMD_RAG_INFLATE:
         npc_ragdoll_inflate(i, c->i1, clampf(c->f[0], 0.5f, 2.0f));
         break;
+    case CMD_LAUNCH:
+        if (is_launcher(i)) {
+            vec3 eye = v3(c->f[0], c->f[1], c->f[2]);
+            if (g_settings.sound && G.snd.fire[i] >= 0) snd_play_at(G.snd.fire[i], eye, 0.8f);
+            proj_launch(slot, i, eye, v3(c->f[3], c->f[4], c->f[5]));
+        }
+        break;
+    case CMD_SQUEEZE:
+        npc_bugbait_squeeze(slot);
+        break;
     case CMD_SHOOT:
-        if (is_gun(i)) {
+        if (is_gun(i) && !is_launcher(i)) {
             vec3 eye = v3(c->f[0], c->f[1], c->f[2]);
             if (g_settings.sound && G.snd.fire[i] >= 0) snd_play_at(G.snd.fire[i], eye, 0.8f);
             shoot(i, eye, v3_norm(v3(c->f[3], c->f[4], c->f[5])), (uint32_t)c->i1, 1, 0);
@@ -4618,6 +5105,8 @@ static void host_update(float dt) {
     }
 }
 
+static void host_send_proj(void);
+
 // Host, after the physics step: beacons and snapshots
 static void host_send(float dt) {
     if (!net_active()) return;
@@ -4636,6 +5125,7 @@ static void host_send(float dt) {
         host_send_players();
         host_send_bodies();
         host_send_ragdolls();
+        host_send_proj();
     }
     G.ents_timer -= dt;
     if (G.ents_timer <= 0.0f && G.map.num_ents) {
@@ -4648,6 +5138,67 @@ static void host_send(float dt) {
         host_send_ropes();
         host_send_devices();
     }
+}
+
+// --- Projectiles over the network: what's flying, and the latest explosions --------------------------
+
+typedef struct {
+    uint8_t type, stuck, pad[2];
+    float pos[3], vel[3];
+} NetProj;
+
+typedef struct {
+    NetHeader h;
+    uint8_t count, fx_seq, pad[2];
+    float fx[4][3]; // explosions fx_seq, fx_seq - 1...
+    NetProj p[MAX_PROJECTILES];
+} PkProj;
+
+// Host, with each snapshot while anything's flying (or something's just gone off)
+static void host_send_proj(void) {
+    PkProj pk;
+    memset(&pk, 0, sizeof(pk));
+    for (int k = 0; k < MAX_PROJECTILES; k++) {
+        const Projectile *p = &g_proj[k];
+        if (!p->type) continue;
+        NetProj *np = &pk.p[pk.count++];
+        np->type = (uint8_t)p->type;
+        np->stuck = (uint8_t)p->stuck;
+        memcpy(np->pos, &p->pos, sizeof(np->pos));
+        memcpy(np->vel, &p->vel, sizeof(np->vel));
+    }
+    if (!pk.count && g_fx_age > 1.0f) return;
+    pk.h = net_header(PK_PROJ);
+    pk.fx_seq = g_fx_seq;
+    for (int k = 0; k < 4; k++) memcpy(pk.fx[k], &g_fx_pos[k], sizeof(pk.fx[k]));
+    net_send(NULL, &pk, (int)offsetof(PkProj, p) + pk.count * (int)sizeof(NetProj));
+}
+
+static void client_apply_proj(const PkProj *pk, int len) {
+    int n = pk->count, fits = (len - (int)offsetof(PkProj, p)) / (int)sizeof(NetProj);
+    if (n > fits) n = fits;
+    if (n > MAX_PROJECTILES) n = MAX_PROJECTILES;
+    // Keep each rocket's smoke timing; the rest is the host's
+    for (int k = 0; k < MAX_PROJECTILES; k++) {
+        Projectile *p = &g_proj[k];
+        if (k >= n) {
+            p->type = 0;
+            continue;
+        }
+        p->type = pk->p[k].type;
+        p->stuck = pk->p[k].stuck;
+        memcpy(&p->pos, pk->p[k].pos, sizeof(p->pos));
+        memcpy(&p->vel, pk->p[k].vel, sizeof(p->vel));
+    }
+    // Explosions we haven't shown yet, oldest first
+    if (g_fx_synced) {
+        for (int k = 3; k >= 0; k--) {
+            uint8_t seq = (uint8_t)(pk->fx_seq - k);
+            if ((int8_t)(seq - g_fx_seen) > 0) show_explosion(v3(pk->fx[k][0], pk->fx[k][1], pk->fx[k][2]));
+        }
+    }
+    g_fx_seen = pk->fx_seq;
+    g_fx_synced = 1;
 }
 
 static void client_apply_players(const PkPlayers *pk) {
@@ -4801,6 +5352,9 @@ static int client_update(float dt) {
             break;
         case PK_DEVICES:
             if (len >= (int)offsetof(PkDevices, d)) client_apply_devices((const PkDevices *)pk.raw, len);
+            break;
+        case PK_PROJ:
+            if (len >= (int)offsetof(PkProj, p)) client_apply_proj((const PkProj *)pk.raw, len);
             break;
         case PK_RAGINFO:
             if (len >= (int)sizeof(PkRagInfo)) npc_ragdoll_net_set_info(&pk.ri.i);
@@ -5291,9 +5845,11 @@ static void vehicles_drive(void) {
 // Everything that isn't the local player: physics, NPCs, scripts, the network.
 // Returns 0 when a multiplayer game has ended for this PSP.
 static int world_step(float dt) {
+    projectiles_trails(dt);
     if (is_client()) {
         script_think(dt);
         npc_ragdolls_update(&G.map, dt, &G.phys);
+        projectiles_client_update(dt);
         return client_update(dt);
     }
     if (G.role == ROLE_HOST) host_update(dt);
@@ -5301,6 +5857,7 @@ static int world_step(float dt) {
     vehicles_drive();
     phys_step(&G.phys, &G.map, dt);
     vehicles_end_frame();
+    projectiles_update(dt);
     prop_damage(dt);
     NpcTarget t[NET_MAX_PLAYERS];
     memset(t, 0, sizeof(t));
@@ -5428,6 +5985,7 @@ void game_host_dedicated(void (*log)(const char *msg)) {
 
 GameResult game_update(const InputState *in, float dt) {
     if (g_dedicated) return dedicated_update(dt);
+    later_update(dt);
     phys_set_quality(g_settings.physics);
     achievements_tick(dt);
     devices_update(dt);
@@ -6706,8 +7264,9 @@ static void draw_hud(float fps) {
     // Weapon selector, top centre, HL2 bucket style
     if (G.wsel_time > 0.0f) {
         unsigned int a = G.wsel_time < 0.3f ? (unsigned int)(255 * G.wsel_time / 0.3f) : 255u;
-        // Seven slots: the selected one is wide enough for its name
-        const float slot = 34.0f, wide = 120.0f, gap = 4.0f;
+        // A slot per weapon, the selected one wide enough for its name; they shrink to fit the screen
+        const float wide = 104.0f, gap = 3.0f;
+        const float slot = fminf(34.0f, (468.0f - wide - gap * (WEAPON_COUNT - 1)) / (WEAPON_COUNT - 1));
         float x = 240.0f - (slot * (WEAPON_COUNT - 1) + wide + gap * (WEAPON_COUNT - 1)) * 0.5f;
         for (int i = 0; i < WEAPON_COUNT; i++) {
             int sel = i == (int)G.weapon;
@@ -6876,6 +7435,7 @@ void game_render(float fps) {
     draw_props();
     npcs_draw(&G.map, &G.cam);
     draw_npc_weapons();
+    draw_projectiles();
     draw_haunt();
 #endif
     sceGuDisable(GU_TEXTURE_2D);

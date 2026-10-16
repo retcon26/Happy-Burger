@@ -22,6 +22,12 @@ enum { AI_CITIZEN, AI_ZOMBIE, AI_ANTLION, AI_COMBINE, AI_REBEL, AI_MINGE, AI_TF_
 
 enum { MINGE_SPAWN, MINGE_THROW, MINGE_CHAT, MINGE_HURT, MINGE_DIED };
 
+// Bug bait: from the first use until the map ends, antlions are on the players' side. Squeezing it makes
+// them follow that player (a target index, as in npcs_update); throwing it sends them to the spot.
+void npc_bugbait_squeeze(int target);
+void npc_bugbait_throw(vec3 at);
+int npc_antlions_allied(void);
+
 int npcs_load(void);
 int npc_type_count(void);
 const char *npc_type_name(int type);

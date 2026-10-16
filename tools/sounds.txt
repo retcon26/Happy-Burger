@@ -37,6 +37,17 @@ pistol_fire      0 sound/weapons/pistol/pistol_fire2.wav sound/weapons/pistol/pi
 357_fire         0 sound/weapons/357/357_fire2.wav sound/weapons/357/357_fire3.wav
 smg1_fire        0 sound/weapons/smg1/smg1_fire1.wav
 shotgun_fire     0 sound/weapons/shotgun/shotgun_fire6.wav sound/weapons/shotgun/shotgun_fire7.wav
+ar2_fire         0 sound/weapons/ar2/fire1.wav
+rpg_fire         0 sound/weapons/rpg/rocketfire1.wav
+rpg_rocket       1 sound/weapons/rpg/rocket1.wav
+crossbow_fire    0 sound/weapons/crossbow/fire1.wav
+crossbow_hit     0 sound/weapons/crossbow/hit1.wav
+crossbow_hitbod  0 sound/weapons/crossbow/hitbod1.wav
+crossbow_load    0 sound/weapons/crossbow/bolt_load1.wav
+grenade_throw    0 sound/weapons/slam/throw.wav
+grenade_tick     0 sound/weapons/grenade/tick1.wav
+bugbait_squeeze  0 sound/weapons/bugbait/bugbait_squeeze1.wav
+bugbait_splat    0 sound/weapons/bugbait/bugbait_impact1.wav sound/weapons/bugbait/bugbait_impact3.wav
 reload           0 sound/weapons/pistol/pistol_reload1.wav sound/weapons/smg1/smg1_reload.wav
 shotgun_pump     0 sound/weapons/shotgun/shotgun_cock.wav
 empty            0 sound/weapons/pistol/pistol_empty.wav
