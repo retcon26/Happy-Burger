@@ -54,6 +54,8 @@ typedef struct {
 void npcs_update(Map *m, float dt, const NpcTarget *targets, int num_targets, PhysWorld *phys,
                  void (*damage)(int target, float amount));
 void npcs_draw(Map *m, const Camera *cam);
+// How far NPCs and ragdolls are drawn, as a multiple of the usual 2200 units (Options > LOD distance)
+void npc_set_draw_scale(float scale);
 // The weapon NPC i holds, as drawn this frame by npcs_draw: its prop pack name ("_smg1"...) and world
 // matrix. 0 if it holds nothing or wasn't drawn. game.c draws it from the prop pack.
 int npc_weapon(int i, const char **model_name, ScePspFMatrix4 *world);

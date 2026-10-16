@@ -15,6 +15,7 @@ typedef struct {
     int draw_dist;  // 1..4: near, medium, far, the map's full distance
     int physics;    // 1..3: low, medium, high
     int target_fps; // 0..3: 25, 30, 60, 120 frames a second (settings_target_fps)
+    int lod;        // 1..5: how far models are drawn, 0.5x to 2x (settings_lod_scale)
     int god_mode;   // 0/1: no damage in single player; when hosting, for everyone in the game
     int player_model; // which of the player models (settings_set_player_models) you look like
     int third_person; // 0/1: the camera follows behind you, so you see your player model
@@ -45,6 +46,9 @@ void settings_load(void);
 void settings_save(void);
 // Options > Target FPS in frames a second
 int settings_target_fps(void);
+// Options > LOD distance: how far props, static props and NPCs are drawn, as a multiple of the usual
+// distance (0.5 to 2; the draw distance still caps it)
+float settings_lod_scale(void);
 // Options > Player model offers these, named by name(0..count-1); the game registers them once the
 // NPC pack has loaded
 void settings_set_player_models(int count, const char *(*name)(int index));
@@ -53,3 +57,9 @@ void settings_set_player_models(int count, const char *(*name)(int index));
 // Returns 1 when the player backs out (settings are saved then).
 int options_update(const InputState *in);
 void options_draw(float x, float y, float w, float h);
+
+// Options > Updates: the platform's update page, drawn in the Options window (the PSP's update.c registers
+// it; without one the row does nothing). update returns 1 when the player backs out of it.
+void settings_set_updates_page(void (*open)(void), int (*update)(const InputState *in),
+                               void (*draw)(float x, float y, float w, float h));
+void options_open_updates(void); // straight to that page (autoload.txt "menu updates")

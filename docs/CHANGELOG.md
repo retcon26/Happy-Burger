@@ -8,8 +8,9 @@ another protocol don't show up in Join Game or Online Servers.
 
 | Version | Date | Plays with | In short |
 |---|---|---|---|
-| [1.8.3](#183) | 2026-10-16 | 1.8.2 – 1.8.3 | Target FPS option; Select closes the spawn menu again |
-| [1.8.2](#182) | 2026-10-16 | 1.8.2 – 1.8.3 | NPC navigation; Face Poser and Finger Poser; physics gun turns props on every axis |
+| [1.9.0](#190) | 2026-10-16 | 1.8.2 – 1.9.0 | Options > Updates: new versions from GitHub over Wi-Fi; LOD distance slider |
+| [1.8.3](#183) | 2026-10-16 | 1.8.2 – 1.9.0 | Target FPS option; Select closes the spawn menu again |
+| [1.8.2](#182) | 2026-10-16 | 1.8.2 – 1.9.0 | NPC navigation; Face Poser and Finger Poser; physics gun turns props on every axis |
 | [1.8.1](#181) | 2026-10-16 | 1.8.1 | Health kits, suit batteries, health and suit chargers |
 | [1.8.0](#180) | 2026-10-16 | 1.8.0 | More weapons: AR2, crossbow, RPG, grenades, bug bait; PS2 support ends |
 | [1.7.1](#171) | 2026-10-15 | 1.7.0 – 1.7.1 | Server list; the Retcon's Mod name and logo |
@@ -27,6 +28,20 @@ another protocol don't show up in Join Game or Online Servers.
 | [1.1.0](#110) | before 2026-10-11 | not recorded | Camera tool |
 | [1.0.1](#101) | before 2026-10-11 | not recorded | Ragdoll crash fixes |
 | [1.0.0](#100) | before 2026-10-11 | not recorded | Version label, new options, more ragdolls |
+
+## 1.9.0
+
+- **Options > Updates:** checks GitHub for a newer version over Wi-Fi and installs it, from the main menu. It
+  shows what's new, downloads the game (about 1.2 MB) over HTTPS, checks it against GitHub's checksum and puts
+  it in place of `EBOOT.PBP`, keeping the old one as `EBOOT.OLD`. Quit and start the game again to play the new
+  version. Only the game updates: a version that needs new game data (built on a PC from your own games) says
+  so and doesn't install. Each check is written to `data/update.log`.
+- **Options > LOD distance:** a slider for how far props, the map's own props and NPCs are drawn before they
+  pop out: 0.5x, 0.75x, 1x (as before), 1.5x or 2x. Draw distance still caps it.
+- Versions from now on are published as GitHub releases (`psp/publish_release.ps1`), which is where the
+  updater finds them. 1.9.0 is the first.
+- Wi-Fi errors (Host on Wi-Fi, Online Servers) say what went wrong. They all said "Offline" before.
+- Network protocol 12, as 1.8.2 and 1.8.3: they play together, and dedicated servers 1.1.1 still work.
 
 ## 1.8.3
 

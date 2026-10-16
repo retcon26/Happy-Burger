@@ -13,7 +13,7 @@
 
 #define SETTINGS_PATH "data/settings.cfg"
 
-Settings g_settings = {1, 3, 0, 1, 0, 1, 1, 1, 4, 3, 2, 0, 0, 0, 1, 0, 0, 1, 0, 0, ""};
+Settings g_settings = {1, 3, 0, 1, 0, 1, 1, 1, 4, 3, 2, 3, 0, 0, 0, 1, 0, 0, 1, 0, 0, ""};
 
 // Values with names show the name; other multi-step options show dots; 0/1 options a checkbox
 static const char *const k_dist_names[] = {"Near", "Medium", "Far", "Full"};
@@ -26,6 +26,12 @@ int settings_target_fps(void) {
     return k_fps[i >= 0 && i < 4 ? i : 2];
 }
 
+float settings_lod_scale(void) {
+    static const float k_scale[5] = {0.5f, 0.75f, 1.0f, 1.5f, 2.0f};
+    int i = g_settings.lod;
+    return k_scale[i >= 1 && i <= 5 ? i - 1 : 2];
+}
+
 typedef struct {
     const char *key;
     const char *label;
@@ -35,6 +41,7 @@ typedef struct {
 } Option;
 
 static const char *const k_model_names[1] = {NULL}; // marks Player model, whose names come from the game
+static const char *const k_updates_row[1] = {NULL}; // marks the Updates button (the Credits button has none)
 
 static Option k_options[] = {
     {"sound", "Sound", &g_settings.sound, 0, 1, NULL},
@@ -52,12 +59,14 @@ static Option k_options[] = {
     {"show_fps", "Show FPS", &g_settings.show_fps, 0, 1, NULL},
     {"target_fps", "Target FPS", &g_settings.target_fps, 0, 3, k_fps_names},
     {"draw_dist", "Draw distance", &g_settings.draw_dist, 1, 4, k_dist_names},
+    {"lod", "LOD distance", &g_settings.lod, 1, 5, NULL}, // slider dots
     {"physics", "Physics quality", &g_settings.physics, 1, 3, k_quality_names},
 #ifdef PS2
     {"vu1", "VU1 renderer (faster)", &g_settings.vu1, 0, 1, NULL},
 #endif
     {"debug", "Debug overlay", &g_settings.debug, 0, 1, NULL},
-    {NULL, "Credits", NULL, 0, 0, NULL}, // a button: opens the credits
+    {NULL, "Updates", NULL, 0, 0, k_updates_row}, // a button: the updates page (update.c)
+    {NULL, "Credits", NULL, 0, 0, NULL},          // a button: opens the credits
 };
 #define NUM_OPTIONS (int)(sizeof(k_options) / sizeof(k_options[0]))
 #define ROW_H 22
@@ -66,6 +75,28 @@ static int g_sel, g_scroll;
 
 static int g_pm_count;
 static const char *(*g_pm_name)(int index);
+
+// Options > Updates, when the platform has one (the PSP's update.c; not the dedicated server)
+static int g_updates; // showing it
+static void (*g_upd_open)(void);
+static int (*g_upd_update)(const InputState *in);
+static void (*g_upd_draw)(float x, float y, float w, float h);
+
+void settings_set_updates_page(void (*open)(void), int (*update)(const InputState *in),
+                               void (*draw)(float x, float y, float w, float h)) {
+    g_upd_open = open;
+    g_upd_update = update;
+    g_upd_draw = draw;
+}
+
+void options_open_updates(void) {
+    if (!g_upd_open) return;
+    for (int i = 0; i < NUM_OPTIONS; i++) {
+        if (k_options[i].names == k_updates_row) g_sel = i;
+    }
+    g_updates = 1;
+    g_upd_open();
+}
 
 void settings_set_player_models(int count, const char *(*name)(int index)) {
     g_pm_count = count;
@@ -377,12 +408,21 @@ int options_update(const InputState *in) {
         credits_update(in);
         return 0;
     }
+    if (g_updates) {
+        if (g_upd_update(in)) g_updates = 0;
+        return 0;
+    }
     int click = snd_find("menu_move");
     if (in->pressed & PSP_CTRL_UP) g_sel = (g_sel + NUM_OPTIONS - 1) % NUM_OPTIONS;
     if (in->pressed & PSP_CTRL_DOWN) g_sel = (g_sel + 1) % NUM_OPTIONS;
     Option *o = &k_options[g_sel];
     int changed = (in->pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) != 0;
-    if (!o->value) {
+    if (o->names == k_updates_row) {
+        if ((in->pressed & PSP_CTRL_CROSS) && g_upd_open) {
+            options_open_updates();
+            changed = 1;
+        }
+    } else if (!o->value) {
         // The Credits row
         if (in->pressed & PSP_CTRL_CROSS) {
             g_credits = 1;
@@ -417,6 +457,10 @@ int options_update(const InputState *in) {
 void options_draw(float x, float y, float w, float h) {
     if (g_credits) {
         credits_draw(x, y, w, h);
+        return;
+    }
+    if (g_updates) {
+        g_upd_draw(x, y, w, h);
         return;
     }
     // A light Derma-style window

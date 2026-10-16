@@ -28,7 +28,7 @@ function Wanted($file) {
 
 # Your own saves and test files stay out: a fresh install starts with default settings, no achievements, no
 # saved builds (data\saves) and no servers added
-$skip = @("npcs.ps2.pnpc", "settings.cfg", "achievements.cfg", "autoload.txt", "servers.cfg")
+$skip = @("npcs.ps2.pnpc", "settings.cfg", "achievements.cfg", "autoload.txt", "servers.cfg", "update.log")
 function Link($src, $dst) {
     New-Item -ItemType Directory -Force (Split-Path $dst) | Out-Null
     try { New-Item -ItemType HardLink -Path $dst -Target $src | Out-Null } catch { Copy-Item $src $dst }

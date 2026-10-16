@@ -253,6 +253,12 @@ void menu_show_achievements(void) {
     M.sel = 3;
 }
 
+void menu_show_updates(void) {
+    M.page = PAGE_OPTIONS;
+    M.sel = 4;
+    options_open_updates();
+}
+
 void menu_show_workshop(void) {
     // Maps listed by game, the same games as Start New Game's
     static const char *names[NUM_CATS];

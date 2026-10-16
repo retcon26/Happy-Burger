@@ -2189,10 +2189,16 @@ static void draw_skinned(const NpcModel *md, float (*palette)[12], int num_matri
     }
 }
 
+static float g_draw_dist = DRAW_DIST; // Options > LOD distance scales it
+
+void npc_set_draw_scale(float scale) {
+    g_draw_dist = DRAW_DIST * scale;
+}
+
 static int visible(const Camera *cam, vec3 p, float fwd_x, float fwd_y) {
     vec3 d = v3_sub(p, cam->pos);
     float dist = v3_len(d);
-    if (dist > DRAW_DIST || dist > cam->zfar) return 0; // zfar: Options > Draw distance
+    if (dist > g_draw_dist || dist > cam->zfar) return 0; // zfar: Options > Draw distance
     return dist < 120.0f || (d.x * fwd_x + d.y * fwd_y) >= -60.0f; // not behind the camera
 }
 

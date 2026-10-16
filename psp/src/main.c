@@ -19,6 +19,7 @@
 #include "physics.h"
 #include "settings.h"
 #include "ui.h"
+#include "update.h"
 
 PSP_MODULE_INFO("PSPSandbox", PSP_MODULE_USER, 0, 1);
 PSP_MAIN_THREAD_ATTR(PSP_THREAD_ATTR_USER | PSP_THREAD_ATTR_VFPU);
@@ -119,6 +120,9 @@ static int run_autoload(char *status, int status_len) {
         if (strcmp(nm, "menu") == 0 && sscanf(line, "%*s %31s", page) == 1 && strcmp(page, "achievements") == 0) {
             menu_show_achievements();
         }
+        if (strcmp(nm, "menu") == 0 && sscanf(line, "%*s %31s", page) == 1 && strcmp(page, "updates") == 0) {
+            menu_show_updates();
+        }
 
         if (n >= 1 && strcmp(nm, "menu") != 0 && strcmp(nm, "join") != 0 && start_game(nm, status, status_len)) {
 
@@ -130,6 +134,8 @@ static int run_autoload(char *status, int status_len) {
                 g_ignore_input = 1;
             } else if (started) {
                 game_command(line);
+            } else {
+                update_command(line); // the updates page's test lines
             }
         }
     }
@@ -150,6 +156,8 @@ int main(int argc, char *argv[]) {
     draw_loading(NULL); // plain blue until ui.pak is in
     hud_init();
     settings_load();
+    update_init(argc > 0 ? argv[0] : NULL);
+    settings_set_updates_page(update_page_open, update_page_update, update_page_draw);
     achieve_init();
     workshop_load();
     ui_load();
@@ -183,6 +191,7 @@ int main(int argc, char *argv[]) {
             dt = 0.1f; // Avoid a huge step after a stall (HOME menu, loading).
         }
         t_prev = now;
+        update_set_in_game(in_game);
         int target = settings_target_fps(); // Options > Target FPS
         gfx_set_frame_rate(target);
         phys_set_frame_rate(target);

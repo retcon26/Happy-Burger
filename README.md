@@ -1,6 +1,6 @@
 # Retcon's Mod
 
-A physics sandbox for the PSP, by Retcon. Current version: **1.8.3** (shown in the main menu's corner,
+A physics sandbox for the PSP, by Retcon. Current version: **1.9.0** (shown in the main menu's corner,
 set in `psp/src/version.h`).
 
 **Retcon's Mod is PSP Sandbox's new name.** The name is changing step by step: the game (the XMB, the menus, the
@@ -266,11 +266,32 @@ The PSP doesn't let a game read its model directly, so the page's "Playing on" l
 
 Sound, look speed, invert look, God mode (also games you host), player model, third-person view, NPC thinking,
 NPCs ignore players, unlimited ammo, HEV suit (100 suit power at spawn that takes 80% of the damage, as in HL2),
-show HUD, crosshair, show FPS, target FPS, draw distance, physics quality, debug overlay, and the credits.
+show HUD, crosshair, show FPS, target FPS, draw distance, LOD distance, physics quality, debug overlay, updates and
+the credits.
 
 **Target FPS** paces the game to 25, 30, 60 (the default) or 120 frames a second. 25 and 30 run steadier than a
 frame rate that keeps dropping, with physics still in real time. The screen shows 60 a second at most, so 120
 stops waiting for it: the game reacts sooner, but the picture can tear.
+
+**LOD distance** is a slider for how far away props, the map's own props and NPCs are still drawn before they
+pop out: 0.5x, 0.75x, 1x (the default), 1.5x or 2x the usual distance (2,400 units for props, 2,200 for NPCs,
+and each map prop's own fade distance). Draw distance still sets the furthest anything is drawn. Further costs
+frame rate in busy maps; nearer gains some.
+
+### Updates
+
+**Options > Updates** checks GitHub for a newer version over Wi-Fi and installs it, from the main menu (not
+during a game). It connects with the first connection set up in the PSP's Network Settings, so set one up there
+first and turn the WLAN switch on. If there's a newer version, the page shows what's new; X downloads it
+(about 1.2 MB), checks it against GitHub's checksum and puts it in place of the game's `EBOOT.PBP`. Quit and
+start the game again to play it.
+
+- Only the game itself updates. The data (maps, props, NPCs, sounds) is built on a PC from your own games, so
+  a version that needs new data says so and doesn't install: rebuild the data and the game on your PC instead.
+- The version you had is kept as `EBOOT.OLD` in the game's folder. To go back, delete `EBOOT.PBP` and rename
+  `EBOOT.OLD` to `EBOOT.PBP`.
+- The download is checked against GitHub's certificate, so the PSP's date needs to be about right.
+- Each check writes what happened to `data/update.log`, which helps if an update fails.
 
 ## Maps
 
@@ -462,6 +483,20 @@ What each one makes:
   `vmodels.low.pvmd` with their draw, idle, fire and reload animations, so the weapon in your hands moves.
   Without them the game shows the still models from the prop pack instead.
 
+### Publishing a version
+
+Options > Updates installs a version once it's published as a GitHub release with its `EBOOT.PBP`. After
+bumping `GAME_VERSION` in `psp/src/version.h`, adding the version to `docs/CHANGELOG.md`, building, committing
+and pushing, run this in PowerShell (it needs the [GitHub CLI](https://cli.github.com), signed in):
+
+```powershell
+powershell -File psp/publish_release.ps1
+```
+
+It makes the release `vX.Y.Z` with the changelog's section as its notes. Only `EBOOT.PBP` is published, never
+game data. If a version changes the converter so that older data stops working, bump `GAME_DATA_VERSION` in
+`version.h` too: PSPs with older data are then told to update on their PC.
+
 ## What gets converted
 
 - **Map geometry:** brush faces and displacements become indexed triangles. Faces are cut on a world-aligned
@@ -520,9 +555,9 @@ The latest three. Every version, with dates, what's in each and which ones can p
 
 | Version | Changes |
 |---|---|
+| 1.9.0 | Options > Updates: downloads and installs new versions from GitHub over Wi-Fi; Options > LOD distance slider (how far props and NPCs are drawn); Wi-Fi errors say what went wrong (they all said "Offline") |
 | 1.8.3 | Options > Target FPS: 25, 30, 60 or 120 frames a second; Select closes the spawn menu again (letting go of it opened the menu straight back up) |
 | 1.8.2 | NPC navigation along the map's node graph; Face Poser and Finger Poser for ragdolls (characters now have hands with fingers); the physics gun turns props on every axis (hold X); easier build instructions |
-| 1.8.1 | Items: health kits, health vials and suit batteries to pick up, and health and suit chargers (tap Use to charge) |
 
 ## Roadmap
 
@@ -556,6 +591,7 @@ The latest three. Every version, with dates, what's in each and which ones can p
 - [x] Wi-Fi multiplayer (Host on Wi-Fi, Online Servers) and dedicated servers
       ([psp-sandbox-server](https://github.com/retcon26/psp-sandbox-server)); doors and triggers for every player
 - [x] Server list: every public dedicated server in Online Servers, without typing addresses
+- [x] Updates over Wi-Fi: Options > Updates installs new versions from GitHub
 
 - [ ] **Effects:** sparks on metal, smoke, fire after explosions, muzzle smoke and tracer impacts
 - [ ] **Lua gamemodes:** a bigger Lua API and small gamemodes built on it, like Prop Hunt and a zombie survival mode

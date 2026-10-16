@@ -1246,6 +1246,8 @@ void game_command(const char *line) {
         g_test_ax = g_test_ay = 0.0f;
     } else if (sscanf(line, "targetfps %d", &i) == 1) { // Options > Target FPS, by index (not saved)
         g_settings.target_fps = i;
+    } else if (sscanf(line, "lod %d", &i) == 1) { // Options > LOD distance, 1 to 5 (not saved)
+        g_settings.lod = i;
 
     } else if (strncmp(line, "toolfire", 8) == 0) { // the tool gun's R, at what's in front
         toolgun_fire();
@@ -6746,7 +6748,10 @@ static void make_light(PropLight *l, unsigned int ambient, int sunlit, unsigned 
 }
 
 static void draw_props(void) {
-    float max_dist = fminf(view_distance(), mem_tier() == MEM_TIER_HIGH ? PROP_DRAW_DIST_HIGH : PROP_DRAW_DIST_LOW);
+    // Options > LOD distance stretches how far props are drawn (and the map's own fade distances), up to
+    // the draw distance
+    float lod = settings_lod_scale();
+    float max_dist = fminf(view_distance(), lod * (mem_tier() == MEM_TIER_HIGH ? PROP_DRAW_DIST_HIGH : PROP_DRAW_DIST_LOW));
     proplib_begin();
     G.bodies_drawn = 0;
     for (int i = 0; i < MAX_BODIES; i++) {
@@ -6786,7 +6791,7 @@ static void draw_props(void) {
             float radius = 0.5f * sqrtf((md->maxs[0] - md->mins[0]) * (md->maxs[0] - md->mins[0]) +
                                         (md->maxs[1] - md->mins[1]) * (md->maxs[1] - md->mins[1]) +
                                         (md->maxs[2] - md->mins[2]) * (md->maxs[2] - md->mins[2]));
-            float dist = sp->fade_dist > 0.0f ? fminf(sp->fade_dist, max_dist) : max_dist;
+            float dist = sp->fade_dist > 0.0f ? fminf(sp->fade_dist * lod, max_dist) : max_dist;
             if (!in_view(c, radius, dist + radius)) continue;
             ScePspFMatrix4 m;
             m.x = (ScePspFVector4){ax.x, ax.y, ax.z, 0.0f};
@@ -7759,6 +7764,7 @@ static vec3 third_person_camera(vec3 eye) {
 
 void game_render(float fps) {
     gfx_begin_frame(G.map.info->sky_abgr);
+    npc_set_draw_scale(settings_lod_scale()); // Options > LOD distance
     G.cam.pos = player_eye(&G.player);
     if (G.dead_time > 0.0f) G.cam.pos.z = G.player.origin.z + 10.0f + 50.0f * fmaxf(0.0f, 1.0f - G.dead_time * 2.0f);
     if (third_person()) G.cam.pos = third_person_camera(G.cam.pos);

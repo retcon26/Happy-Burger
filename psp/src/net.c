@@ -73,8 +73,8 @@ static void set_status(const char *msg, int code) {
 }
 
 static int fail(const char *msg, int code) {
+    net_stop(); // before the message: stopping says "Offline"
     set_status(msg, code);
-    net_stop();
     N.state = NET_FAILED;
     return -1;
 }

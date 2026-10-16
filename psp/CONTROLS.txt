@@ -1,4 +1,4 @@
-RETCON'S MOD (FORMERLY PSP SANDBOX) - CONTROLS  (v1.8.3)
+RETCON'S MOD (FORMERLY PSP SANDBOX) - CONTROLS  (v1.9.0)
 =========================================
 
 ON FOOT                      PSP
@@ -150,9 +150,14 @@ OPTIONS
   Includes: Sound, Look speed, Invert look, God mode, Player model,
   Third-person view, NPC thinking, NPCs ignore players, Unlimited ammo,
   HEV suit, Show HUD, Crosshair, Show FPS, Target FPS, Draw distance,
-  Physics quality, Credits.
+  LOD distance, Physics quality, Updates, Credits.
   Target FPS: 25, 30, 60 (default) or 120. The screen shows 60 at most; 120
   doesn't wait for it, so the picture can tear.
+  LOD distance: a slider, 0.5x to 2x, for how far props and NPCs are drawn
+  before they pop out (default 1x, the middle).
+  Updates (main menu only): checks GitHub over Wi-Fi and installs a newer
+  version of the game. X installs, then quit and start the game again. The
+  old version stays as EBOOT.OLD in the game's folder.
 
 
 MULTIPLAYER
