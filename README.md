@@ -1,6 +1,6 @@
 # Retcon's Mod
 
-A physics sandbox for the PSP, by Retcon. Current version: **1.8.0** (shown in the main menu's corner,
+A physics sandbox for the PSP, by Retcon. Current version: **1.8.1** (shown in the main menu's corner,
 set in `psp/src/version.h`).
 
 **Retcon's Mod is PSP Sandbox's new name.** The name is changing step by step: the game (the XMB, the menus, the
@@ -33,13 +33,14 @@ contain it are for your own use. Don't share them.
 - **250 maps:** gm_construct and gm_flatgrass, the Half-Life 2 campaign, the original Half-Life campaign
   (converted from GoldSrc), HL2 Deathmatch, Half-Life Deathmatch: Source, Counter-Strike: Source, Day of Defeat:
   Source and Team Fortress 2 maps, plus **gm_construct_13** (see [Maps](#maps)).
-- **About 3,200 props:** 186 hand-picked ones in 10 spawnlists, plus about 3,000 more pulled automatically from
+- **About 3,200 props:** 191 hand-picked ones in 11 spawnlists, plus about 3,000 more pulled automatically from
   HL2 and its episodes, CS:S, DoD:S, Portal, Portal 2, Left 4 Dead 1 and 2, Fistful of Frags, Black Mesa and TF2,
   in about 160 spawnlists. The extra ones load from the memory stick only when spawned.
 - **48 NPCs and 98 ragdolls**, including Team Fortress 2's nine mercenaries on both teams (also as player
   models), mingebags, and characters from Counter-Strike: Source and Half-Life: Source.
-- **14 weapons and 24 tool gun tools**, blood and bullet holes, a flashlight, an HEV suit, Lua addons and
-  4-player multiplayer with voice chat: ad-hoc, over Wi-Fi, or on a dedicated server.
+- **14 weapons and 24 tool gun tools**, health kits, suit batteries and chargers, blood and bullet holes, a
+  flashlight, an HEV suit, Lua addons and 4-player multiplayer with voice chat: ad-hoc, over Wi-Fi, or on a
+  dedicated server.
 - **Saves:** your builds saved to the memory stick and loaded back on any map (see [Saves](#saves)).
 - **Drivable vehicles:** HL2's Jeep and Airboat, and seats to sit on your own contraptions (R switches all their
   thrusters and hoverballs). Spawn them from the Vehicles category; Use gets in and out.
@@ -147,9 +148,14 @@ nearest lamps or lights that are on light the world, on top of your flashlight.
 
 ## Spawn menu
 
-- **Props:** 186 in 10 spawnlists (Construction, Junk, Furniture, Misc, Vehicles, Shapes, Street, Combine, Food,
-  Lab), then about 3,000 extra props from 12 games, each game's in its own spawnlists. Up to 40 spawned props per
-  player, plus the map's own physics props.
+- **Props:** 191 in 11 spawnlists (Construction, Junk, Furniture, Misc, Vehicles, Shapes, Street, Combine, Food,
+  Lab, Items), then about 3,000 extra props from 12 games, each game's in its own spawnlists. Up to 40 spawned props
+  per player, plus the map's own physics props.
+- **Items:** HL2's Health Kit (+25 health), Health Vial (+10) and Suit Battery (+15 suit power): walk over one to
+  take it, when you need it. The Health Charger and Suit Charger stay where you put them (move them with the
+  physics gun, onto a wall): tap Use on one and it charges you until you're full, it's empty, you walk away or you
+  tap again. A health charger holds 50 and a suit charger 75, and they slowly fill up again. Batteries and suit
+  chargers need the HEV suit on (Options).
 - **NPCs:** 29: zombies (classic, fast, poison, Zombine, Zombie Torso), headcrabs, antlions and an antlion guard,
   Combine soldiers, Elites, Prison Guards and Metrocops, rebels and medics, citizens, and HL2's main characters.
 - **Ragdolls:** every NPC, plus 50 ragdoll-only characters: more HL2 people and creatures, CS:S's counter-terrorists,
@@ -420,9 +426,9 @@ The latest three. Every version, with dates, what's in each and which ones can p
 
 | Version | Changes |
 |---|---|
+| 1.8.1 | Items: health kits, health vials and suit batteries to pick up, and health and suit chargers (tap Use to charge) |
 | 1.8.0 | More weapons: AR2, crossbow, laser-guided RPG, grenades and bug bait (antlions follow you and fight on your side); explosions hurt other players too; the PS2 port is no longer supported |
 | 1.7.1 | Server list: Online Servers shows every public dedicated server on a server list (R sets its address); PSP Sandbox becomes Retcon's Mod: its own logo (no Garry's Mod branding), the XMB name and icon, menus and credits; achievement "Yes, I'm the real Retcon" |
-| 1.7.0 | Saves: builds saved to the memory stick and loaded back on any map; Wi-Fi multiplayer (Host on Wi-Fi, Online Servers) and dedicated servers ([psp-sandbox-server](https://github.com/retcon26/psp-sandbox-server)); doors and triggers react to every player; 4 new achievements |
 
 ## Roadmap
 
@@ -450,6 +456,7 @@ The latest three. Every version, with dates, what's in each and which ones can p
 - [x] Workshop menu: maps (by game), Lua addons and custom characters switched on and off
 - [x] Save and load: builds saved to the memory stick and loaded back on any map
 - [x] More weapons: AR2, crossbow, RPG, grenades and bug bait (antlions follow you)
+- [x] Health kits, suit batteries, and health and suit chargers
 - [x] Wi-Fi multiplayer (Host on Wi-Fi, Online Servers) and dedicated servers
       ([psp-sandbox-server](https://github.com/retcon26/psp-sandbox-server)); doors and triggers for every player
 - [x] Server list: every public dedicated server in Online Servers, without typing addresses

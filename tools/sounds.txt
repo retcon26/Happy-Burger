@@ -48,6 +48,14 @@ grenade_throw    0 sound/weapons/slam/throw.wav
 grenade_tick     0 sound/weapons/grenade/tick1.wav
 bugbait_squeeze  0 sound/weapons/bugbait/bugbait_squeeze1.wav
 bugbait_splat    0 sound/weapons/bugbait/bugbait_impact1.wav sound/weapons/bugbait/bugbait_impact3.wav
+medkit           0 sound/items/smallmedkit1.wav
+medvial          0 sound/items/medshot4.wav
+battery          0 sound/items/battery_pickup.wav
+charge_health    1 sound/items/medcharge4.wav
+charge_suit      1 sound/items/suitcharge1.wav
+charge_no_health 0 sound/items/medshotno1.wav
+charge_no_suit   0 sound/items/suitchargeno1.wav
+charge_done_suit 0 sound/items/suitchargeok1.wav
 reload           0 sound/weapons/pistol/pistol_reload1.wav sound/weapons/smg1/smg1_reload.wav
 shotgun_pump     0 sound/weapons/shotgun/shotgun_cock.wav
 empty            0 sound/weapons/pistol/pistol_empty.wav

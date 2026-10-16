@@ -136,6 +136,12 @@ models/props_lab/jar01a.mdl                       | Specimen Jar     | cat=Lab s
 models/props_lab/partsbin01.mdl                   | Parts Bin        | cat=Lab
 models/props_c17/tv_monitor01.mdl                 | TV               | cat=Lab
 models/props_c17/clock01.mdl                      | Clock            | cat=Lab shape=cylinder
+# Items (1.8.1): walk over a kit or battery to take it; tap Use on a charger to charge (game.c Items)
+models/items/healthkit.mdl                        | Health Kit       | cat=Items
+models/healthvial.mdl                             | Health Vial      | cat=Items shape=cylinder
+models/items/battery.mdl                          | Suit Battery     | cat=Items
+models/props_combine/health_charger001.mdl        | Health Charger   | cat=Items
+models/props_combine/suit_charger001.mdl          | Suit Charger     | cat=Items
 models/props_interiors/furniture_lamp01a.mdl      | Lamp             | cat=Furniture
 models/props_interiors/refrigerator01a.mdl        | Fridge 2         | cat=Furniture
 models/props_vehicles/van001a_physics.mdl         | Van              | cat=Vehicles

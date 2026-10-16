@@ -8,6 +8,7 @@ another protocol don't show up in Join Game or Online Servers.
 
 | Version | Date | Plays with | In short |
 |---|---|---|---|
+| [1.8.1](#181) | 2026-10-16 | 1.8.1 | Health kits, suit batteries, health and suit chargers |
 | [1.8.0](#180) | 2026-10-16 | 1.8.0 | More weapons: AR2, crossbow, RPG, grenades, bug bait; PS2 support ends |
 | [1.7.1](#171) | 2026-10-15 | 1.7.0 – 1.7.1 | Server list; the Retcon's Mod name and logo |
 | [1.7.0](#170) | 2026-10-15 | 1.7.0 – 1.7.1 | Saves; Wi-Fi multiplayer and dedicated servers |
@@ -24,6 +25,16 @@ another protocol don't show up in Join Game or Online Servers.
 | [1.1.0](#110) | before 2026-10-11 | not recorded | Camera tool |
 | [1.0.1](#101) | before 2026-10-11 | not recorded | Ragdoll crash fixes |
 | [1.0.0](#100) | before 2026-10-11 | not recorded | Version label, new options, more ragdolls |
+
+## 1.8.1
+
+- **Items** (a new spawnlist): HL2's Health Kit (+25 health), Health Vial (+10) and Suit Battery (+15 suit
+  power). Walk over one to take it, when it would help.
+- **Health Charger and Suit Charger:** they stay where you put them (frozen, like cameras; move them onto a wall
+  with the physics gun). Tap Use on one and it charges you until you're full, it's empty, you walk away or you
+  tap again. A health charger holds 50 and a suit charger 75, and they slowly fill up again.
+- Batteries and suit chargers need Options > HEV suit on.
+- Network protocol 11.
 
 ## 1.8.0
 

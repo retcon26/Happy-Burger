@@ -324,6 +324,8 @@ enum {
                      // emitter effect << 24; f: point, surface normal, then view direction or the first pick
     CMD_LAUNCH,      // i0 weapon (crossbow, RPG, grenade, bug bait), f: eye[3] dir[3]
     CMD_SQUEEZE,     // bug bait squeezed: antlions follow this player
+    CMD_PICKUP,      // i0 body: a health kit, vial or battery this player walked over
+    CMD_HEAL,        // f0 health from a charger
 };
 #define MAX_OUTQ 8
 
@@ -486,6 +488,7 @@ static struct {
         int fire[WEAPON_COUNT], crowbar_hit, reload, pump, empty, bullet_impact, bullet_flesh;
         int jeep_engine, airboat_engine, vehicle_enter, vehicle_exit;
         int bolt_hit, bolt_flesh, gren_tick, bait_squeeze, bait_splat;
+        int medkit, medvial, battery, charge_health, charge_suit, charge_no_health, charge_no_suit, charge_done_suit;
     } snd;
 
     // Multiplayer (see the Multiplayer section). Slot 0 is the host.
@@ -519,6 +522,12 @@ static struct {
     // Bug bait: R went down (bait_down) and how long it's been held; it was squeezed, not thrown
     float bait_hold;
     int bait_down, bait_squeezed;
+    // Items: the charger charging us (-1: none) and its sound; a client's health still to ask the host for;
+    // a kit we just took, until the host has removed it
+    int charging, charge_snd;
+    float heal_pending, heal_timer;
+    int taken_body;
+    float taken_time;
     char exit_msg[64];
 } G;
 
@@ -663,6 +672,13 @@ static void test_use_aim(void);
 static void test_use_body(int body);
 static void launch(int w, vec3 eye, vec3 f);
 static void projectiles_clear(void);
+// Items (see Items): what a prop is, for pickups and chargers
+enum { ITEM_NONE, ITEM_HEALTHKIT, ITEM_HEALTHVIAL, ITEM_BATTERY, ITEM_HEALTH_CHARGER, ITEM_SUIT_CHARGER };
+static int item_kind(int body);
+static void items_clear(void);
+static void charger_use(int body);
+static void test_use_item(void);
+static void stop_charging(int sound);
 static void save_build(const char *name);
 static int load_build(const char *name, int in_place);
 static void cleanup_props(void);
@@ -763,6 +779,14 @@ static void load_shared(void) {
     G.snd.gren_tick = snd_find("grenade_tick");
     G.snd.bait_squeeze = snd_find("bugbait_squeeze");
     G.snd.bait_splat = snd_find("bugbait_splat");
+    G.snd.medkit = snd_find("medkit");
+    G.snd.medvial = snd_find("medvial");
+    G.snd.battery = snd_find("battery");
+    G.snd.charge_health = snd_find("charge_health");
+    G.snd.charge_suit = snd_find("charge_suit");
+    G.snd.charge_no_health = snd_find("charge_no_health");
+    G.snd.charge_no_suit = snd_find("charge_no_suit");
+    G.snd.charge_done_suit = snd_find("charge_done_suit");
     G.hold_sound = -1;
     G.group_open = -1; // the spawn menu's game groups start closed
     G.veh = -1;
@@ -995,6 +1019,7 @@ int game_start(const char *map_name, char *err, int err_len) {
     phys_init(&G.phys);
     devices_clear();
     projectiles_clear();
+    items_clear();
     memset(G.impact_cooldown, 0, sizeof(G.impact_cooldown));
 
     blood_clear();
@@ -1051,6 +1076,7 @@ void game_set_view(float x, float y, float z, float yaw, float pitch) {
 
 void game_end(void) {
     achieve_save(); // the playtime since the last save
+    stop_charging(0);
     net_leave();
     script_stop();
     if (G.hold_sound >= 0) snd_stop(G.hold_sound);
@@ -1213,6 +1239,12 @@ void game_command(const char *line) {
         if (is_launcher(G.weapon)) launch(G.weapon, player_eye(&G.player), view_forward());
     } else if (strncmp(line, "squeeze", 7) == 0) { // squeezes bug bait: antlions follow
         npc_bugbait_squeeze(G.my_slot);
+    } else if (sscanf(line, "health %f", &x) == 1) { // sets health / suit power, for testing items
+        G.health = clampf(x, 1.0f, 100.0f);
+    } else if (sscanf(line, "suit %f", &x) == 1) {
+        G.suit = clampf(x, 0.0f, 100.0f);
+    } else if (strncmp(line, "charge", 6) == 0) { // Use on the charger in front
+        test_use_item();
     } else if (strncmp(line, "killall", 7) == 0) { // every NPC dies, knocked away from the player
         for (int n = 0; n < MAX_NPCS; n++) npc_damage_dir(n, 10000.0f, v3_scale(view_forward(), 400.0f));
     }
@@ -1763,6 +1795,7 @@ static int new_body(int model, vec3 pos, quat rot, unsigned int tint, const vec3
     G.phys.bodies[i].tint_abgr = tint;
     G.phys.bodies[i].surface = (int)md->surface;
     if (model == camera_model()) G.phys.bodies[i].frozen = 1; // cameras hang where they're put, as in GMod
+    if (item_kind(i) >= ITEM_HEALTH_CHARGER) G.phys.bodies[i].frozen = 1; // and chargers, as on a wall
     G.body_owner[i] = G.acting;
     return i;
 }
@@ -3470,6 +3503,189 @@ static void bugbait_update(const InputState *in, float dt) {
     launch(WEAPON_BUGBAIT, player_eye(&G.player), view_forward());
 }
 
+// --- Items: medkits, batteries and chargers ----------------------------------------------------------
+// Health kits, vials and suit batteries are props you take by walking over them (when they'd help);
+// health and suit chargers stay where they're put and charge you after a tap of Use, while they've charge
+// left (they slowly fill up again). Each PSP looks after its own player: a multiplayer client asks the host
+// to remove what it took (CMD_PICKUP) and to add the health (CMD_HEAL); suit power is each PSP's own.
+
+#define PICKUP_RANGE 48.0f
+#define CHARGE_RANGE 120.0f
+#define CHARGE_RATE 12.0f     // points a second
+#define HEALTH_CHARGER_CAP 50.0f
+#define SUIT_CHARGER_CAP 75.0f
+#define CHARGER_REFILL 1.0f   // points a second while nobody's using it
+#define MAX_HEALTH 100.0f
+#define MAX_SUIT 100.0f
+
+static float g_charge[MAX_BODIES];     // each charger's charge left (as this PSP sees it)
+static int g_charge_model[MAX_BODIES]; // the model the charge belongs to, + 1 (0: not set)
+
+// By the prop's name, so every entry of it counts (the Combine spawnlist has a Health Charger too)
+#define MAX_ITEM_MODELS 1024
+static int item_kind(int body) {
+    static unsigned char kinds[MAX_ITEM_MODELS];
+    static int ready;
+    if (!body_valid(body) || !G.props_loaded) return ITEM_NONE;
+    if (!ready) {
+        static const char *const names[6] = {NULL, "Health Kit", "Health Vial", "Suit Battery", "Health Charger",
+                                             "Suit Charger"};
+        ready = 1;
+        for (int m = 0; m < G.props.num_models && m < MAX_ITEM_MODELS; m++) {
+            for (int k = 1; k < 6; k++) {
+                if (strncmp(G.props.models[m].name, names[k], sizeof(G.props.models[m].name)) == 0) kinds[m] = (unsigned char)k;
+            }
+        }
+    }
+    const Body *b = &G.phys.bodies[body];
+    if (b->lib != 0 || b->model < 0 || b->model >= G.props.num_models || b->model >= MAX_ITEM_MODELS) return ITEM_NONE;
+    return kinds[b->model];
+}
+
+// Test command "charge": Use on the charger in front
+static void test_use_item(void) {
+    Aim a = aim_trace(CHARGE_RANGE);
+    if (a.body >= 0 && item_kind(a.body) >= ITEM_HEALTH_CHARGER) charger_use(a.body);
+}
+
+static float item_amount(int kind) {
+    return kind == ITEM_HEALTHKIT ? 25.0f : kind == ITEM_HEALTHVIAL ? 10.0f : 15.0f;
+}
+
+// A charger's charge left: full the first time it's seen
+static float *charger_left(int body) {
+    int m = G.phys.bodies[body].model + 1;
+    if (g_charge_model[body] != m) {
+        g_charge_model[body] = m;
+        g_charge[body] = item_kind(body) == ITEM_SUIT_CHARGER ? SUIT_CHARGER_CAP : HEALTH_CHARGER_CAP;
+    }
+    return &g_charge[body];
+}
+
+static void items_clear(void) {
+    memset(g_charge_model, 0, sizeof(g_charge_model));
+    G.charging = -1;
+    G.charge_snd = -1;
+    G.heal_pending = 0.0f;
+    G.taken_body = -1;
+}
+
+// Health for this PSP's player. A multiplayer client's is the host's to change: it's asked (in small amounts)
+// and the new health comes back in a snapshot (adding it here first would look like damage when it did).
+static void heal_self(float amount) {
+    if (is_client()) {
+        G.heal_pending += amount;
+    } else {
+        G.health = fminf(MAX_HEALTH, G.health + amount);
+    }
+}
+
+static void flush_heal(void) {
+    if (!is_client() || G.heal_pending <= 0.0f) return;
+    float f[1] = {G.heal_pending};
+    send_cmd(CMD_HEAL, 0, 0, 0, f, 1);
+    G.heal_pending = 0.0f;
+}
+
+static void stop_charging(int sound) {
+    if (G.charge_snd >= 0) snd_stop(G.charge_snd);
+    G.charge_snd = -1;
+    if (sound && G.charging >= 0) {
+        int suit = item_kind(G.charging) == ITEM_SUIT_CHARGER;
+        play(suit ? G.snd.charge_done_suit : G.snd.charge_no_health, 0.7f);
+    }
+    G.charging = -1;
+    flush_heal();
+}
+
+// Use on a charger: start charging, or stop if it's the one already charging
+static void charger_use(int body) {
+    if (G.charging == body) {
+        stop_charging(1);
+        return;
+    }
+    stop_charging(0);
+    int suit = item_kind(body) == ITEM_SUIT_CHARGER;
+    float need = suit ? (g_settings.hev_suit ? MAX_SUIT - G.suit : 0.0f) : MAX_HEALTH - G.health;
+    if (*charger_left(body) <= 0.5f || need <= 0.5f) {
+        play(suit ? G.snd.charge_no_suit : G.snd.charge_no_health, 0.7f);
+        notify(*charger_left(body) <= 0.5f ? "It's empty: it fills up again slowly"
+               : suit                     ? "Your suit's charged (or the HEV suit is off in Options)"
+                                          : "You're at full health",
+               NOTE_HINT);
+        return;
+    }
+    G.charging = body;
+    if (g_settings.sound) G.charge_snd = snd_loop(suit ? G.snd.charge_suit : G.snd.charge_health, 0.6f);
+}
+
+// Each frame (every PSP, for its own player): chargers refill, kits and batteries are taken, charging goes on
+static void items_update(float dt) {
+    for (int i = 0; i < MAX_BODIES; i++) {
+        if (!g_charge_model[i] || i == G.charging) continue;
+        float cap = item_kind(i) == ITEM_SUIT_CHARGER ? SUIT_CHARGER_CAP : HEALTH_CHARGER_CAP;
+        g_charge[i] = fminf(cap, g_charge[i] + CHARGER_REFILL * dt);
+    }
+    if (G.taken_time > 0.0f) G.taken_time -= dt;
+    G.heal_timer -= dt;
+    if (G.heal_timer <= 0.0f) {
+        G.heal_timer = 0.25f;
+        flush_heal();
+    }
+    if (G.dead_time > 0.0f || G.player.noclip || G.veh >= 0 || (g_dedicated && G.my_slot == 0)) {
+        if (G.charging >= 0) stop_charging(0);
+        return;
+    }
+    vec3 c = v3_add(G.player.origin, v3(0, 0, 36));
+    for (int i = 0; i < MAX_BODIES; i++) {
+        int kind = item_kind(i);
+        if (kind < ITEM_HEALTHKIT || kind > ITEM_BATTERY || (i == G.taken_body && G.taken_time > 0.0f)) continue;
+        if (v3_len(v3_sub(G.phys.bodies[i].pos, c)) > PICKUP_RANGE) continue;
+        int battery = kind == ITEM_BATTERY;
+        if (battery ? !(g_settings.hev_suit && G.suit < MAX_SUIT - 0.5f) : G.health >= MAX_HEALTH - 0.5f) continue;
+        float amount = item_amount(kind);
+        char msg[32];
+        snprintf(msg, sizeof(msg), battery ? "Suit +%d" : "Health +%d", (int)amount);
+        notify(msg, NOTE_HINT);
+        play(battery ? G.snd.battery : kind == ITEM_HEALTHKIT ? G.snd.medkit : G.snd.medvial, 0.8f);
+        if (battery) {
+            G.suit = fminf(MAX_SUIT, G.suit + amount);
+        } else if (!is_client()) { // a client's health: the host adds it when it takes the kit away
+            G.health = fminf(MAX_HEALTH, G.health + amount);
+        }
+        if (is_client()) {
+            // The host takes it away (and adds the health) when it hears; until then this one's ours
+            send_cmd(CMD_PICKUP, i, 0, 0, NULL, 0);
+            G.taken_body = i;
+            G.taken_time = 2.0f;
+        } else {
+            remove_body(i);
+        }
+        break;
+    }
+    if (G.charging < 0) return;
+    int kind = item_kind(G.charging);
+    if ((kind != ITEM_HEALTH_CHARGER && kind != ITEM_SUIT_CHARGER) ||
+        v3_len(v3_sub(G.phys.bodies[G.charging].pos, player_eye(&G.player))) > CHARGE_RANGE + 40.0f) {
+        stop_charging(0); // walked away (or it's gone)
+        return;
+    }
+    int suit = kind == ITEM_SUIT_CHARGER;
+    float *left = charger_left(G.charging);
+    float need = suit ? (g_settings.hev_suit ? MAX_SUIT - G.suit : 0.0f) : MAX_HEALTH - G.health;
+    if (need <= 0.5f || *left <= 0.0f) {
+        stop_charging(1);
+        return;
+    }
+    float d = fminf(CHARGE_RATE * dt, fminf(need, *left));
+    *left -= d;
+    if (suit) {
+        G.suit += d;
+    } else {
+        heal_self(d);
+    }
+}
+
 static void start_reload(void) {
     const WeaponStats *ws = &k_ws[G.weapon];
     if (!ws->clip || G.clip[G.weapon] >= ws->clip || G.ammo[G.weapon] <= 0 || G.reload_left > 0.0f) return;
@@ -4688,6 +4904,18 @@ static void exec_cmd(int slot, const NetCmd *c) {
         break;
     case CMD_SQUEEZE:
         npc_bugbait_squeeze(slot);
+        break;
+    case CMD_PICKUP: {
+        // A kit or battery the player walked over: gone for everyone, and their health up
+        int kind = item_kind(i);
+        if (kind < ITEM_HEALTHKIT || kind > ITEM_BATTERY || p->health <= 0.0f) break;
+        if (v3_len(v3_sub(G.phys.bodies[i].pos, v3_add(p->pos, v3(0, 0, 36)))) > 150.0f) break;
+        if (kind != ITEM_BATTERY) p->health = fminf(MAX_HEALTH, p->health + item_amount(kind));
+        remove_body(i);
+        break;
+    }
+    case CMD_HEAL:
+        if (p->health > 0.0f) p->health = fminf(MAX_HEALTH, p->health + clampf(c->f[0], 0.0f, 25.0f));
         break;
     case CMD_SHOOT:
         if (is_gun(i) && !is_launcher(i)) {
@@ -5986,6 +6214,7 @@ void game_host_dedicated(void (*log)(const char *msg)) {
 GameResult game_update(const InputState *in, float dt) {
     if (g_dedicated) return dedicated_update(dt);
     later_update(dt);
+    items_update(dt);
     phys_set_quality(g_settings.physics);
     achievements_tick(dt);
     devices_update(dt);
@@ -6151,6 +6380,13 @@ GameResult game_update(const InputState *in, float dt) {
             // A vehicle or seat within reach: get in
             int vehicle = use_aim.body >= 0 && use_aim.dist < 160.0f &&
                           vehicle_kind(&G.phys.bodies[use_aim.body]) != VEH_NONE;
+            // A health or suit charger within reach: charge from it (Use again stops)
+            if (!vehicle && use_aim.body >= 0 && use_aim.dist < CHARGE_RANGE &&
+                item_kind(use_aim.body) >= ITEM_HEALTH_CHARGER) {
+                charger_use(use_aim.body);
+                use_aim.body = -1;
+                use_pressed = 0;
+            }
             int has_forces = !vehicle && use_aim.body >= 0 && !is_client() && toggle_forces(use_aim.body);
             // A client knows the lamps, buttons... (PK_DEVICES): those are used, not picked up
             int client_device = !vehicle && use_aim.body >= 0 && is_client() && body_has_device(use_aim.body);

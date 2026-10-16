@@ -1,4 +1,4 @@
-RETCON'S MOD (FORMERLY PSP SANDBOX) - CONTROLS  (v1.8.0)
+RETCON'S MOD (FORMERLY PSP SANDBOX) - CONTROLS  (v1.8.1)
 =========================================
 
 ON FOOT                      PSP
@@ -81,6 +81,14 @@ Camera tool (Tool Gun)
   Move or weld it like any prop (Physics Gun), e.g. onto a car.
   Putting the tool away returns to your own view. L doesn't jump while the
   Camera tool is out.
+
+
+ITEMS (spawn menu > Items)
+  Health Kit, Health Vial, Suit Battery: walk over one to take it (only when
+    it would help: health under 100, or suit power under 100 with the HEV suit on).
+  Health Charger, Suit Charger: tap Use (D-pad Right) on one to charge; it stops
+    when you're full, it's empty, you walk away or you tap Use again. They
+    fill up again slowly. Move them onto a wall with the Physics Gun.
 
 
 VEHICLES AND SEATS
