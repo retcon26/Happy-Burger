@@ -432,7 +432,8 @@ your hands moves. Without the pack the game shows the still models from the prop
 - [x] More tools: Wheel, Winch, Hydraulic, Lamp, Light, Button and Emitter
 - [x] Workshop menu: maps (by game), Lua addons and custom characters switched on and off
 - [x] Save and load: builds saved to the memory stick and loaded back on any map
-- [x] Wi-Fi multiplayer and dedicated servers (psp-sandbox-server)
+- [x] Wi-Fi multiplayer (Host on Wi-Fi, Online Servers) and dedicated servers
+      ([psp-sandbox-server](https://github.com/retcon26/psp-sandbox-server)); doors and triggers for every player
 
 - [ ] **PS2 saves:** Options and builds saved to the PS2's memory card
 - [ ] **More weapons:** RPG, crossbow, grenades, AR2 and bugbait (antlions follow you)
@@ -445,7 +446,12 @@ your hands moves. Without the pack the game shows the still models from the prop
       physics gun colours
 - [ ] **Quick chat:** a radial menu of short messages and gestures for multiplayer, since the consoles have no
       keyboard
-- [ ] **Share builds:** send a saved build to the other players in the game over ad-hoc or LAN
+- [ ] **Share builds:** send a saved build to the other players in a game (ad-hoc, Wi-Fi or a server), and let
+      players who joined save and load builds too (only the host can now)
+- [ ] **Server list:** a master list of public servers, so Online Servers shows them without typing addresses
+- [ ] **Bigger servers:** more than 3 players on a dedicated server (the game has 4 slots and the server keeps one
+      empty), plus a password, map rotation and the build saved every few minutes
+- [ ] **Server on Windows:** psp-sandbox-server built for Windows too (it runs on Linux and WSL now)
 - [ ] **Day, night and weather:** a time-of-day option with fog and rain, built on gm_construct_13's fog
 - [ ] **Screenshots:** a pause menu button that saves the screen to the memory stick or memory card
 - [ ] **Workshop maps:** convert maps from your GMod Workshop downloads too (the converter already reads their
