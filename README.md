@@ -67,8 +67,9 @@ load it, it falls back to the map's low-detail version.
   PPSSPP, set the PSP model as above, and start it from the Games tab. Apple doesn't allow PPSSPP's fast CPU
   mode on iOS, so lower Draw distance and Physics quality if it's slow.
 
-The full data is about 2.2 GB, nearly all of it maps. To save space, delete maps you don't play from
-`data/maps`: each map is two files, `name.pmap` and `name.low.pmap`.
+The full data is about 2.85 GB (Windows shows 2.66 GB), 91% of it maps. To save space, delete maps you don't play
+from `data/maps`: each map is `name.pmap` and `name.low.pmap`, plus `name.ppak` and `name.low.ppak` when it has
+props of its own.
 
 ## Controls
 
