@@ -1241,6 +1241,12 @@ void game_command(const char *line) {
         g_test_ax = x, g_test_ay = y;
     } else if (strncmp(line, "physrot off", 11) == 0) {
         g_test_hold = 0;
+    } else if (sscanf(line, "hold %x", &i) == 1) { // hold buttons: a PSP_CTRL_ mask in hex (1 is Select), 0 lets go
+        g_test_hold = (unsigned int)i;
+        g_test_ax = g_test_ay = 0.0f;
+    } else if (sscanf(line, "targetfps %d", &i) == 1) { // Options > Target FPS, by index (not saved)
+        g_settings.target_fps = i;
+
     } else if (strncmp(line, "toolfire", 8) == 0) { // the tool gun's R, at what's in front
         toolgun_fire();
     } else if (strncmp(line, "useaim", 6) == 0) { // Use on the prop in front (thrusters, wheels, lamps...)
@@ -4077,6 +4083,8 @@ static void open_pause(void) {
 
 static void qmenu_update(const InputState *in) {
     if (in->pressed & (PSP_CTRL_SELECT | PSP_CTRL_CIRCLE)) {
+        // Letting go of that Select mustn't open it straight back up (nor hold on into noclip)
+        if (in->pressed & PSP_CTRL_SELECT) G.select_fired = 1;
         qmenu_close();
         return;
     }

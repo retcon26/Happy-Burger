@@ -8,7 +8,8 @@ another protocol don't show up in Join Game or Online Servers.
 
 | Version | Date | Plays with | In short |
 |---|---|---|---|
-| [1.8.2](#182) | 2026-10-16 | 1.8.2 | NPC navigation; Face Poser and Finger Poser; physics gun turns props on every axis |
+| [1.8.3](#183) | 2026-10-16 | 1.8.2 – 1.8.3 | Target FPS option; Select closes the spawn menu again |
+| [1.8.2](#182) | 2026-10-16 | 1.8.2 – 1.8.3 | NPC navigation; Face Poser and Finger Poser; physics gun turns props on every axis |
 | [1.8.1](#181) | 2026-10-16 | 1.8.1 | Health kits, suit batteries, health and suit chargers |
 | [1.8.0](#180) | 2026-10-16 | 1.8.0 | More weapons: AR2, crossbow, RPG, grenades, bug bait; PS2 support ends |
 | [1.7.1](#171) | 2026-10-15 | 1.7.0 – 1.7.1 | Server list; the Retcon's Mod name and logo |
@@ -26,6 +27,16 @@ another protocol don't show up in Join Game or Online Servers.
 | [1.1.0](#110) | before 2026-10-11 | not recorded | Camera tool |
 | [1.0.1](#101) | before 2026-10-11 | not recorded | Ragdoll crash fixes |
 | [1.0.0](#100) | before 2026-10-11 | not recorded | Version label, new options, more ragdolls |
+
+## 1.8.3
+
+- **Options > Target FPS:** 25, 30, 60 (the default, as before) or 120 frames a second. 25 and 30 wait for the
+  screen, so the pace stays even (25 alternates two and three refreshes a frame); physics keeps real time at
+  them on every Physics quality. The screen shows 60 a second at most, so 120 stops waiting for it and only
+  caps the rate: the game reacts sooner, but the picture can tear.
+- **Spawn menu:** Select closes it again. Pressing Select closed it, but letting go opened it straight back up,
+  so only Circle worked.
+- Network protocol 12, as 1.8.2: they play together, and dedicated servers 1.1.1 still work.
 
 ## 1.8.2
 

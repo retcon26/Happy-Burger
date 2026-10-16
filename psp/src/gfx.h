@@ -17,6 +17,10 @@ void gfx_begin_frame(unsigned int clear_abgr);
 // Closes the display list and waits for the GE to finish drawing.
 void gfx_end_frame(void);
 void gfx_present(int vsync);
+// Options > Target FPS: frames a second gfx_present(1) paces to. 60 or less waits for the screen's
+// vblanks (30: every other one; 25: 2 or 3 apart, 2.4 on average); over 60 it doesn't wait for them and
+// only caps the rate, so the screen (60 a second) can tear.
+void gfx_set_frame_rate(int fps);
 
 // Flashlight: a spotlight from eye along fwd, applied to everything drawn while it's on.
 void gu_flashlight(int on, const float eye[3], const float fwd[3]);

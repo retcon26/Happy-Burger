@@ -1,6 +1,6 @@
 # Retcon's Mod
 
-A physics sandbox for the PSP, by Retcon. Current version: **1.8.2** (shown in the main menu's corner,
+A physics sandbox for the PSP, by Retcon. Current version: **1.8.3** (shown in the main menu's corner,
 set in `psp/src/version.h`).
 
 **Retcon's Mod is PSP Sandbox's new name.** The name is changing step by step: the game (the XMB, the menus, the
@@ -266,7 +266,11 @@ The PSP doesn't let a game read its model directly, so the page's "Playing on" l
 
 Sound, look speed, invert look, God mode (also games you host), player model, third-person view, NPC thinking,
 NPCs ignore players, unlimited ammo, HEV suit (100 suit power at spawn that takes 80% of the damage, as in HL2),
-show HUD, crosshair, show FPS, draw distance, physics quality, debug overlay, and the credits.
+show HUD, crosshair, show FPS, target FPS, draw distance, physics quality, debug overlay, and the credits.
+
+**Target FPS** paces the game to 25, 30, 60 (the default) or 120 frames a second. 25 and 30 run steadier than a
+frame rate that keeps dropping, with physics still in real time. The screen shows 60 a second at most, so 120
+stops waiting for it: the game reacts sooner, but the picture can tear.
 
 ## Maps
 
@@ -516,9 +520,9 @@ The latest three. Every version, with dates, what's in each and which ones can p
 
 | Version | Changes |
 |---|---|
+| 1.8.3 | Options > Target FPS: 25, 30, 60 or 120 frames a second; Select closes the spawn menu again (letting go of it opened the menu straight back up) |
 | 1.8.2 | NPC navigation along the map's node graph; Face Poser and Finger Poser for ragdolls (characters now have hands with fingers); the physics gun turns props on every axis (hold X); easier build instructions |
 | 1.8.1 | Items: health kits, health vials and suit batteries to pick up, and health and suit chargers (tap Use to charge) |
-| 1.8.0 | More weapons: AR2, crossbow, laser-guided RPG, grenades and bug bait (antlions follow you and fight on your side); explosions hurt other players too; the PS2 port is no longer supported |
 
 ## Roadmap
 

@@ -13,11 +13,18 @@
 
 #define SETTINGS_PATH "data/settings.cfg"
 
-Settings g_settings = {1, 3, 0, 1, 0, 1, 1, 1, 4, 3, 0, 0, 0, 1, 0, 0, 1, 0, 0, ""};
+Settings g_settings = {1, 3, 0, 1, 0, 1, 1, 1, 4, 3, 2, 0, 0, 0, 1, 0, 0, 1, 0, 0, ""};
 
 // Values with names show the name; other multi-step options show dots; 0/1 options a checkbox
 static const char *const k_dist_names[] = {"Near", "Medium", "Far", "Full"};
 static const char *const k_quality_names[] = {"Low", "Medium", "High"};
+static const char *const k_fps_names[] = {"25", "30", "60", "120"};
+static const int k_fps[] = {25, 30, 60, 120};
+
+int settings_target_fps(void) {
+    int i = g_settings.target_fps;
+    return k_fps[i >= 0 && i < 4 ? i : 2];
+}
 
 typedef struct {
     const char *key;
@@ -43,6 +50,7 @@ static Option k_options[] = {
     {"show_hud", "Show HUD", &g_settings.show_hud, 0, 1, NULL},
     {"crosshair", "Crosshair", &g_settings.crosshair, 0, 1, NULL},
     {"show_fps", "Show FPS", &g_settings.show_fps, 0, 1, NULL},
+    {"target_fps", "Target FPS", &g_settings.target_fps, 0, 3, k_fps_names},
     {"draw_dist", "Draw distance", &g_settings.draw_dist, 1, 4, k_dist_names},
     {"physics", "Physics quality", &g_settings.physics, 1, 3, k_quality_names},
 #ifdef PS2
@@ -157,17 +165,20 @@ static void credits_update(const InputState *in) {
         if (g_settings.sound) snd_play(snd_find("menu_move"), 0.4f, 0.0f);
         return;
     }
-    // Down speeds them up, Up winds them back; otherwise they roll by themselves
+    // Down speeds them up, Up winds them back; otherwise they roll by themselves. The speeds are per frame
+    // at 60, so under a lower Target FPS they move further a frame.
+    int fps = settings_target_fps();
+    float k = fps < 60 ? 60.0f / (float)fps : 1.0f;
     if (in->held & PSP_CTRL_DOWN) {
-        g_credit_pos += 4.0f;
+        g_credit_pos += 4.0f * k;
         g_credit_wait = 0;
     } else if (in->held & PSP_CTRL_UP) {
-        g_credit_pos -= 4.0f;
+        g_credit_pos -= 4.0f * k;
         g_credit_wait = 0;
     } else if (g_credit_wait > 0) {
-        g_credit_wait--;
+        g_credit_wait -= (int)k;
     } else {
-        g_credit_pos += CREDITS_SPEED;
+        g_credit_pos += CREDITS_SPEED * k;
     }
 }
 

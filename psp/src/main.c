@@ -16,6 +16,7 @@
 #include "mem.h"
 #include "menu.h"
 #include "net.h"
+#include "physics.h"
 #include "settings.h"
 #include "ui.h"
 
@@ -182,6 +183,9 @@ int main(int argc, char *argv[]) {
             dt = 0.1f; // Avoid a huge step after a stall (HOME menu, loading).
         }
         t_prev = now;
+        int target = settings_target_fps(); // Options > Target FPS
+        gfx_set_frame_rate(target);
+        phys_set_frame_rate(target);
         input_update(&in);
         if (g_ignore_input) {
             memset(&in, 0, sizeof(in));

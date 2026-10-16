@@ -25,6 +25,11 @@
 // Options > Physics quality: solver passes per step, and how many steps a slow frame may catch up
 static int g_iterations = 6;
 static int g_max_steps = 3;
+static int g_frame_steps = 1; // fixed steps in a frame at the target frame rate
+
+void phys_set_frame_rate(int fps) {
+    g_frame_steps = fps > 0 && fps < 60 ? (60 + fps - 1) / fps : 1;
+}
 
 void phys_set_quality(int q) {
     static const int iters[3] = {3, 4, 6}, steps[3] = {1, 2, 3};
@@ -841,13 +846,13 @@ static void step_once(PhysWorld *w, Map *m, float dt) {
 
 void phys_step(PhysWorld *w, Map *m, float dt) {
     w->accum += dt;
-    int steps = 0;
-    while (w->accum >= STEP && steps < g_max_steps) {
+    int steps = 0, max_steps = g_max_steps + g_frame_steps - 1;
+    while (w->accum >= STEP && steps < max_steps) {
         step_once(w, m, STEP);
         w->accum -= STEP;
         steps++;
     }
-    if (steps == g_max_steps) w->accum = 0.0f; // too slow to catch up: drop time instead of spiralling
+    if (steps == max_steps) w->accum = 0.0f; // too slow to catch up: drop time instead of spiralling
 }
 
 static int free_joint(PhysWorld *w) {

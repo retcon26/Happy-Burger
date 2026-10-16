@@ -113,6 +113,8 @@ void phys_wake(PhysWorld *w, int i);
 void phys_step(PhysWorld *w, Map *m, float dt);
 // 1 low, 2 medium, 3 high (default): fewer solver passes and catch-up steps are cheaper but softer
 void phys_set_quality(int q);
+// Options > Target FPS: under 60 a frame needs more than one fixed step, so it may catch up that many more
+void phys_set_frame_rate(int fps);
 // Called at the start of every fixed step, before gravity and contacts (vehicles: suspension and engines)
 void phys_set_step_hook(void (*hook)(PhysWorld *w, Map *m, float dt));
 // An impulse (kg u/s) at a world point, and how fast that point of the body is moving

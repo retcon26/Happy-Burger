@@ -1,6 +1,7 @@
 #include "gfx.h"
 
 #include <pspdisplay.h>
+#include <pspkernel.h>
 #include <pspgu.h>
 
 // One display list, rebuilt every frame. Per-frame vertex data from sceGuGetMemory also lives here.
@@ -67,9 +68,31 @@ void gfx_end_frame(void) {
     sceGuSync(GU_SYNC_FINISH, GU_SYNC_WHAT_DONE);
 }
 
+static int g_fps = 60;
+static unsigned int g_vlast; // the vblank count when the last frame went up
+static int g_vfrac;          // tenths of a vblank carried to the next frame (25 fps: 2.4 a frame)
+static SceInt64 g_tlast;     // over 60 fps: when the last frame went up
+
+void gfx_set_frame_rate(int fps) {
+    g_fps = fps < 10 ? 10 : fps;
+}
+
 void gfx_present(int vsync) {
-    if (vsync) {
-        sceDisplayWaitVblankStart();
+    if (vsync && g_fps > 60) {
+        SceInt64 want = g_tlast + 1000000 / g_fps, now = sceKernelGetSystemTimeWide();
+        if (now < want && want - now < 100000) sceKernelDelayThread((SceUInt)(want - now));
+        g_tlast = sceKernelGetSystemTimeWide();
+    } else if (vsync) {
+        g_vfrac += 600 / g_fps;
+        unsigned int want = g_vlast + (unsigned int)(g_vfrac / 10);
+        g_vfrac %= 10;
+        if ((int)(want - sceDisplayGetVcount()) <= 0) {
+            // Late (a slow frame, or a load): the next vblank, and the pacing starts again from it
+            sceDisplayWaitVblankStart();
+            g_vfrac = 0;
+        }
+        while ((int)(want - sceDisplayGetVcount()) > 0) sceDisplayWaitVblankStart();
+        g_vlast = sceDisplayGetVcount();
     }
     sceGuSwapBuffers();
 }

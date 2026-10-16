@@ -14,6 +14,7 @@ typedef struct {
     int show_hud;   // 0/1: health, ammo, notes and hints
     int draw_dist;  // 1..4: near, medium, far, the map's full distance
     int physics;    // 1..3: low, medium, high
+    int target_fps; // 0..3: 25, 30, 60, 120 frames a second (settings_target_fps)
     int god_mode;   // 0/1: no damage in single player; when hosting, for everyone in the game
     int player_model; // which of the player models (settings_set_player_models) you look like
     int third_person; // 0/1: the camera follows behind you, so you see your player model
@@ -42,6 +43,8 @@ extern Settings g_settings;
 
 void settings_load(void);
 void settings_save(void);
+// Options > Target FPS in frames a second
+int settings_target_fps(void);
 // Options > Player model offers these, named by name(0..count-1); the game registers them once the
 // NPC pack has loaded
 void settings_set_player_models(int count, const char *(*name)(int index));
