@@ -1,6 +1,6 @@
 # Retcon's Mod
 
-A physics sandbox for the PSP, by Retcon. Current version: **1.9.0** (shown in the main menu's corner,
+A physics sandbox for the PSP, by Retcon. Current version: **1.9.1** (shown in the main menu's corner,
 set in `psp/src/version.h`).
 
 **Retcon's Mod is PSP Sandbox's new name.** The name is changing step by step: the game (the XMB, the menus, the
@@ -290,7 +290,8 @@ start the game again to play it.
   a version that needs new data says so and doesn't install: rebuild the data and the game on your PC instead.
 - The version you had is kept as `EBOOT.OLD` in the game's folder. To go back, delete `EBOOT.PBP` and rename
   `EBOOT.OLD` to `EBOOT.PBP`.
-- The download is checked against GitHub's certificate, so the PSP's date needs to be about right.
+- The download is checked against GitHub's certificate. The PSP's date doesn't need to be right (1.9.0 needed
+  it: on 1.9.0, set the PSP's date and time first, then update).
 - Each check writes what happened to `data/update.log`, which helps if an update fails.
 
 ## Maps
@@ -555,9 +556,9 @@ The latest three. Every version, with dates, what's in each and which ones can p
 
 | Version | Changes |
 |---|---|
+| 1.9.1 | Options > Updates works when the PSP's clock is wrong (1.9.0 said to check the date and time) |
 | 1.9.0 | Options > Updates: downloads and installs new versions from GitHub over Wi-Fi; Options > LOD distance slider (how far props and NPCs are drawn); Wi-Fi errors say what went wrong (they all said "Offline") |
 | 1.8.3 | Options > Target FPS: 25, 30, 60 or 120 frames a second; Select closes the spawn menu again (letting go of it opened the menu straight back up) |
-| 1.8.2 | NPC navigation along the map's node graph; Face Poser and Finger Poser for ragdolls (characters now have hands with fingers); the physics gun turns props on every axis (hold X); easier build instructions |
 
 ## Roadmap
 

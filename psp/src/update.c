@@ -158,6 +158,29 @@ static int gather_entropy(void *p, unsigned char *out, size_t len) {
     return 0;
 }
 
+// This build's date, from __DATE__ ("Oct 16 2026") as year * 10000 + month * 100 + day
+static int build_date(void) {
+    static const char months[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
+    char mon[4] = {0};
+    int day = 1, year = 2026;
+    sscanf(__DATE__, "%3s %d %d", mon, &day, &year);
+    const char *m = strstr(months, mon);
+    return year * 10000 + (m ? (int)(m - months) / 3 + 1 : 1) * 100 + day;
+}
+
+// The PSP's clock is often wrong (it starts again from years ago when the battery runs flat) and GitHub's
+// certificates last about 90 days, so the dates aren't checked against it: a certificate that isn't valid
+// yet is accepted (only whoever it was issued to can use it), and an expired one only fails if it had run
+// out by the time this game was built. Everything else (signatures, the trusted roots, the name) still counts.
+static int verify_dates(void *p, mbedtls_x509_crt *crt, int depth, uint32_t *flags) {
+    *flags &= ~(uint32_t)MBEDTLS_X509_BADCERT_FUTURE;
+    const mbedtls_x509_time *t = &crt->valid_to;
+    if ((*flags & MBEDTLS_X509_BADCERT_EXPIRED) && t->year * 10000 + t->mon * 100 + t->day >= build_date()) {
+        *flags &= ~(uint32_t)MBEDTLS_X509_BADCERT_EXPIRED;
+    }
+    return 0;
+}
+
 static int tls_init(void) {
     mbedtls_x509_crt_init(&g_ca);
     mbedtls_ctr_drbg_init(&g_drbg);
@@ -181,6 +204,7 @@ static int tls_init(void) {
     mbedtls_ssl_conf_ciphersuites(&g_conf, suites);
     mbedtls_ssl_conf_min_version(&g_conf, MBEDTLS_SSL_MAJOR_VERSION_3, MBEDTLS_SSL_MINOR_VERSION_3);
     mbedtls_ssl_conf_authmode(&g_conf, MBEDTLS_SSL_VERIFY_REQUIRED);
+    mbedtls_ssl_conf_verify(&g_conf, verify_dates, NULL);
     mbedtls_ssl_conf_ca_chain(&g_conf, &g_ca, NULL);
     mbedtls_ssl_conf_rng(&g_conf, mbedtls_ctr_drbg_random, &g_drbg);
     return 1;
@@ -271,8 +295,21 @@ static int conn_open(Conn *c, const char *host) {
     if (r == 0) return 1;
     if (U.cancel) return 0;
     uint32_t flags = mbedtls_ssl_get_verify_result(&c->ssl);
+    if (r == MBEDTLS_ERR_X509_CERT_VERIFY_FAILED) {
+        char why[256];
+        time_t now = time(NULL);
+        mbedtls_x509_crt_verify_info(why, sizeof(why), "  ", flags);
+        ulog("certificate check failed (flags %x) at %s%s", (unsigned int)flags, ctime(&now), why);
+        const mbedtls_x509_crt *peer = mbedtls_ssl_get_peer_cert(&c->ssl);
+        for (; peer; peer = peer->next) {
+            char subject[128];
+            mbedtls_x509_dn_gets(subject, sizeof(subject), &peer->subject);
+            ulog("  cert %s, valid %04d-%02d-%02d to %04d-%02d-%02d", subject, peer->valid_from.year,
+                 peer->valid_from.mon, peer->valid_from.day, peer->valid_to.year, peer->valid_to.mon, peer->valid_to.day);
+        }
+    }
     if (r == MBEDTLS_ERR_X509_CERT_VERIFY_FAILED && (flags & (MBEDTLS_X509_BADCERT_EXPIRED | MBEDTLS_X509_BADCERT_FUTURE))) {
-        return fail("%s's certificate looks out of date: check the PSP's date and time", host);
+        return fail("%s sent a certificate that ran out before this version was made", host);
     }
     if (r == MBEDTLS_ERR_X509_CERT_VERIFY_FAILED) return fail("Couldn't trust %s's certificate (%x)", host, flags);
     return fail("Secure connection to %s failed (-0x%04X)", host, -r);

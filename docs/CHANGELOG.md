@@ -8,9 +8,10 @@ another protocol don't show up in Join Game or Online Servers.
 
 | Version | Date | Plays with | In short |
 |---|---|---|---|
-| [1.9.0](#190) | 2026-10-16 | 1.8.2 – 1.9.0 | Options > Updates: new versions from GitHub over Wi-Fi; LOD distance slider |
-| [1.8.3](#183) | 2026-10-16 | 1.8.2 – 1.9.0 | Target FPS option; Select closes the spawn menu again |
-| [1.8.2](#182) | 2026-10-16 | 1.8.2 – 1.9.0 | NPC navigation; Face Poser and Finger Poser; physics gun turns props on every axis |
+| [1.9.1](#191) | 2026-10-16 | 1.8.2 – 1.9.1 | Updates work with a wrong PSP clock |
+| [1.9.0](#190) | 2026-10-16 | 1.8.2 – 1.9.1 | Options > Updates: new versions from GitHub over Wi-Fi; LOD distance slider |
+| [1.8.3](#183) | 2026-10-16 | 1.8.2 – 1.9.1 | Target FPS option; Select closes the spawn menu again |
+| [1.8.2](#182) | 2026-10-16 | 1.8.2 – 1.9.1 | NPC navigation; Face Poser and Finger Poser; physics gun turns props on every axis |
 | [1.8.1](#181) | 2026-10-16 | 1.8.1 | Health kits, suit batteries, health and suit chargers |
 | [1.8.0](#180) | 2026-10-16 | 1.8.0 | More weapons: AR2, crossbow, RPG, grenades, bug bait; PS2 support ends |
 | [1.7.1](#171) | 2026-10-15 | 1.7.0 – 1.7.1 | Server list; the Retcon's Mod name and logo |
@@ -28,6 +29,16 @@ another protocol don't show up in Join Game or Online Servers.
 | [1.1.0](#110) | before 2026-10-11 | not recorded | Camera tool |
 | [1.0.1](#101) | before 2026-10-11 | not recorded | Ragdoll crash fixes |
 | [1.0.0](#100) | before 2026-10-11 | not recorded | Version label, new options, more ragdolls |
+
+## 1.9.1
+
+- **Options > Updates** works when the PSP's clock is wrong. 1.9.0 compared GitHub's certificates (which only
+  last about 90 days) with the PSP's clock, which is often years out after the battery runs flat, and said to
+  check the date and time. Now a certificate only fails on its dates if it had run out before the game was
+  built; its signatures, the trusted roots and the name are checked as before. On 1.9.0, set the PSP's date
+  and time, then Options > Updates installs 1.9.1.
+- When the certificate check fails, `data/update.log` lists the certificates and why.
+- Network protocol 12, as 1.8.2 to 1.9.0.
 
 ## 1.9.0
 
