@@ -91,16 +91,13 @@ static const CreditLine k_credits[] = {
     {FONT_LARGE, C_TEXT, "PS2GMOD"},
     {FONT_SMALL, C_TEXT, "A Garry's Mod-style sandbox for the PS2"},
 #else
-    {FONT_LARGE, C_TEXT, "PSP Sandbox"},
-    {FONT_SMALL, C_TEXT, "A Garry's Mod-style sandbox for the PSP"},
+    {FONT_LARGE, C_TEXT, "Retcon's Mod"},
+    {FONT_SMALL, C_TEXT, "A physics sandbox for the PSP"},
+    {FONT_SMALL, C_TEXT, "(formerly PSP Sandbox)"},
 #endif
     {-1, 0, NULL},
     {FONT_BOLD, C_HEAD, "Created by"},
     {FONT_LARGE, C_NAME, "Retcon"},
-    {-1, 0, NULL},
-    {FONT_BOLD, C_HEAD, "Garry's Mod"},
-    {FONT_SMALL, C_TEXT, "Garry Newman"},
-    {FONT_SMALL, C_TEXT, "Facepunch Studios"},
     {-1, 0, NULL},
     {FONT_BOLD, C_HEAD, "Source engine and Half-Life 2"},
     {FONT_SMALL, C_TEXT, "Valve"},
@@ -214,7 +211,7 @@ unsigned int profile_colour(int i, int physgun) {
 }
 
 const char *profile_colour_name(int i, int physgun) {
-    if (i <= 0 || i >= PROFILE_COLOURS) return physgun ? "Blue (GMod)" : "None";
+    if (i <= 0 || i >= PROFILE_COLOURS) return physgun ? "Blue" : "None";
     return k_colour_names[i];
 }
 

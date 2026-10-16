@@ -1,7 +1,12 @@
-# PSP Sandbox
+# Retcon's Mod
 
-A Garry's Mod–style sandbox for the PSP, by Retcon. Current version: **1.7.0** (shown in the main menu's corner,
+A physics sandbox for the PSP, by Retcon. Current version: **1.7.1** (shown in the main menu's corner,
 set in `psp/src/version.h`).
+
+**Retcon's Mod is PSP Sandbox's new name.** The name is changing step by step: the game (the XMB, the menus, the
+credits) and the docs say Retcon's Mod now, and the menus have the game's own logo instead of Garry's Mod's. The
+repositories, the `PSP/GAME/PSPSandbox` folder and its save files keep their old names for now, so links and saves
+keep working.
 
 - **`psp/`**: the engine, written from scratch in C for the PSP. It draws with the GE (the PSP's graphics chip)
   directly and has its own physics, ragdolls, sound mixer, NPCs, multiplayer and Lua scripting.
@@ -212,7 +217,7 @@ What's off is saved to `data/workshop.cfg`.
 
 ## Achievements
 
-Main menu > Achievements lists 16, with progress bars for the counted ones. They're saved to
+Main menu > Achievements lists 17, with progress bars for the counted ones. They're saved to
 `data/achievements.cfg`, and a notification pops up in game when you unlock one.
 
 | Achievement | How |
@@ -229,6 +234,7 @@ Main menu > Achievements lists 16, with progress bars for the counted ones. They
 | Deja Vu | Load a saved build on a different map from the one it was built on |
 | Online | Join a dedicated server |
 | On the Air | Host a game over Wi-Fi that someone joins |
+| Yes, I'm the real Retcon | Play on a dedicated server with your name set to Retcon |
 
 The PSP doesn't let a game read its model directly, so the page's "Playing on" line works it out:
 - **PPSSPP:** spotted by its settings files on the memory stick. The game only checks they exist and never reads them.
@@ -268,14 +274,20 @@ Up to 4 players. The host runs the physics, NPCs, ragdolls and doors. Multiplaye
 - **Host Game / Join Game:** ad-hoc, PSP to PSP, no access point needed.
 - **Host on Wi-Fi:** your PSP hosts through your access point, using the first connection set up in System
   Settings > Network Settings. Other PSPs on the same Wi-Fi find it in Online Servers.
-- **Online Servers:** the games on your Wi-Fi, and dedicated servers. Triangle adds a server by its address (a
-  name or `1.2.3.4`, with `:port` if it isn't the usual 18256), Square removes it and X joins. The list is kept in
-  `data/servers.cfg`.
+- **Online Servers:** the games on your Wi-Fi, the dedicated servers on a server list, and servers you add
+  yourself. Triangle adds a server by its address (a name or `1.2.3.4`, with `:port` if it isn't the usual
+  18256), Square removes it and X joins. R sets the **server list**: its address, and every public server it
+  knows shows up without typing theirs. Both are kept in `data/servers.cfg`.
 
 A **dedicated server** ([psp-sandbox-server](https://github.com/retcon26/psp-sandbox-server)) runs this game's
 engine on a Linux PC or a rented server, with nobody playing on it, so up to 3 PSPs can play there. It has a
 console for kicking, chat, changing maps and loading saved builds. For players outside your network, forward UDP
 port 18256 on your router to the PC that runs it.
+
+A **server list** is the same program in list mode (`psp-sandbox-server --mode list`, UDP port 18257).
+Dedicated servers set `list` to its address and tell it they're up every 30 seconds; PSPs ask it for the servers
+of their own game version and then ask each server about its game, so the list only ever shows servers that are
+answering.
 
 Doors, buttons and triggers react to every player, not just the host, so TF2's spawn doors open for everyone.
 
@@ -403,9 +415,9 @@ your hands moves. Without the pack the game shows the still models from the prop
 
 | Version | Changes |
 |---|---|
+| 1.7.1 | Server list: Online Servers shows every public dedicated server on a server list (R sets its address); PSP Sandbox becomes Retcon's Mod: its own logo (no Garry's Mod branding), the XMB name and icon, menus and credits; achievement "Yes, I'm the real Retcon" |
 | 1.7.0 | Saves: builds saved to the memory stick and loaded back on any map; Wi-Fi multiplayer (Host on Wi-Fi, Online Servers) and dedicated servers ([psp-sandbox-server](https://github.com/retcon26/psp-sandbox-server)); doors and triggers react to every player; 4 new achievements |
 | 1.6.2 | Workshop page: maps listed by game, each opened to show its maps and switched as a whole; Half-Life Deathmatch: Source's maps get their own game in Workshop and Start New Game |
-| 1.6.1 | More tools: Wheel, Winch, Hydraulic, Lamp, Light, Button and Emitter; Main menu > Workshop turns maps, Lua addons and custom characters on and off |
 
 ## Roadmap
 
@@ -434,6 +446,7 @@ your hands moves. Without the pack the game shows the still models from the prop
 - [x] Save and load: builds saved to the memory stick and loaded back on any map
 - [x] Wi-Fi multiplayer (Host on Wi-Fi, Online Servers) and dedicated servers
       ([psp-sandbox-server](https://github.com/retcon26/psp-sandbox-server)); doors and triggers for every player
+- [x] Server list: every public dedicated server in Online Servers, without typing addresses
 
 - [ ] **PS2 saves:** Options and builds saved to the PS2's memory card
 - [ ] **More weapons:** RPG, crossbow, grenades, AR2 and bugbait (antlions follow you)
@@ -448,7 +461,8 @@ your hands moves. Without the pack the game shows the still models from the prop
       keyboard
 - [ ] **Share builds:** send a saved build to the other players in a game (ad-hoc, Wi-Fi or a server), and let
       players who joined save and load builds too (only the host can now)
-- [ ] **Server list:** a master list of public servers, so Online Servers shows them without typing addresses
+- [ ] **The rest of the rename:** the repositories, the `PSPSandbox` game folder (moving saves across) and the
+      server's name, as Retcon's Mod
 - [ ] **Bigger servers:** more than 3 players on a dedicated server (the game has 4 slots and the server keeps one
       empty), plus a password, map rotation and the build saved every few minutes
 - [ ] **Server on Windows:** psp-sandbox-server built for Windows too (it runs on Linux and WSL now)

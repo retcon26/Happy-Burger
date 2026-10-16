@@ -14,7 +14,8 @@ ASFLAGS = $(CFLAGS)
 LIBS = -llua -lpspgum -lpspgu -lpspdebug -lpspctrl -lpsppower -lpspaudio -lm -lpspnet_adhocctl -lpspnet_adhoc -lpspnet_apctl -lpspnet_inet -lpspnet_resolver -lpspnet -lpsputility
 
 EXTRA_TARGETS = EBOOT.PBP
-PSP_EBOOT_TITLE = PSP Sandbox
+# The XMB's name for it. The SDK puts it in '...' for the shell, so the apostrophe is written '\''
+PSP_EBOOT_TITLE = Retcon'\''s Mod
 # XMB icon and background, drawn by tools/make_psp_icons.py
 PSP_EBOOT_ICON = ICON0.PNG
 PSP_EBOOT_PIC1 = PIC1.PNG

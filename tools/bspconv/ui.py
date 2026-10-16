@@ -194,9 +194,11 @@ def build_ui(gmod_root, props, maps, out_path, log=print):
         f.write(b"\0" * ((-f.tell()) % 64))
         for _name, data_ in thumbs:
             f.write(data_)
-    logo = _load_image(fs, "materials/gui/gmod_logo.vtf")
-    if logo is not None:
-        add_image("logo", logo, 256, 64)
+    # The menus' logo: the game's own (brand.py), not another game's
+    from .brand import draw_logo
+
+    logo = draw_logo()
+    add_image("logo", logo, 256, 64)
     # Blood splats and bullet holes. The game draws decals as "modulate" ones (surface x texture x 2, as
     # HL2's DecalModulate does), so each is laid on neutral grey first: grey leaves the wall as it is
     decals = 0

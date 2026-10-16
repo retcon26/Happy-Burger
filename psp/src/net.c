@@ -12,6 +12,7 @@
 #include <psputility_netparam.h>
 #include <psputility_sysparam.h>
 #include <netinet/in.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -54,6 +55,10 @@ static struct {
     int joining;
     uint32_t nonce;
     NetHost join_target;
+    // Online Servers: the server list asked last, and the servers it gave
+    uint8_t list_addr[6];
+    int num_listed; // -1: no answer yet
+    uint8_t listed[NET_LIST_MAX][6];
     float join_timer;
     char welcome_map[32];
     int welcome_slot;
@@ -243,6 +248,8 @@ int net_start(void) {
     if (N.state == NET_READY || N.state == NET_CONNECTING) return 0;
     memset(&N.mac, 0, sizeof(N.mac));
     memset(N.peers, 0, sizeof(N.peers));
+    memset(N.list_addr, 0, sizeof(N.list_addr));
+    N.num_listed = -1;
     N.joining = 0;
     if ((N.mode == NET_MODE_INET ? start_wifi() : start_adhoc()) < 0) return -1;
     N.state = NET_CONNECTING;
@@ -423,6 +430,19 @@ int net_recv(uint8_t mac[6], void *buf, int max) {
 void net_lobby_query(const uint8_t *addr) {
     NetHeader q = {NET_MAGIC, PK_INFO, 0, NET_VERSION};
     net_send(addr, &q, sizeof(q));
+    if (addr) return;
+    for (int i = 0; i < N.num_listed; i++) net_send(N.listed[i], &q, sizeof(q)); // and the list's servers
+}
+
+void net_lobby_list_request(const uint8_t *list_addr) {
+    if (memcmp(N.list_addr, list_addr, 6) != 0) N.num_listed = -1; // a different list
+    memcpy(N.list_addr, list_addr, 6);
+    NetHeader q = {NET_MAGIC, PK_LIST_REQ, 0, NET_VERSION};
+    net_send(list_addr, &q, sizeof(q));
+}
+
+int net_lobby_listed(void) {
+    return N.num_listed;
 }
 
 void net_lobby_join(const NetHost *h) {
@@ -451,6 +471,19 @@ int net_lobby_update(float dt, NetHost *hosts, int max_hosts, int *num_hosts) {
     uint8_t from[6];
     int len;
     while ((len = net_recv(from, &pk, sizeof(pk))) > 0) {
+        if (pk.h.type == PK_LIST && len >= (int)offsetof(PkList, addr) && memcmp(from, N.list_addr, 6) == 0) {
+            // The server list's answer: ask each of its servers about their games straight away
+            const PkList *l = (const PkList *)pk.raw;
+            int n = l->count;
+            int fits = (len - (int)offsetof(PkList, addr)) / 6;
+            if (n > fits) n = fits;
+            if (n > NET_LIST_MAX) n = NET_LIST_MAX;
+            memcpy(N.listed, l->addr, (size_t)n * 6);
+            N.num_listed = n;
+            NetHeader q = {NET_MAGIC, PK_INFO, 0, NET_VERSION};
+            for (int i = 0; i < n; i++) net_send(N.listed[i], &q, sizeof(q));
+            continue;
+        }
         if (pk.h.type == PK_BEACON && len >= (int)sizeof(PkBeacon) && pk.h.version == NET_VERSION) {
             int k;
             for (k = 0; k < *num_hosts && memcmp(hosts[k].mac, from, 6) != 0; k++) {

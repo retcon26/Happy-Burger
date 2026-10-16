@@ -1,4 +1,4 @@
-PSP SANDBOX / PS2GMOD - CONTROLS  (v1.7.0)
+RETCON'S MOD (FORMERLY PSP SANDBOX) / PS2GMOD - CONTROLS  (v1.7.1)
 =========================================
 
 ON FOOT                      PSP                        PS2 (DualShock 2)
@@ -128,7 +128,8 @@ MULTIPLAYER
   Online Servers            games on your Wi-Fi and dedicated servers
                             (psp-sandbox-server). Triangle adds a server's
                             address (a name or 1.2.3.4, ":port" if it isn't
-                            18256), Square removes it, X joins.
+                            18256), Square removes it, X joins. R sets the
+                            server list: every public server on it shows up.
   Wi-Fi uses the first connection in System Settings > Network Settings.
 
 

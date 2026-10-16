@@ -25,7 +25,7 @@
 #define BG_ABGR 0xFF201810
 
 typedef enum { PAGE_MAIN, PAGE_NEWGAME, PAGE_OPTIONS, PAGE_MULTI, PAGE_JOIN, PAGE_PROFILE, PAGE_ACHIEVEMENTS, PAGE_WORKSHOP } Page;
-#define MAX_HOSTS 8
+#define MAX_HOSTS 32
 
 // Map browser categories, by name prefix like GMod's New Game screen
 static const struct {
@@ -58,6 +58,9 @@ enum { MULTI_HOST, MULTI_JOIN, MULTI_HOST_WIFI, MULTI_ONLINE, MULTI_PROFILE, MUL
 #define SERVERS_PATH "data/servers.cfg"
 #define MAX_SAVED 12
 #define QUERY_INTERVAL 1.0f
+#define LIST_INTERVAL 15.0f // asking the server list again (servers come and go)
+// The server list Online Servers asks when data/servers.cfg doesn't name one ("": none until you set one)
+#define DEFAULT_SERVER_LIST ""
 
 static struct {
     Page page;
@@ -89,7 +92,12 @@ static struct {
     int saved_ok[MAX_SAVED]; // 1 resolved, -1 couldn't be, 0 not tried yet (DNS waits for Wi-Fi)
     int num_saved;
     float query_timer;
-    int adding; // the keyboard is open for a new address
+    int adding; // the keyboard is open: 1 a new server's address, 2 the server list's
+    // The server list (psp-sandbox-server in list mode): every public server, without typing their addresses
+    char list[48];
+    uint8_t list_addr[6];
+    int list_ok; // as saved_ok
+    float list_timer;
     char autojoin[48]; // autoload.txt "join ADDRESS": join this server as soon as Wi-Fi is up
 } M;
 
@@ -127,9 +135,16 @@ static void servers_load(void) {
     if (!f) return;
     char line[64];
     while (M.num_saved < MAX_SAVED && fgets(line, sizeof(line), f)) {
-        line[strcspn(line, "\r\n ")] = 0;
-        if (!line[0] || line[0] == '#') continue;
-        snprintf(M.saved[M.num_saved], sizeof(M.saved[0]), "%.47s", line);
+        // "list ADDRESS" is the server list; any other line is a server
+        int is_list = strncmp(line, "list ", 5) == 0;
+        char *s = is_list ? line + 5 : line;
+        s[strcspn(s, "\r\n ")] = 0;
+        if (!s[0] || s[0] == '#') continue;
+        if (is_list) {
+            snprintf(M.list, sizeof(M.list), "%.47s", s);
+            continue;
+        }
+        snprintf(M.saved[M.num_saved], sizeof(M.saved[0]), "%.47s", s);
         M.saved_ok[M.num_saved++] = 0;
     }
     fclose(f);
@@ -138,8 +153,13 @@ static void servers_load(void) {
 static void servers_save(void) {
     FILE *f = fopen(SERVERS_PATH, "w");
     if (!f) return;
+    fprintf(f, "list %s\n", M.list[0] ? M.list : "-"); // "-": none (not even the default)
     for (int i = 0; i < M.num_saved; i++) fprintf(f, "%s\n", M.saved[i]);
     fclose(f);
+}
+
+static int list_set(void) {
+    return M.list[0] && strcmp(M.list, "-") != 0;
 }
 
 // The rows of the list: the games that answered (hosts[]), then saved servers that haven't (-1 - index)
@@ -165,14 +185,28 @@ static int row_saved(int row) {
     return -1;
 }
 
-// Wi-Fi: resolve what's new, then ask everyone on the LAN and every saved server about their games
+// Wi-Fi: resolve what's new, ask the server list now and then, and every second everyone on the LAN,
+// every saved server and every server the list gave about their games
 static void online_query(float dt) {
     if (!M.online || net_poll() != NET_READY) return;
+    if (list_set() && M.list_ok == 0) {
+        // The list's own port unless the address says otherwise
+        char text[56];
+        snprintf(text, sizeof(text), strchr(M.list, ':') ? "%s" : "%s:18257", M.list);
+        M.list_ok = net_resolve(text, M.list_addr) == 0 ? 1 : -1;
+        M.list_timer = 0.0f;
+        return;
+    }
     for (int s = 0; s < M.num_saved; s++) {
         if (M.saved_ok[s] == 0) {
             M.saved_ok[s] = net_resolve(M.saved[s], M.saved_addr[s]) == 0 ? 1 : -1;
             return; // one DNS wait a frame at most
         }
+    }
+    M.list_timer -= dt;
+    if (M.list_ok == 1 && M.list_timer <= 0.0f) {
+        M.list_timer = LIST_INTERVAL;
+        net_lobby_list_request(M.list_addr);
     }
     M.query_timer -= dt;
     if (M.query_timer > 0.0f) return;
@@ -227,6 +261,21 @@ void menu_show_workshop(void) {
 
     M.page = PAGE_WORKSHOP;
     M.sel = 2;
+}
+
+void menu_show_online(void) {
+    M.page = PAGE_JOIN;
+    M.online = 1;
+    M.num_hosts = 0;
+    M.host_sel = 0;
+    M.joining = 0;
+    M.adding = 0;
+    M.query_timer = 0.0f;
+    snprintf(M.list, sizeof(M.list), "%s", DEFAULT_SERVER_LIST);
+    M.list_ok = 0;
+    servers_load();
+    net_set_mode(NET_MODE_INET, 0);
+    net_start();
 }
 
 void menu_autojoin(const char *address) {
@@ -340,16 +389,18 @@ MenuResult menu_update(const InputState *in, float dt, char *map_out, int map_ou
             } else if (M.multi_sel == MULTI_PROFILE) {
                 M.page = PAGE_PROFILE;
             } else {
-                M.page = PAGE_JOIN;
-                M.online = M.multi_sel == MULTI_ONLINE;
-                M.num_hosts = 0;
-                M.host_sel = 0;
-                M.joining = 0;
-                M.adding = 0;
-                M.query_timer = 0.0f;
-                if (M.online) servers_load();
-                net_set_mode(M.online ? NET_MODE_INET : NET_MODE_ADHOC, 0);
-                net_start();
+                if (M.multi_sel == MULTI_ONLINE) {
+                    menu_show_online();
+                } else {
+                    M.page = PAGE_JOIN;
+                    M.online = 0;
+                    M.num_hosts = 0;
+                    M.host_sel = 0;
+                    M.joining = 0;
+                    M.adding = 0;
+                    net_set_mode(NET_MODE_ADHOC, 0);
+                    net_start();
+                }
             }
         }
         return MENU_STAY;
@@ -375,12 +426,19 @@ MenuResult menu_update(const InputState *in, float dt, char *map_out, int map_ou
             // The keyboard is up for a new server's address
             char typed[48];
             if (osk_active()) return MENU_STAY;
+            int was = M.adding;
             M.adding = 0;
             if (osk_result(typed, sizeof(typed))) {
                 char *s = typed;
                 while (*s == ' ') s++;
                 s[strcspn(s, " ")] = 0;
-                if (*s && M.num_saved < MAX_SAVED) {
+                if (was == 2) {
+                    // The server list: empty switches it off
+                    snprintf(M.list, sizeof(M.list), "%s", *s ? s : "-");
+                    M.list_ok = 0;
+                    M.num_hosts = 0;
+                    servers_save();
+                } else if (*s && M.num_saved < MAX_SAVED) {
                     snprintf(M.saved[M.num_saved], sizeof(M.saved[0]), "%.47s", s);
                     M.saved_ok[M.num_saved++] = 0;
                     servers_save();
@@ -418,6 +476,10 @@ MenuResult menu_update(const InputState *in, float dt, char *map_out, int map_ou
             } else {
                 menu_set_error(M.saved_ok[-1 - row] < 0 ? "Couldn't find that address" : "That server isn't answering");
             }
+        }
+        if (M.online && (in->pressed & PSP_CTRL_RTRIGGER) && !M.joining) {
+            click(M.snd_select, 0.6f);
+            if (osk_start("Server list address (empty: none)", list_set() ? M.list : "", 47) == 0) M.adding = 2;
         }
         if (M.online && (in->pressed & PSP_CTRL_TRIANGLE) && !M.joining) {
             click(M.snd_select, 0.6f);
@@ -507,9 +569,9 @@ static void draw_logo(void) {
         float s = 220.0f / (float)w;
         if (h * s > 56.0f) s = 56.0f / (float)h;
         ui_image(logo, 20, 18, w * s, h * s, 0xFFFFFFFF);
-        ui_text_shadow(FONT_BOLD, 22, 20 + h * s + 2, 0xFFFFFFFF, ALIGN_LEFT, "for PSP");
+        ui_text_shadow(FONT_BOLD, 22, 20 + h * s + 2, 0xFFFFFFFF, ALIGN_LEFT, "for PSP"); // the logo has the name
     } else {
-        ui_text_shadow(FONT_TITLE, 20, 20, 0xFFFFFFFF, ALIGN_LEFT, "PSP Sandbox");
+        ui_text_shadow(FONT_TITLE, 20, 20, 0xFFFFFFFF, ALIGN_LEFT, "Retcon's Mod");
     }
 }
 
@@ -595,8 +657,10 @@ static void draw_join(void) {
                 M.online ? "Triangle adds a server's address; games on this Wi-Fi show up here."
                          : "Someone nearby has to pick Multiplayer > Host Game.");
     }
-    int first = M.host_sel > 5 ? M.host_sel - 5 : 0;
-    for (int r = first; r < nrows && r < first + 6; r++) {
+    // Online: five rows, then the server list's line
+    int shown = M.online ? 5 : 6;
+    int first = M.host_sel >= shown ? M.host_sel - shown + 1 : 0;
+    for (int r = first; r < nrows && r < first + shown; r++) {
         float ry = ly + (r - first) * 30;
         int sel = r == M.host_sel, row = rows[r];
         unsigned int tc = sel ? 0xFFFFFFFF : 0xFF303030;
@@ -621,11 +685,25 @@ static void draw_join(void) {
         ui_rrect(x + w / 2 - 90, y + h / 2 - 14, 180, 28, 4, 0xE0303030);
         ui_text(FONT_BOLD, x + w / 2, y + h / 2 - 6, 0xFFFFFFFF, ALIGN_CENTER, "Joining...");
     }
+    if (M.online) {
+        char line[96];
+        int listed = net_lobby_listed();
+        if (!list_set()) {
+            snprintf(line, sizeof(line), "Server list: none (R sets one)");
+        } else if (M.list_ok < 0) {
+            snprintf(line, sizeof(line), "Server list %s: address not found", M.list);
+        } else if (st != NET_READY || M.list_ok == 0 || listed < 0) {
+            snprintf(line, sizeof(line), "Server list %s: asking...", M.list);
+        } else {
+            snprintf(line, sizeof(line), "Server list %s: %d server%s", M.list, listed, listed == 1 ? "" : "s");
+        }
+        ui_text_clip(FONT_SMALL, x + 12, y + h - 46, w - 24, 0xFF707070, line);
+    }
     int can_join = nrows > 0 && rows[M.host_sel] >= 0;
     ui_rrect(x + w - 112, y + h - 26, 104, 20, 3, can_join ? 0xFFE6A03D : 0xFFB0B0B0);
     ui_text(FONT_BOLD, x + w - 60, y + h - 22, 0xFFFFFFFF, ALIGN_CENTER, "X  Join");
     ui_text(FONT_SMALL, x + 10, y + h - 21, 0xFF606060, ALIGN_LEFT,
-            M.online ? "Triangle: add server   Square: remove   O: back" : "Up/Down: pick a game    O: back");
+            M.online ? "Triangle: add   Square: remove   R: list   O: back" : "Up/Down: pick a game    O: back");
 }
 
 void menu_render(float fps) {

@@ -35,6 +35,7 @@ static const AchDef k_ach[ACH_COUNT] = {
     {"Deja Vu", "Load a saved build on another map", 0},
     {"Online", "Join a dedicated server", 0},
     {"On the Air", "Host on Wi-Fi and have someone join", 0},
+    {"Yes, I'm the real Retcon", "Play on a server as Retcon", 0},
 };
 
 enum { DEV_EMULATOR, DEV_PSP1000, DEV_PSPSLIM, DEV_PSPGO };

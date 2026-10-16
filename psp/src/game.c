@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #include "achieve.h"
 #include "audio.h"
@@ -4651,7 +4652,11 @@ static void host_send(float dt) {
 
 static void client_apply_players(const PkPlayers *pk) {
     npc_ragdoll_net_keep(pk->rag_mask, pk->rag_gen);
-    if (!pk->players[0].active) achieve_unlock(ACH_ONLINE); // nobody plays on the host: a dedicated server
+    if (!pk->players[0].active) {
+        // Nobody plays on the host: a dedicated server. And the game's maker, on one by name
+        achieve_unlock(ACH_ONLINE);
+        if (strcasecmp(net_nickname(), "Retcon") == 0) achieve_unlock(ACH_REAL_RETCON);
+    }
     for (int s = 0; s < NET_MAX_PLAYERS; s++) {
         const NetPlayer *np = &pk->players[s];
         if (s == G.my_slot) {

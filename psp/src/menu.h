@@ -21,6 +21,7 @@ void menu_set_error(const char *msg);
 void menu_show_achievements(void); // autoload.txt "menu achievements"
 void menu_show_workshop(void);     // autoload.txt "menu workshop"
 void menu_show_multiplayer(void); // autoload.txt "menu multiplayer"
+void menu_show_online(void); // Multiplayer > Online Servers (autoload.txt "menu online")
 void menu_autojoin(const char *address); // autoload.txt "join ADDRESS": Online Servers, joining it
 void menu_show_profile(void); // opens Multiplayer > Profile (autoload.txt "menu profile")
 void menu_join_info(int *slot, unsigned char mac[6]);

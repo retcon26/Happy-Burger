@@ -23,6 +23,8 @@ enum {
     ACH_DEJA_VU,      // load a build on another map than it was built on
     ACH_ONLINE,       // join a dedicated server
     ACH_ON_THE_AIR,   // host a game over Wi-Fi that someone joins
+    // 1.7.1
+    ACH_REAL_RETCON,  // play on a dedicated server named Retcon
     ACH_COUNT
 };
 

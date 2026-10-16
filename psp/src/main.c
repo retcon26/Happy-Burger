@@ -59,7 +59,7 @@ static void draw_loading(const char *name) {
             if (ui_map_thumb(name, 240 - 64, 56, 128, 128)) ui_outline(240 - 65, 55, 130, 130, 0x80FFFFFF);
             ui_text_shadow(FONT_LARGE, 240, 196, 0xFFFFFFFF, ALIGN_CENTER, name);
         } else {
-            ui_text_shadow(FONT_TITLE, 240, 100, 0xFFFFFFFF, ALIGN_CENTER, "PSP Sandbox");
+            ui_text_shadow(FONT_TITLE, 240, 100, 0xFFFFFFFF, ALIGN_CENTER, "Retcon's Mod");
             ui_text_shadow(FONT_SMALL, 240, 150, 0xFFE0E0E0, ALIGN_CENTER, "by Retcon");
         }
         ui_text_shadow(FONT_SMALL, 240, 246, 0xFFFFFFFF, ALIGN_CENTER, "Loading...");
@@ -105,6 +105,9 @@ static int run_autoload(char *status, int status_len) {
         }
         if (strcmp(nm, "join") == 0 && sscanf(line, "%*s %31s", page) == 1) {
             menu_autojoin(page); // "join ADDRESS": Online Servers, joining that server
+        }
+        if (strcmp(nm, "menu") == 0 && sscanf(line, "%*s %31s", page) == 1 && strcmp(page, "online") == 0) {
+            menu_show_online(); // Multiplayer > Online Servers
         }
         if (strcmp(nm, "menu") == 0 && sscanf(line, "%*s %31s", page) == 1 && strcmp(page, "multiplayer") == 0) {
             menu_show_multiplayer();

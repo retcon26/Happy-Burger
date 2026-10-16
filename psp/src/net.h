@@ -13,6 +13,8 @@
 
 #define NET_MAX_PLAYERS 4
 #define NET_PORT 18256
+#define NET_LIST_PORT 18257 // server lists (psp-sandbox-server in list mode)
+#define NET_LIST_MAX 64     // servers in one list answer
 #define NET_VERSION 9 // 2: rope packets name the joint type (sliders); 3: player models;
                       // 4: the host's ragdolls sent to clients, and their physics gun holds; 5: vehicles;
                       // 6: Profile colours, mingebags; 7: TF2 teams (NPC numbers moved); 8: devices, hydraulics;
@@ -62,6 +64,9 @@ enum {
     PK_CHAT,       // host -> all: a line in the chat feed (mingebags' rubbish)
     PK_DEVICES,    // host -> all: lamps, lights, buttons and emitters
     PK_INFO,       // player -> host: "tell me about your game" (the host answers with a beacon)
+    PK_HEARTBEAT,  // dedicated server -> server list: "list me" (every 30 seconds)
+    PK_LIST_REQ,   // player -> server list: "which servers are there?"
+    PK_LIST,       // server list -> player: their addresses (each then answers PK_INFO with a beacon)
 };
 
 
@@ -82,6 +87,19 @@ typedef struct {
     uint8_t players, max, flags, pad;
 } PkBeacon;
 #define BEACON_DEDICATED 1 // a dedicated server: nobody plays on the host
+
+// h.version is the game's: a list only offers players the servers they can join
+typedef struct {
+    NetHeader h;
+    uint8_t addr[6]; // the address to list (IP 0.0.0.0: the one the heartbeat came from) and the game port
+    uint8_t pad[2];
+} PkHeartbeat;
+
+typedef struct {
+    NetHeader h;
+    uint8_t count, pad[3];
+    uint8_t addr[NET_LIST_MAX][6];
+} PkList;
 
 typedef struct {
     NetHeader h;
@@ -111,4 +129,7 @@ int net_lobby_update(float dt, NetHost *hosts, int max_hosts, int *num_hosts);
 void net_lobby_join(const NetHost *h); // starts asking this host to join (resent until answered)
 // Asks a host about its game (it answers with a beacon); NULL asks everyone nearby
 void net_lobby_query(const uint8_t *addr);
+// Asks a server list for its servers; once it answers, net_lobby_query(NULL) asks each of them too
+void net_lobby_list_request(const uint8_t *list_addr);
+int net_lobby_listed(void); // how many servers the list gave (-1: no answer yet)
 void net_lobby_result(char *map, int map_len, int *slot, uint8_t host_mac[6]);

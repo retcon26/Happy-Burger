@@ -93,10 +93,10 @@ def icon0():
     img = img.resize((W, H), Image.Resampling.LANCZOS)
     d = ImageDraw.Draw(img)
     d.rectangle([0, 0, W - 1, H - 1], outline=(90, 110, 130))
-    text(img, (106, 24), "PSP", font("bold", 22), (255, 255, 255))
-    text(img, (106, 45), "Sandbox", font("bold", 15), (255, 255, 255))
-    d.line([(82, 57), (130, 57)], fill=ACCENT, width=2)
-    text(img, (106, 67), "by Retcon", font("regular", 10), (200, 210, 220), shadow=False)
+    text(img, (107, 21), "Retcon's", font("bold", 15), (255, 255, 255))
+    text(img, (107, 42), "Mod", font("bold", 22), (255, 255, 255))
+    d.line([(83, 57), (131, 57)], fill=ACCENT, width=2)
+    text(img, (107, 67), "for PSP", font("regular", 10), (200, 210, 220), shadow=False)
     return img
 
 
