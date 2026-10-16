@@ -8,6 +8,7 @@ another protocol don't show up in Join Game or Online Servers.
 
 | Version | Date | Plays with | In short |
 |---|---|---|---|
+| [1.8.2](#182) | 2026-10-16 | 1.8.2 | NPC navigation; Face Poser and Finger Poser; physics gun turns props on every axis |
 | [1.8.1](#181) | 2026-10-16 | 1.8.1 | Health kits, suit batteries, health and suit chargers |
 | [1.8.0](#180) | 2026-10-16 | 1.8.0 | More weapons: AR2, crossbow, RPG, grenades, bug bait; PS2 support ends |
 | [1.7.1](#171) | 2026-10-15 | 1.7.0 – 1.7.1 | Server list; the Retcon's Mod name and logo |
@@ -25,6 +26,26 @@ another protocol don't show up in Join Game or Online Servers.
 | [1.1.0](#110) | before 2026-10-11 | not recorded | Camera tool |
 | [1.0.1](#101) | before 2026-10-11 | not recorded | Ragdoll crash fixes |
 | [1.0.0](#100) | before 2026-10-11 | not recorded | Version label, new options, more ragdolls |
+
+## 1.8.2
+
+- **NPC navigation:** the converter links each map's node graph (the `info_node`s mappers place for HL2's NPCs;
+  166 maps have them, gm_construct and the Half-Life 2 and Half-Life campaigns among them) into a small
+  `<map>.pnav` file. An NPC that can't walk straight to where it's going follows the nodes round walls, through
+  doorways and up stairs, planning again as its target moves. When something blocks the way (a closed door, a
+  pile of props) it tries another route. Citizens wander from node to node and run away along them. On maps
+  without nodes NPCs head straight for where they're going, as before.
+- **Face Poser** (Tool Gun > Poser): gives the ragdoll you aim at an expression: Smile, Grin, Angry, Sad,
+  Surprised, Scared, Pain, Shout or Eyes Shut. L picks one, and Neutral puts the ragdoll's own face back. The
+  expressions are baked from each face's own flexes, so HL2's and TF2's characters each make them their own way.
+- **Finger Poser:** poses the ragdoll's hand you aim at, or both if you aim at the body: Fist, Point, Thumbs Up,
+  Peace, Rock On, Open or OK (Natural puts them back). The characters now have hands with fingers, taken from
+  a more detailed version of each model (the PSP-1000's characters keep their simpler hands).
+- **Physics gun:** hold X while you hold a prop and the circle pad turns it on every axis: left and right turn it,
+  up and down tip it away from you or towards you. You stand still meanwhile.
+- The README's build instructions are rewritten step by step, from installing Ubuntu to copying the game to a
+  PSP.
+- Network protocol 12.
 
 ## 1.8.1
 
@@ -170,5 +191,6 @@ another protocol don't show up in Join Game or Online Servers.
 
 | Server | For the game | Changes |
 |---|---|---|
+| 1.1.1 | 1.8.2 | The game 1.8.2's engine (NPC navigation: the server's NPCs follow the maps' node graphs, `data/maps/<map>.pnav`) |
 | 1.1.0 | 1.7.1 | Server lists (`--mode list`); game servers sign up to one (`list`, `public_address`); the Retcon's Mod name |
 | 1.0.0 | 1.7.0 | First version: hosts a map with nobody playing on it, for up to 3 PSPs; console; `server.cfg` |

@@ -19,10 +19,10 @@ if ($Dev) {
     $maps = Get-Content (Join-Path $psp "dev_maps.txt") | ForEach-Object { ($_ -replace "#.*$", "").Trim() } |
         Where-Object { $_ }
 }
-# A map's files are name.pmap, name.low.pmap, name.ppak and name.low.ppak
+# A map's files are name.pmap, name.low.pmap, name.ppak, name.low.ppak and name.pnav (its NPC node graph)
 function Wanted($file) {
     if (-not $Dev -or $file.DirectoryName -notlike "*\data\maps") { return $true }
-    $base = $file.Name -replace "(\.low)?\.(pmap|ppak)$", ""
+    $base = $file.Name -replace "(\.low)?\.(pmap|ppak|pnav)$", ""
     return $maps -contains $base
 }
 

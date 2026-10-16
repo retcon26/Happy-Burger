@@ -75,6 +75,29 @@ def cmd_convert(args):
         out = os.path.join(args.out, f"{base}{suffix}.pmap")
         print(f"{base} [{t}]")
         convert_map(args.bsp, args.gmod, out, t)
+    from .nav import nav_for_map
+
+    print(nav_for_map(args.bsp, args.out))
+
+
+def cmd_nav(args):
+    """NPC navigation graphs for already converted maps (the maps list, or one BSP)."""
+    from multiprocessing import Pool
+
+    from .nav import nav_for_map
+
+    if args.bsp:
+        paths = [args.bsp]
+    else:
+        paths = []
+        with open(args.maps) as f:
+            for line in f:
+                line = line.split("#", 1)[0].strip()
+                if line:
+                    paths.append(line)
+    with Pool(args.jobs) as pool:
+        for msg in pool.starmap(nav_for_map, [(p, args.out) for p in paths]):
+            print(msg, flush=True)
 
 
 def cmd_props(args):
@@ -178,6 +201,13 @@ def main(argv=None):
     pc.add_argument("--tier", choices=["high", "low", "both"], default="both")
     pc.add_argument("--gmod", default=DEFAULT_GMOD, help="GarrysMod install folder (as seen from WSL)")
     pc.set_defaults(func=cmd_convert)
+
+    pg = sub.add_parser("nav", help="build NPC navigation graphs (.pnav) for converted maps, from their info_nodes")
+    pg.add_argument("bsp", nargs="?", help="one map (default: every map in --maps)")
+    pg.add_argument("--maps", default="maps.txt")
+    pg.add_argument("-o", "--out", default="../psp/data/maps")
+    pg.add_argument("--jobs", type=int, default=None, help="maps at once (default: every CPU core)")
+    pg.set_defaults(func=cmd_nav)
 
     pp = sub.add_parser("props", help="build the spawnable prop pack from a list of models")
     pp.add_argument("--list", default="props.txt")

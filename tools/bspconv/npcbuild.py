@@ -19,12 +19,15 @@ Sections (same container as .pmap):
   "NPCH": u64 per NPC: the palette bones of its headcrab (npcs.txt headcrabs: the headcrab bodygroups on)
   "NPCL": u64 per NPC: the palette bones below the waist (npcs.txt halves: a sawblade cuts it in two)
   NPCF bit 16: halves
+  "FXEX": per NPC, per Face Poser expression (faces.EXPRESSIONS after Neutral): {u32 first, count} into "FXDL"
+  "FXDL": {u32 vertex (into VERT); i16 dx, dy, dz (1/256 units, bind pose); i16 pad}, sorted by vertex
+  "NPCK": per NPC, its hands for the Finger Poser (faces.pack_hands)
   "TEXS" / "TXDT": as in .pmap
 """
 
 import struct
 
-from . import pspimage
+from . import faces, pspimage
 from .animation import Skeleton
 from .materials import MaterialLoader
 from .models import load_model
@@ -201,7 +204,8 @@ def build_npcs(npc_list, gmod_root, out_path, tier_name, log=print):
     txdt = bytearray()
     npc_data, mesh_data, vert_data, idx_data, seq_data, mat_data, rag_data, wpn_data, flag_data, crab_data, leg_data = (
         bytearray() for _ in range(11))
-    counts = {"npc": 0, "mesh": 0, "vert": 0, "idx": 0, "seq": 0, "mat": 0, "rag": 0}
+    fxex_data, fxdl_data, hand_data = bytearray(), bytearray(), bytearray()
+    counts = {"npc": 0, "mesh": 0, "vert": 0, "idx": 0, "seq": 0, "mat": 0, "rag": 0, "fxdl": 0}
     reuse = {}  # (model, weapon, ...) -> what its first entry made, for the same character in another skin
 
 
@@ -246,6 +250,12 @@ def build_npcs(npc_list, gmod_root, out_path, tier_name, log=print):
         if m is None:
             log(f"  skip {mdl}: not found")
             continue
+        # Finger Poser: hands with fingers (the full-detail pack's characters)
+        rig = faces.finger_rig(sk) if tier_name == "high" else None
+        if rig and not faces.graft_hands(fs, mdl, m, sk, rig, skin, {"headcrab": 1} if "headcrabs" in opts else None,
+                                         log, label):
+            rig = None
+        fslot = faces.finger_slots(rig)
 
         # The same model and weapon again in another skin (TF2's BLU team): its own textures, but the
         # first one's vertices, animations and skeleton, so a second team costs only its textures
@@ -263,6 +273,8 @@ def build_npcs(npc_list, gmod_root, out_path, tier_name, log=print):
             wpn_data.extend(prev["wpn"])
             crab_data += prev["crab"]
             leg_data += prev["leg"]
+            fxex_data.extend(prev["face"])
+            hand_data.extend(prev["hand"])
             voice = VOICES.index(opts["voice"]) if opts.get("voice") in VOICES else 0
             flag_data += struct.pack("<I", (2 if "player" in opts else 0) | (4 if "releasecrab" in opts else 0)
                                      | (8 if game == "workshop" else 0) | (16 if "halves" in opts else 0) | (voice << 8))
@@ -270,8 +282,10 @@ def build_npcs(npc_list, gmod_root, out_path, tier_name, log=print):
             log(f"  {label:14s} skin {skin}, sharing {prev['label']}'s mesh and animations")
             continue
 
-        # Only bones that vertices follow need matrices; renumber them compactly
-        used = sorted({b for mesh in m.meshes for b in mesh.bones})
+        # Only bones that vertices follow need matrices; renumber them compactly. Finger bones aren't
+        # animated: they get the slots after these (faces.EXTRA_SLOTS), and follow their hand.
+        used = sorted({b for mesh in m.meshes for b in mesh.bones} - set(fslot)
+                      | {hand[0] for hand in (rig or []) if hand})
         if len(used) > MAX_PALETTE:
             log(f"  skip {mdl}: {len(used)} skinned bones (the game handles {MAX_PALETTE})")
             continue
@@ -294,6 +308,20 @@ def build_npcs(npc_list, gmod_root, out_path, tier_name, log=print):
             rag_data += struct.pack("<i3f", palette[par] if par >= 0 else -1, *pivot)
             counts["rag"] += 1
 
+        # Face Poser expressions (vertex offsets from the face's flexes) and Finger Poser hands
+        first_vert = counts["vert"]
+        exprs = faces.bake_expressions(fs.read(mdl), m.meshes, log, label)
+        face_rec = bytearray()
+        for deltas in exprs:
+            face_rec += struct.pack("<2I", counts["fxdl"], len(deltas))
+            for vi, dx, dy, dz in deltas:
+                q = [max(-32767, min(32767, int(round(c * 256.0)))) for c in (dx, dy, dz)]
+                fxdl_data.extend(struct.pack("<I4h", first_vert + vi, *q, 0))
+            counts["fxdl"] += len(deltas)
+        fxex_data.extend(face_rec)
+        hand_rec = faces.hand_records(sk, rig, palette)
+        hand_data.extend(hand_rec)
+
         first_mesh = counts["mesh"]
         ranges = []
         for mesh in m.meshes:
@@ -302,7 +330,7 @@ def build_npcs(npc_list, gmod_root, out_path, tier_name, log=print):
             mesh_data += struct.pack("<4I2H", counts["vert"], len(mesh.verts), counts["idx"], len(mesh.tris) * 3, tex,
                                      tex_records[tex][3])
             for v, bone in zip(mesh.verts, mesh.bones):
-                vert_data += struct.pack("<8fI", *v, palette[bone])
+                vert_data += struct.pack("<8fI", *v, palette[bone] if bone in palette else len(used) + fslot[bone])
             for t in mesh.tris:
                 idx_data += struct.pack("<3H", *t)
             counts["vert"] += len(mesh.verts)
@@ -378,7 +406,8 @@ def build_npcs(npc_list, gmod_root, out_path, tier_name, log=print):
         if not ragdoll_only:
             reuse.setdefault(key, {"label": label, "mesh_sizes": [len(mesh.verts) for mesh in m.meshes], "ranges": ranges,
                                    "bones": len(used), "seq_ids": seq_ids, "first_rag": first_rag,
-                                   "wpn": bytes(wpn_data[-68:]), "crab": crab_data[-8:], "leg": leg_data[-8:]})
+                                   "wpn": bytes(wpn_data[-68:]), "crab": crab_data[-8:], "leg": leg_data[-8:],
+                                   "face": bytes(face_rec), "hand": hand_rec})
         log(f"  {label:14s} {m.tris:4d} tris, {len(used):2d} bones: {', '.join(baked) or 'ragdoll only'}")
 
     w = PmapWriter(PNPC_MAGIC, PNPC_VERSION)
@@ -394,6 +423,9 @@ def build_npcs(npc_list, gmod_root, out_path, tier_name, log=print):
     w.add("NPCF", flag_data, counts["npc"])
     w.add("NPCH", crab_data, counts["npc"])
     w.add("NPCL", leg_data, counts["npc"])
+    w.add("FXEX", fxex_data, counts["npc"] * (len(faces.EXPRESSIONS) - 1))
+    w.add("FXDL", fxdl_data, counts["fxdl"])
+    w.add("NPCK", hand_data, counts["npc"])
     w.add("TEXS", bytes(32 * len(tex_records)), len(tex_records))
     w.add("TXDT", txdt, len(txdt))
     base = w.section_offset("TXDT")

@@ -23,6 +23,9 @@ class ModelMesh:
         self.verts = []           # (u, v, nx, ny, nz, x, y, z)
         self.bones = []           # per vertex: the bone it follows (rigid skinning)
         self.tris = []
+        self.src = []             # per vertex: its index in the MDL mesh (what face flexes refer to)
+        self.mdl_ofs = None       # the mstudiomesh_t in the .mdl, for its flexes (faces.py)
+        self.key = None           # (bodypart, mesh): the same mesh in another LOD has the same key
 
 
 class StudioModel:
@@ -34,6 +37,7 @@ class StudioModel:
         self.mass = None
         self.surfaceprop = None
         self.lod = 0
+        self.num_lods = 1
         self.tris = 0
 
 
@@ -132,9 +136,10 @@ def _phy_mass(phy):
         return None
 
 
-def load_model(fs, mdl_path, max_tris, skin=0, decimate=True, bodygroups=None):
+def load_model(fs, mdl_path, max_tris, skin=0, decimate=True, bodygroups=None, force_lod=None):
     """bodygroups: {bodypart name prefix: sub-model index} to show other than each bodypart's first
-    (e.g. {"headcrab": 1} puts the headcrab on a zombie). Meshes remember their bodypart in .group."""
+    (e.g. {"headcrab": 1} puts the headcrab on a zombie). Meshes remember their bodypart in .group.
+    force_lod: that LOD whatever its size (None if the model has no such LOD), never decimated."""
     mdl = fs.read(mdl_path)
     if mdl is None or mdl[:4] != b"IDST":
         return None
@@ -208,7 +213,13 @@ def load_model(fs, mdl_path, max_tris, skin=0, decimate=True, bodygroups=None):
         chosen = fitting[0]
     else:
         chosen = min(range(len(lod_counts)), key=lod_counts.__getitem__) if lod_counts else 0
+    if force_lod is not None:
+        if force_lod >= len(lod_counts):
+            return None
+        chosen = force_lod
+        decimate = False
     m.lod = chosen
+    m.num_lods = len(lod_counts)
 
     for bp in range(num_bp):
         bpo = bp_ofs + bp * 16
@@ -239,6 +250,8 @@ def load_model(fs, mdl_path, max_tris, skin=0, decimate=True, bodygroups=None):
             tex_name = textures[tex_idx] if tex_idx < len(textures) else ""
             mesh = ModelMesh(_resolve_material(fs, cdmats, tex_name))
             mesh.group = group
+            mesh.mdl_ofs = meo
+            mesh.key = (bp, k)
             remap = {}
             for tri in vtx_meshes[k]:
                 out = []
@@ -253,6 +266,7 @@ def load_model(fs, mdl_path, max_tris, skin=0, decimate=True, bodygroups=None):
                         remap[gi] = li
                         mesh.verts.append((uv[0], uv[1], n[0], n[1], n[2], p[0], p[1], p[2]))
                         mesh.bones.append(bone)
+                        mesh.src.append(vid)
                     out.append(li)
                 if len(out) == 3:
                     mesh.tris.append(tuple(out))
@@ -278,6 +292,7 @@ def _cluster(mesh, cell, uv_cells):
     keymap = {}
     verts = []
     bones = []
+    src = []
     remap = []
     for i, v in enumerate(mesh.verts):
         key = (int(v[5] // cell), int(v[6] // cell), int(v[7] // cell), int(v[0] * uv_cells), int(v[1] * uv_cells))
@@ -287,6 +302,7 @@ def _cluster(mesh, cell, uv_cells):
             keymap[key] = idx
             verts.append(v)
             bones.append(mesh.bones[i] if i < len(mesh.bones) else 0)
+            src.append(mesh.src[i] if i < len(mesh.src) else -1)
         remap.append(idx)
     tris = []
     seen = set()
@@ -299,7 +315,7 @@ def _cluster(mesh, cell, uv_cells):
             continue
         seen.add(key)
         tris.append(t)
-    return verts, bones, tris
+    return verts, bones, tris, src
 
 
 def _decimate(m, target):
@@ -308,12 +324,12 @@ def _decimate(m, target):
     cell = size / 200.0
     for _ in range(24):
         results = [_cluster(mesh, cell, 4) for mesh in m.meshes]
-        total = sum(len(t) for _, _, t in results)
+        total = sum(len(r[2]) for r in results)
         if total <= target:
             break
         cell *= 1.25
-    for mesh, (verts, bones, tris) in zip(m.meshes, results):
-        mesh.verts, mesh.bones, mesh.tris = verts, bones, tris
+    for mesh, (verts, bones, tris, src) in zip(m.meshes, results):
+        mesh.verts, mesh.bones, mesh.tris, mesh.src = verts, bones, tris, src
     m.meshes = [mesh for mesh in m.meshes if mesh.tris]
     m.tris = sum(len(mesh.tris) for mesh in m.meshes)
 

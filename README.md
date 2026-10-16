@@ -1,6 +1,6 @@
 # Retcon's Mod
 
-A physics sandbox for the PSP, by Retcon. Current version: **1.8.1** (shown in the main menu's corner,
+A physics sandbox for the PSP, by Retcon. Current version: **1.8.2** (shown in the main menu's corner,
 set in `psp/src/version.h`).
 
 **Retcon's Mod is PSP Sandbox's new name.** The name is changing step by step: the game (the XMB, the menus, the
@@ -37,8 +37,9 @@ contain it are for your own use. Don't share them.
   HL2 and its episodes, CS:S, DoD:S, Portal, Portal 2, Left 4 Dead 1 and 2, Fistful of Frags, Black Mesa and TF2,
   in about 160 spawnlists. The extra ones load from the memory stick only when spawned.
 - **48 NPCs and 98 ragdolls**, including Team Fortress 2's nine mercenaries on both teams (also as player
-  models), mingebags, and characters from Counter-Strike: Source and Half-Life: Source.
-- **14 weapons and 24 tool gun tools**, health kits, suit batteries and chargers, blood and bullet holes, a
+  models), mingebags, and characters from Counter-Strike: Source and Half-Life: Source. On maps with a node graph
+  NPCs find their way round walls, and the Face Poser and Finger Poser pose ragdolls' faces and hands.
+- **14 weapons and 26 tool gun tools**, health kits, suit batteries and chargers, blood and bullet holes, a
   flashlight, an HEV suit, Lua addons and 4-player multiplayer with voice chat: ad-hoc, over Wi-Fi, or on a
   dedicated server.
 - **Saves:** your builds saved to the memory stick and loaded back on any map (see [Saves](#saves)).
@@ -69,7 +70,7 @@ load it, it falls back to the map's low-detail version.
 
 The full data is about 2.85 GB (Windows shows 2.66 GB), 91% of it maps. To save space, delete maps you don't play
 from `data/maps`: each map is `name.pmap` and `name.low.pmap`, plus `name.ppak` and `name.low.ppak` when it has
-props of its own.
+props of its own and `name.pnav` (its NPC node graph) when it has one.
 
 ## Controls
 
@@ -100,7 +101,7 @@ pulls the prop instead.
 | Weapon | Controls |
 |---|---|
 | Hands | R picks up something light (up to 35 kg, close by) or drops it. L throws it. |
-| Physics Gun | Hold R to grab any prop or any ragdoll limb, at any distance. L freezes it in place. D-pad turns it and moves it nearer or further. |
+| Physics Gun | Hold R to grab any prop or any ragdoll limb, at any distance. L freezes it in place. D-pad turns it and moves it nearer or further. Hold X and push the circle pad to turn a prop on every axis: left and right turn it, up and down tip it away from you or towards you (you stand still meanwhile). |
 | Gravity Gun | R pulls in a prop up to 250 kg from up to 1000 units and holds it, R again drops it, L launches it. Picking up something too heavy within 250 units punts it instead. |
 | Tool Gun | R uses the tool picked in the spawn menu's Tools panel. |
 | Crowbar, Pistol, .357, SMG, Shotgun, AR2 | R fires. Reload when empty (or turn on Options > Unlimited ammo). The AR2 is automatic and hits harder than the SMG. |
@@ -135,7 +136,9 @@ Tool gun tools (the Tools list scrolls):
 | | Hoverball | Holds the prop at the height where you put it. |
 | | Thruster | Pushes the prop the way you shot it in. |
 | | Wheel | Puts a tyre on the prop, on an axle with a motor. The motor drives the way you faced when you put it on, so put all the wheels on from behind the cart. |
-| Poser | Inflator | Makes the ragdoll body part you aim at bigger (up to 4x). |
+| Poser | Face Poser | Gives the ragdoll you aim at an expression: Smile, Grin, Angry, Sad, Surprised, Scared, Pain, Shout or Eyes Shut (L picks; Neutral puts its own face back). HL2's and TF2's characters have faces to pose; masked ones (the Combine, the Pyro) don't. |
+| | Finger Poser | Poses the ragdoll's hand you aim at (or both, aiming at the body): Fist, Point, Thumbs Up, Peace, Rock On, Open or OK (L picks; Natural puts it back). |
+| | Inflator | Makes the ragdoll body part you aim at bigger (up to 4x). |
 | | Deflator | Makes it smaller (down to 0.2x). |
 | Render | Camera | R places a camera facing where you look; L switches your view through each camera and back to you. Cameras are props: move them with the physics gun or weld them to a car. |
 | | Colour | Paints the prop. |
@@ -207,9 +210,14 @@ loads, since the host has the whole world.
   crowbar now and then (it barely hurts). Every few seconds one spawns a bathtub, fridge or couch next to itself,
   throws a nearby prop at you, or says something in chat ("gg ez", "can i have admin"). Only their 16 newest props
   stay, and they don't count towards your prop limit. Zombies and the Combine go after them too.
+- **Navigation:** on maps with a node graph (the `info_node`s mappers place for HL2's NPCs: gm_construct, the
+  Half-Life 2 and Half-Life campaigns and 166 maps in all), an NPC that can't walk straight to where it's going
+  follows the nodes round walls, through doorways and up stairs. If something blocks the way (a closed door, a
+  pile of props) it tries another route. Citizens wander from node to node and run away along them. On maps
+  without nodes, NPCs head straight for where they're going, as before.
 - **Voices:** NPCs say pain, death and alert lines in their own voices.
 - **Ragdolls:** NPCs fall as verlet ragdolls when they die. Shots and props push them, and the physics gun drags
-  and freezes them.
+  and freezes them. The Face Poser and Finger Poser pose their faces and hands (see [Weapons](#weapons)).
 - **Options > NPC thinking** freezes them in place (GMod's `ai_disabled`), and **NPCs ignore players** stops them
   targeting or following you (`ai_ignoreplayers`).
 
@@ -332,47 +340,123 @@ launches it.
 
 ## Building
 
-### Setup (one time)
+Everyone builds their own copy: the game data comes from your own Valve games and can't be shared, so this is
+how you get the game. [Playing](#playing) then says how to copy it to a PSP or PPSSPP.
 
-1. WSL with Ubuntu, then in Ubuntu:
-   `sudo apt-get install -y build-essential cmake pkgconf libusb-0.1-4 fakeroot python3-numpy python3-pil mpg123`
-   (mpg123 decodes TF2's MP3 voice lines for the sound pack)
-2. The PSP SDK ([pspdev](https://github.com/pspdev/pspdev)) in `~/pspdev`.
-3. Garry's Mod, plus whichever other Valve games you want maps and props from, installed through Steam. The
-   converter looks for each game in `/mnt/d/SteamLibrary/steamapps/common/`, then in Steam's own folder on C:
-   (change `DEFAULT_GMOD` in `tools/bspconv/__main__.py` and `LIBRARIES` in `tools/bspconv/steam.py` if your
-   libraries are elsewhere). If one is on another drive, mount it in Ubuntu: `sudo mkdir -p /mnt/d && sudo mount -t drvfs D: /mnt/d`.
+The game is built in two halves. The **data** (maps, props, characters, sounds) is converted on your PC from the
+Valve games you own; none of it is in this repository. The **EBOOT** (the game program) is compiled with the PSP
+SDK. Both happen in Ubuntu on Windows (WSL). In every command below, the code block says where to type it.
 
-### Making the data and the EBOOT
+### 1. One-time setup
 
-Close PPSSPP first (it locks the EBOOT). In Ubuntu, from the repo:
+**Install Ubuntu.** In PowerShell (as administrator), then restart the PC:
 
+```powershell
+wsl --install -d Ubuntu
 ```
+
+Open Ubuntu from the Start menu and pick a user name and password when it asks.
+
+**Install the tools** the converter and the SDK need. In Ubuntu:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y build-essential cmake pkgconf libusb-0.1-4 fakeroot python3-numpy python3-pil mpg123 git
+```
+
+(`mpg123` decodes TF2's MP3 voice lines.)
+
+**Install the PSP SDK** ([pspdev](https://github.com/pspdev/pspdev)) into `~/pspdev`. In Ubuntu:
+
+```bash
+cd ~
+wget https://github.com/pspdev/pspdev/releases/latest/download/pspdev-ubuntu-latest-x86_64.tar.gz
+tar -xzf pspdev-ubuntu-latest-x86_64.tar.gz
+```
+
+`psp/build.sh` finds it there by itself; you don't need to change your `PATH`.
+
+**Install the games** through Steam: Garry's Mod at least. Half-Life 2, Half-Life (and Half-Life: Source),
+Team Fortress 2, Counter-Strike: Source and Day of Defeat: Source add their maps, props and characters if you
+have them.
+
+**Tell the converter where Steam keeps them.** It looks in `D:\SteamLibrary` and in Steam's own folder on `C:`.
+If your games are somewhere else, edit the paths at the top of
+[tools/bspconv/steam.py](tools/bspconv/steam.py) (`LIBRARIES`) and `DEFAULT_GMOD` in
+[tools/bspconv/\_\_main\_\_.py](tools/bspconv/__main__.py). Ubuntu sees `C:` as `/mnt/c`, but another drive
+has to be connected each time Ubuntu starts. For `D:`, in Ubuntu:
+
+```bash
+sudo mkdir -p /mnt/d && sudo mount -t drvfs D: /mnt/d
+```
+
+**Get the code.** In Ubuntu:
+
+```bash
+git clone https://github.com/retcon26/psp-sandbox.git
+cd psp-sandbox
+```
+
+### 2. Build everything
+
+Close PPSSPP first: it locks the EBOOT while it runs. In Ubuntu, in the `psp-sandbox` folder:
+
+```bash
 bash tools/rebuild_all.sh
 ```
 
-This converts every map in `tools/maps.txt`, builds the packs in `psp/data/`, and builds `psp/EBOOT.PBP`. You can
-also run the steps on their own:
+It converts every map in [tools/maps.txt](tools/maps.txt) (about 250, so expect a few hours), builds the
+packs in `psp/data/` (props, characters, first-person weapons, sounds, fonts and icons), then compiles
+`psp/EBOOT.PBP`. The extra props from the other games are a separate, longer step:
 
-| Step | Command | Input |
+```bash
+bash tools/bspconv.sh extras
+```
+
+### 3. Put it on a PSP or in PPSSPP
+
+Make the folder to copy. In PowerShell, in the `psp-sandbox` folder:
+
+```powershell
+powershell -File psp/make_release.ps1
+```
+
+This makes `psp\release\PSP\GAME\PSPSandbox\`. Copy `psp\release\PSP` onto the memory stick (or into PPSSPP's
+`memstick` folder), merging it with the `PSP` folder that's already there. Add `-Dev` for a smaller build
+(`psp\release_dev\`, under 500 MB) with only the maps in [psp/dev_maps.txt](psp/dev_maps.txt), which is
+quicker to copy and test with.
+
+### Changing just one part
+
+After the first full build you can redo one step on its own. Run these in Ubuntu, from the `psp-sandbox`
+folder:
+
+| To rebuild | Run | It reads |
 |---|---|---|
-| One map | `tools/bspconv.sh convert <map.bsp>` | a `.bsp` (Source or GoldSrc) |
-| New maps only, in parallel | `tools/convert_new.sh [jobs] [all]` | `tools/maps.txt` |
+| The game code only | `bash psp/build.sh` | `psp/src/` |
+| One map | `tools/bspconv.sh convert <path to map.bsp>` | a `.bsp` (Source or GoldSrc) |
+| Maps you've added to the list | `tools/convert_new.sh [jobs] [all]` | `tools/maps.txt` |
+| NPC navigation, for maps already converted | `tools/bspconv.sh nav` | each map's `info_node`s |
 | Props and weapon models | `tools/bspconv.sh props` | `tools/props.txt` |
 | Extra props from the other games | `tools/bspconv.sh extras` | the installed games |
 | NPCs and ragdolls | `tools/bspconv.sh npcs` | `tools/npcs.txt` |
 | Animated first-person weapons | `tools/bspconv.sh vmodels` | `tools/props.txt` (its `vm` models) |
 | Sounds | `tools/bspconv.sh sounds` | `tools/sounds.txt` |
 | Fonts, spawn icons, map thumbnails | `tools/bspconv.sh ui` | the lists above |
-| PSP EBOOT | `psp/build.sh` | `psp/src/` |
-| Ready-to-copy folder | `powershell -File psp/make_release.ps1` | `psp/EBOOT.PBP`, `psp/data/` |
 
-The NPC step writes three packs: `npcs.pnpc` (full detail), `npcs.low.pnpc` (PSP-1000) and `npcs.ps2.pnpc` (for
-the old PS2 port, which is no longer supported; the PSP doesn't use it).
+Then run `make_release.ps1` again to update the release folder.
 
-The weapons step bakes GMod's `c_` weapon models, with the player's arms bone-merged on, into `vmodels.pvmd` (full
-detail) and `vmodels.low.pvmd` (PSP-1000): their draw, idle, fire and reload animations, so the weapon in
-your hands moves. Without the pack the game shows the still models from the prop pack instead.
+What each one makes:
+
+- **Maps:** `psp/data/maps/<map>.pmap` and `<map>.low.pmap` (full detail and PSP-1000), the map's own props
+  in `<map>.ppak`, and its NPC node graph in `<map>.pnav` (maps without `info_node`s don't get one, and NPCs
+  there head straight for where they're going).
+- **NPCs:** `npcs.pnpc` (full detail) and `npcs.low.pnpc` (PSP-1000), with the Face Poser's expressions baked
+  from each face's flexes and, in the full-detail pack, hands with fingers for the Finger Poser. It also writes
+  `npcs.ps2.pnpc` for the old PS2 port, which is no longer supported; the PSP doesn't use it.
+- **Weapons:** GMod's `c_` weapon models, with the player's arms bone-merged on, go into `vmodels.pvmd` and
+  `vmodels.low.pvmd` with their draw, idle, fire and reload animations, so the weapon in your hands moves.
+  Without them the game shows the still models from the prop pack instead.
 
 ## What gets converted
 
@@ -395,7 +479,13 @@ your hands moves. Without the pack the game shows the still models from the prop
 - **Weapons:** GMod's `c_` models with `c_arms_citizen` bone-merged onto them, posed in the idle animation and
   baked into one mesh. The physics gun is the gravity gun's model with its colours turned blue.
 - **NPCs:** rigid-skinned models with idle, walk, run, attack and death animations baked into per-bone matrices,
-  their headcrab and waist bones marked for zombies, and guns lined up on the hand bone as Source does.
+  their headcrab and waist bones marked for zombies, and guns lined up on the hand bone as Source does. Faces get
+  the Face Poser's expressions, baked by running the model's own flex rules and adding up its flexes' vertex
+  offsets. Valve's low LODs merge the fingers into the hand, so the hands are taken from the coarsest LOD that
+  still has finger bones and thinned out finger by finger (about 100 triangles a hand).
+- **NPC navigation:** each map's `info_node`s are dropped to the floor and linked when a character-sized box
+  can slide from one to the next with floor under it all the way, tested against the converted map's own
+  collision. The game plans routes over the graph with A*.
 - **Sound:** WAV (PCM and MS-ADPCM), mono, at 44.1 kHz (16 kHz on the PSP-1000), mixed in 16 voices with 3D panning.
 
 ## Physics and collision
@@ -426,9 +516,9 @@ The latest three. Every version, with dates, what's in each and which ones can p
 
 | Version | Changes |
 |---|---|
+| 1.8.2 | NPC navigation along the map's node graph; Face Poser and Finger Poser for ragdolls (characters now have hands with fingers); the physics gun turns props on every axis (hold X); easier build instructions |
 | 1.8.1 | Items: health kits, health vials and suit batteries to pick up, and health and suit chargers (tap Use to charge) |
 | 1.8.0 | More weapons: AR2, crossbow, laser-guided RPG, grenades and bug bait (antlions follow you and fight on your side); explosions hurt other players too; the PS2 port is no longer supported |
-| 1.7.1 | Server list: Online Servers shows every public dedicated server on a server list (R sets its address); PSP Sandbox becomes Retcon's Mod: its own logo (no Garry's Mod branding), the XMB name and icon, menus and credits; achievement "Yes, I'm the real Retcon" |
 
 ## Roadmap
 
@@ -457,13 +547,12 @@ The latest three. Every version, with dates, what's in each and which ones can p
 - [x] Save and load: builds saved to the memory stick and loaded back on any map
 - [x] More weapons: AR2, crossbow, RPG, grenades and bug bait (antlions follow you)
 - [x] Health kits, suit batteries, and health and suit chargers
+- [x] NPC navigation along the map's own node graph (`info_node`), so NPCs walk round walls instead of into them
+- [x] Face Poser expressions and Finger Poser hands for ragdolls; the physics gun turns props on every axis
 - [x] Wi-Fi multiplayer (Host on Wi-Fi, Online Servers) and dedicated servers
       ([psp-sandbox-server](https://github.com/retcon26/psp-sandbox-server)); doors and triggers for every player
 - [x] Server list: every public dedicated server in Online Servers, without typing addresses
 
-- [ ] **NPC navigation:** routes along the map's own node graph (`info_node`), so NPCs walk round walls instead
-      of into them
-- [ ] **Face and finger posing:** Face Poser expressions and Finger Poser hands for ragdolls
 - [ ] **Effects:** sparks on metal, smoke, fire after explosions, muzzle smoke and tracer impacts
 - [ ] **Lua gamemodes:** a bigger Lua API and small gamemodes built on it, like Prop Hunt and a zombie survival mode
 - [ ] **More player customization:** model skins and bodygroups, on top of the player model and the player and

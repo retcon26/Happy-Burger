@@ -20,6 +20,7 @@
 #include "gfx.h"
 #include "mem.h"
 #include "menu.h"
+#include "nav.h"
 #include "net.h"
 #include "npc.h"
 #include "vmodel.h"
@@ -136,6 +137,8 @@ typedef enum {
     TOOL_LIGHT,
     TOOL_BUTTON,
     TOOL_EMITTER,
+    TOOL_FACEPOSER,
+    TOOL_FINGERPOSER,
     TOOL_COUNT
 } Tool;
 
@@ -196,7 +199,8 @@ static int is_launcher(int w) {
 static const char *k_tool_names[TOOL_COUNT] = {"Remover",     "Colour",  "Balloon",  "Duplicator", "Weld",
                                                "Rope",        "Ball Socket", "Elastic", "No-Collide", "Weight",
                                                "Thruster",    "Hoverball", "Explosive", "Slider",  "Inflator",   "Deflator", "Camera",
-                                               "Wheel",       "Winch",     "Hydraulic", "Lamp",    "Light",      "Button",   "Emitter"};
+                                               "Wheel",       "Winch",     "Hydraulic", "Lamp",    "Light",      "Button",   "Emitter",
+                                               "Face Poser",  "Finger Poser"};
 // GMod-style tool descriptions: what it does, then what the trigger does
 static const char *k_tool_desc[TOOL_COUNT] = {
     "Removes props", "Changes the colour of props", "Ties balloons to props", "Copies and pastes props",
@@ -211,6 +215,7 @@ static const char *k_tool_desc[TOOL_COUNT] = {
     "Joins two points with a ram that pushes out (Use)", "Places a lamp that lights where it points (Use)",
     "Places a light in the colour you picked (Use)", "Places a button that switches a contraption",
     "Places an emitter of sparks, smoke or fire (Use)",
+    "Changes a ragdoll's expression", "Poses a ragdoll's fingers",
 };
 static const char *k_tool_help[TOOL_COUNT] = {
     "R: Remove an object", "R: Apply the selected colour", "R: Add a balloon", "R: Copy a prop / paste it",
@@ -225,6 +230,7 @@ static const char *k_tool_help[TOOL_COUNT] = {
     "R: Pick a point, then a second point", "R: Place a lamp (in the colour you picked)",
     "R: Place a light (in the colour you picked)", "R: Pick the prop it switches, then the spot",
     "R: Place an emitter    L: Change effect",
+    "R: Pose the face you aim at    L: Next face", "R: Pose the hand you aim at    L: Next pose",
 };
 // The tools panel, grouped like GMod's
 static const struct {
@@ -235,10 +241,12 @@ static const struct {
     {"Construction", {TOOL_BALLOON, TOOL_DUPLICATOR, TOOL_NOCOLLIDE, TOOL_REMOVER, TOOL_WEIGHT}, 5},
     {"Constraints", {TOOL_BALLSOCKET, TOOL_ELASTIC, TOOL_HYDRAULIC, TOOL_ROPE, TOOL_SLIDER, TOOL_WELD, TOOL_WINCH}, 7},
     {"Mechanics", {TOOL_BUTTON, TOOL_EMITTER, TOOL_EXPLOSIVE, TOOL_HOVERBALL, TOOL_THRUSTER, TOOL_WHEEL}, 6},
-    {"Poser", {TOOL_INFLATOR, TOOL_DEFLATOR}, 2},
+    {"Poser", {TOOL_FACEPOSER, TOOL_FINGERPOSER, TOOL_INFLATOR, TOOL_DEFLATOR}, 4},
     {"Render", {TOOL_CAMERA, TOOL_COLOUR, TOOL_LAMP, TOOL_LIGHT}, 4},
 };
 #define NUM_TOOL_GROUPS (int)(sizeof(k_tool_groups) / sizeof(k_tool_groups[0]))
+// The Face Poser's expression and the Finger Poser's hand pose (npc_face_name / npc_hand_name; L changes them)
+static int g_face_sel = 1, g_hand_sel = 1;
 static const char *k_pause_items[] = {"Resume Game", "Options", "Saves", "Toggle Noclip", "Freeze All Props",
                                       "Clean Up Props", "Disconnect"};
 #define SELECT_HOLD_TIME 0.4f // holding Select this long toggles noclip instead of opening the spawn menu
@@ -326,6 +334,7 @@ enum {
     CMD_SQUEEZE,     // bug bait squeezed: antlions follow this player
     CMD_PICKUP,      // i0 body: a health kit, vial or battery this player walked over
     CMD_HEAL,        // f0 health from a charger
+    CMD_RAG_POSE,    // i0 ragdoll, i1 0 its face / 1 left hand / 2 right hand, u the expression or hand pose
 };
 #define MAX_OUTQ 8
 
@@ -565,6 +574,9 @@ static vec3 view_right(void);
 // autoload.txt test commands: the last prop "spawnat" made, and "autodrive"'s held stick
 static int g_test_body = -1, g_test_drive;
 static float g_test_throttle, g_test_steer, g_test_walk;
+// autoload.txt "physrot": buttons held down and the stick, as if pressed (R and X: the physics gun turning)
+static unsigned int g_test_hold, g_test_hold_prev;
+static float g_test_ax, g_test_ay;
 static void net_leave(void);
 static void vm_event(int kind);
 static void vm_tick(float dt);
@@ -1014,6 +1026,7 @@ int game_start(const char *map_name, char *err, int err_len) {
     char *dot = strstr(base, ".low");
     if (dot) *dot = 0;
     G.maplib_loaded = (G.map.num_sprops || G.map.num_phys_props) && proplib_load(&G.maplib, base, perr, sizeof(perr)) == 0;
+    nav_load(base); // the NPCs' node graph, if the map has one
 
     ents_init(&G.map);
     phys_init(&G.phys);
@@ -1089,6 +1102,7 @@ void game_end(void) {
     G.sprop_ambient = NULL;
     G.sprop_sunlit = NULL;
     npcs_clear();
+    nav_free();
     map_free(&G.map);
 }
 
@@ -1163,6 +1177,18 @@ void game_command(const char *line) {
     } else if (sscanf(line, "tool %d", &i) == 1) {
         G.tool = (Tool)(i % TOOL_COUNT);
         G.weapon = WEAPON_TOOLGUN;
+    } else if (sscanf(line, "face %d", &i) == 1) { // the Face Poser's expression
+        g_face_sel = i % npc_face_count();
+    } else if (sscanf(line, "hand %d", &i) == 1) { // the Finger Poser's hand pose
+        g_hand_sel = i % npc_hand_count();
+    } else if (sscanf(line, "npcpos %d", &i) == 1) { // where NPC i is, and whether it's following a route
+        char msg[64];
+        npc_nav_debug(i, msg, sizeof(msg));
+        notify(msg, NOTE_HINT);
+    } else if (strncmp(line, "navinfo", 7) == 0) { // how big the map's NPC node graph is
+        char msg[48];
+        snprintf(msg, sizeof(msg), "Nav: %d nodes", nav_node_count());
+        notify(msg, NOTE_HINT);
     } else if (strncmp(line, "notify", 6) == 0) {
         notify(line + 7, NOTE_UNDO);
     } else if (strncmp(line, "debug", 5) == 0) {
@@ -1209,6 +1235,12 @@ void game_command(const char *line) {
         G.yaw += x;
         G.pitch = y;
 
+    } else if (sscanf(line, "physrot %f %f", &x, &y) == 2) { // physics gun: grab what's in front, hold X, push the stick
+        G.weapon = WEAPON_PHYSGUN;
+        g_test_hold = PSP_CTRL_RTRIGGER | PSP_CTRL_CROSS;
+        g_test_ax = x, g_test_ay = y;
+    } else if (strncmp(line, "physrot off", 11) == 0) {
+        g_test_hold = 0;
     } else if (strncmp(line, "toolfire", 8) == 0) { // the tool gun's R, at what's in front
         toolgun_fire();
     } else if (strncmp(line, "useaim", 6) == 0) { // Use on the prop in front (thrusters, wheels, lamps...)
@@ -1230,6 +1262,10 @@ void game_command(const char *line) {
         vec3 f = view_forward();
         f.z = 0.0f;
         spawn_ragdoll(i, v3_add(G.player.origin, v3_scale(v3_norm(f), x)), G.yaw + 180.0f);
+    } else if (strncmp(line, "duck", 4) == 0) { // crouch on or off
+        G.player.ducked = !G.player.ducked;
+    } else if (strncmp(line, "ragfreeze", 9) == 0) { // every ragdoll stays as it is (standing, if just spawned)
+        for (int r = 0; r < MAX_RAGDOLLS; r++) npc_ragdoll_freeze(r, 1);
     } else if (sscanf(line, "weapon %d", &i) == 1 && i >= 0 && i < WEAPON_COUNT) {
         G.weapon = (Weapon)i;
     } else if (sscanf(line, "vmloop %d", &i) == 1) { // loops one first-person animation (VM_*), for tests
@@ -1958,6 +1994,14 @@ static void physgun_release(int quiet) {
 
 static void physgun_drive(int i, vec3 want_pos, quat want_rot);
 
+// Physics gun: holding X while holding a prop turns it with the circle pad (GMod's E and mouse), and
+// the player stands still and stops looking down meanwhile
+#define PHYSGUN_ROTATE_SPEED 150.0f // degrees a second, stick pushed all the way
+static int physgun_rotating(const InputState *in) {
+    return G.weapon == WEAPON_PHYSGUN && G.held >= 0 && !G.use_carry && (in->held & PSP_CTRL_RTRIGGER) &&
+           (in->held & PSP_CTRL_CROSS);
+}
+
 // The physics gun holding a ragdoll by one bone: the rest of it dangles
 static void physgun_ragdoll(const InputState *in, float dt) {
     if (!npc_ragdoll_active(G.held_rag)) {
@@ -2042,6 +2086,13 @@ static void physgun_update(const InputState *in, float dt) {
     if (in->held & PSP_CTRL_LEFT) spin += 120.0f * dt;
     if (in->held & PSP_CTRL_RIGHT) spin -= 120.0f * dt;
     if (spin != 0.0f) G.hold_rel = q_norm(q_mul(yaw_quat(spin), G.hold_rel));
+    if (physgun_rotating(in)) {
+        // Every axis: left and right turn it round the up axis, up and down tip it away from you or
+        // towards you (round the axis across your view)
+        float turn = -in->ax * PHYSGUN_ROTATE_SPEED * dt, tip = -in->ay * PHYSGUN_ROTATE_SPEED * dt;
+        quat r = q_mul(yaw_quat(turn), q_axis_angle(v3(0, 1, 0), tip * DEG2RAD));
+        G.hold_rel = q_norm(q_mul(r, G.hold_rel));
+    }
 
     vec3 eye = player_eye(&G.player);
     vec3 target = v3_mad(eye, view_forward(), G.hold_dist);
@@ -2310,6 +2361,42 @@ static void toolgun_fire(void) {
             notify("Aim at a ragdoll", NOTE_ERROR);
         }
         break;
+    case TOOL_FACEPOSER:
+        if (a.rag < 0) {
+            notify("Aim at a ragdoll", NOTE_ERROR);
+        } else if (!npc_ragdoll_can_face(a.rag, g_face_sel)) {
+            notify(npc_ragdoll_can_face(a.rag, 0) ? "That face can't make that expression" : "That ragdoll has no face to pose",
+                   NOTE_ERROR);
+        } else {
+            npc_ragdoll_set_face(a.rag, g_face_sel); // a client shows it now; the host's ragdoll info confirms it
+            if (is_client()) send_cmd(CMD_RAG_POSE, a.rag, 0, (uint32_t)g_face_sel, NULL, 0);
+            char msg[40];
+            snprintf(msg, sizeof(msg), "Face: %s", npc_face_name(g_face_sel));
+            notify(msg, NOTE_HINT);
+        }
+        break;
+    case TOOL_FINGERPOSER: {
+        float d = 0.0f;
+        int h = a.rag >= 0 ? npc_ragdoll_nearest_hand(a.rag, a.point, &d) : -1;
+        if (a.rag < 0) {
+            notify("Aim at a ragdoll", NOTE_ERROR);
+        } else if (h < 0) {
+            notify("That ragdoll has no fingers to pose", NOTE_ERROR);
+        } else {
+            // Aim at a hand to pose it, anywhere else on the body to pose both
+            int both = d > 24.0f;
+            for (int k = 0; k < 2; k++) {
+                if (!both && k != h) continue;
+                if (npc_ragdoll_set_hand(a.rag, k, g_hand_sel) && is_client()) {
+                    send_cmd(CMD_RAG_POSE, a.rag, 1 + k, (uint32_t)g_hand_sel, NULL, 0);
+                }
+            }
+            char msg[48];
+            snprintf(msg, sizeof(msg), "%s: %s", both ? "Hands" : h ? "Right hand" : "Left hand", npc_hand_name(g_hand_sel));
+            notify(msg, NOTE_HINT);
+        }
+        break;
+    }
     case TOOL_COLOUR:
         if (b) b->tint_abgr = k_palette[G.colour_sel];
         if (b && is_client()) send_cmd(CMD_COLOUR, a.body, 0, k_palette[G.colour_sel], NULL, 0);
@@ -4860,7 +4947,7 @@ static void exec_cmd(int slot, const NetCmd *c) {
         if (b) toggle_forces(i);
         break;
     case CMD_TOOL:
-        if (c->i1 >= TOOL_WHEEL && c->i1 < TOOL_COUNT) {
+        if (c->i1 >= TOOL_WHEEL && c->i1 <= TOOL_EMITTER) {
             tool_apply(c->i1, b ? i : -1, v3(c->f[0], c->f[1], c->f[2]), v3_norm(v3(c->f[3], c->f[4], c->f[5])),
                        (int)(c->u & 0xFFFF) - 1, v3(c->f[6], c->f[7], c->f[8]), (int)((c->u >> 16) & 0xFF),
                        (int)((c->u >> 24) & 0xFF));
@@ -4894,6 +4981,13 @@ static void exec_cmd(int slot, const NetCmd *c) {
         break;
     case CMD_RAG_INFLATE:
         npc_ragdoll_inflate(i, c->i1, clampf(c->f[0], 0.5f, 2.0f));
+        break;
+    case CMD_RAG_POSE:
+        if (c->i1 == 0) {
+            npc_ragdoll_set_face(i, (int)c->u);
+        } else {
+            npc_ragdoll_set_hand(i, c->i1 - 1, (int)c->u);
+        }
         break;
     case CMD_LAUNCH:
         if (is_launcher(i)) {
@@ -6213,6 +6307,16 @@ void game_host_dedicated(void (*log)(const char *msg)) {
 
 GameResult game_update(const InputState *in, float dt) {
     if (g_dedicated) return dedicated_update(dt);
+    InputState test_in;
+    if (g_test_hold || g_test_hold_prev) {
+        test_in = *in;
+        test_in.held |= g_test_hold;
+        test_in.pressed |= g_test_hold & ~g_test_hold_prev;
+        test_in.released |= g_test_hold_prev & ~g_test_hold;
+        if (g_test_hold) test_in.ax = g_test_ax, test_in.ay = g_test_ay;
+        g_test_hold_prev = g_test_hold;
+        in = &test_in;
+    }
     later_update(dt);
     items_update(dt);
     phys_set_quality(g_settings.physics);
@@ -6304,6 +6408,7 @@ GameResult game_update(const InputState *in, float dt) {
             g_flash_fired = 0;
         }
 #endif
+        int rotating = physgun_rotating(in); // X and the stick turn the held prop instead
 #ifdef PS2
         // DualShock 2: look with the right stick (squared for fine aim near the centre)
         {
@@ -6316,7 +6421,7 @@ GameResult game_update(const InputState *in, float dt) {
 #else
         G.yaw += LOOK_YAW_SPEED * dt * (look_rate(0, in->held & PSP_CTRL_SQUARE, dt) - look_rate(1, in->held & PSP_CTRL_CIRCLE, dt));
         G.pitch += invert * LOOK_PITCH_SPEED * dt *
-                   (look_rate(2, in->held & PSP_CTRL_TRIANGLE, dt) - look_rate(3, in->held & PSP_CTRL_CROSS, dt));
+                   (look_rate(2, in->held & PSP_CTRL_TRIANGLE, dt) - look_rate(3, (in->held & PSP_CTRL_CROSS) && !rotating, dt));
 #endif
         G.pitch = clampf(G.pitch, -89.0f, 89.0f);
         G.yaw = fmodf(G.yaw, 360.0f);
@@ -6324,8 +6429,8 @@ GameResult game_update(const InputState *in, float dt) {
         if (G.veh >= 0) {
             vehicle_controls(in, dt); // driving: the stick steers, Use gets out
         } else {
-            cmd.forward = g_test_walk != 0.0f ? g_test_walk : -in->ay;
-            cmd.side = in->ax;
+            cmd.forward = rotating ? 0.0f : g_test_walk != 0.0f ? g_test_walk : -in->ay;
+            cmd.side = rotating ? 0.0f : in->ax;
             cmd.yaw = G.yaw;
             cmd.pitch = G.pitch;
             int holding = G.held >= 0 || G.held_rag >= 0;
@@ -6438,6 +6543,18 @@ GameResult game_update(const InputState *in, float dt) {
                         g_emit_effect = (g_emit_effect + 1) % EMIT_COUNT;
                         char msg[32];
                         snprintf(msg, sizeof(msg), "Emitter: %s", k_emit_names[g_emit_effect]);
+                        toast(msg);
+                        play(G.snd.menu_move, 0.5f);
+                    }
+                    if ((G.tool == TOOL_FACEPOSER || G.tool == TOOL_FINGERPOSER) && (in->pressed & PSP_CTRL_LTRIGGER)) {
+                        char msg[40];
+                        if (G.tool == TOOL_FACEPOSER) {
+                            g_face_sel = (g_face_sel + 1) % npc_face_count();
+                            snprintf(msg, sizeof(msg), "Face: %s", npc_face_name(g_face_sel));
+                        } else {
+                            g_hand_sel = (g_hand_sel + 1) % npc_hand_count();
+                            snprintf(msg, sizeof(msg), "Hand: %s", npc_hand_name(g_hand_sel));
+                        }
                         toast(msg);
                         play(G.snd.menu_move, 0.5f);
                     }
@@ -7488,11 +7605,19 @@ static void draw_hud(float fps) {
     // Tool gun info, top left like GMod's tool HUD (a camera view has its own label there)
     if (G.weapon == WEAPON_TOOLGUN && G.cam_view < 0) {
         const char *help = G.stage ? "R: Pick the second point" : k_tool_help[G.tool];
-        float w = 24 + fmaxf(fmaxf(ui_text_width(FONT_LARGE, k_tool_names[G.tool]), ui_text_width(FONT_SMALL, k_tool_desc[G.tool])),
+        // The Posers show what R will do
+        const char *desc = k_tool_desc[G.tool];
+        char pick[48];
+        if (G.tool == TOOL_FACEPOSER || G.tool == TOOL_FINGERPOSER) {
+            snprintf(pick, sizeof(pick), G.tool == TOOL_FACEPOSER ? "Expression: %s" : "Hand pose: %s",
+                     G.tool == TOOL_FACEPOSER ? npc_face_name(g_face_sel) : npc_hand_name(g_hand_sel));
+            desc = pick;
+        }
+        float w = 24 + fmaxf(fmaxf(ui_text_width(FONT_LARGE, k_tool_names[G.tool]), ui_text_width(FONT_SMALL, desc)),
                              ui_text_width(FONT_SMALL, help));
         ui_rrect(8, 8, w, 58, 6, 0x90000000);
         ui_text_shadow(FONT_LARGE, 18, 12, 0xFFFFFFFF, ALIGN_LEFT, k_tool_names[G.tool]);
-        ui_text(FONT_SMALL, 18, 34, 0xFFC8C8C8, ALIGN_LEFT, k_tool_desc[G.tool]);
+        ui_text(FONT_SMALL, 18, 34, 0xFFC8C8C8, ALIGN_LEFT, desc);
         ui_text(FONT_SMALL, 18, 49, C_HL2, ALIGN_LEFT, help);
         if (G.tool == TOOL_COLOUR) ui_rrect(w - 10, 14, 12, 12, 3, k_palette[G.colour_sel]);
     }
@@ -7537,7 +7662,8 @@ static void draw_hud(float fps) {
     } else if (G.held_rag >= 0) {
         ui_text_shadow(FONT_SMALL, 240, 250, 0xFFE0E0E0, ALIGN_CENTER, "L: Freeze    Up/Down: Distance");
     } else if (G.held >= 0 && G.weapon == WEAPON_PHYSGUN) {
-        ui_text_shadow(FONT_SMALL, 240, 250, 0xFFE0E0E0, ALIGN_CENTER, "L: Freeze    Up/Down: Distance    Left/Right: Rotate");
+        ui_text_shadow(FONT_SMALL, 240, 250, 0xFFE0E0E0, ALIGN_CENTER,
+                       "L: Freeze   Up/Down: Distance   Left/Right: Rotate   X + pad: Turn");
     }
 
     draw_notifications();

@@ -1,4 +1,4 @@
-RETCON'S MOD (FORMERLY PSP SANDBOX) - CONTROLS  (v1.8.1)
+RETCON'S MOD (FORMERLY PSP SANDBOX) - CONTROLS  (v1.8.2)
 =========================================
 
 ON FOOT                      PSP
@@ -38,6 +38,9 @@ Physics Gun
   Freeze in place            L (while holding)
   Push away / pull closer    D-pad Up / Down
   Rotate                     D-pad Left / Right
+  Rotate on every axis       Hold X and push the circle pad (left/right
+                               turns it, up/down tips it away or towards
+                               you). You stand still while you do.
   Works on props and on ragdolls (grab any limb).
 
 Gravity Gun
@@ -67,10 +70,19 @@ Tool Gun
   Tools: Remover, Colour, Balloon, Duplicator, Weld, Rope, Ball Socket, Elastic,
          No-Collide, Weight, Thruster, Hoverball, Explosive, Slider,
          Inflator, Deflator (resize ragdoll body parts), Camera, Wheel,
-         Winch, Hydraulic, Lamp, Light, Button, Emitter (L: change effect)
+         Winch, Hydraulic, Lamp, Light, Button, Emitter (L: change effect),
+         Face Poser, Finger Poser (L: change expression / hand pose)
   Use (D-pad Right) on a prop switches its thrusters, hoverballs, wheel
   motors, winches, hydraulics, lamps, lights and emitters. Use on a button
   switches the whole contraption it was linked to.
+
+Face Poser and Finger Poser (Tool Gun)
+  Pose the ragdoll you aim at R
+  Next expression / pose     L (the top-left box shows which)
+  Face Poser: Neutral, Smile, Grin, Angry, Sad, Surprised, Scared, Pain,
+    Shout, Eyes Shut. Neutral puts the ragdoll's own face back.
+  Finger Poser: Natural, Fist, Point, Thumbs Up, Peace, Rock On, Open, OK.
+    Aim at a hand to pose that hand, or at the body to pose both.
 
 Camera tool (Tool Gun)
   Place a camera             R

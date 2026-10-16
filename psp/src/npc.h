@@ -85,6 +85,8 @@ void npc_self_set(int active, int type, vec3 pos, float yaw, float dt);
 void npc_puppet_tint(int slot, unsigned int abgr);
 
 int npc_raycast(vec3 origin, vec3 dir, float max_t, float *t_out);
+// Tests: where NPC i is and how it's finding its way (autoload.txt "npcpos")
+void npc_nav_debug(int i, char *out, int size);
 void npc_damage(int i, float amount);
 void npc_damage_dir(int i, float amount, vec3 dv); // dv: velocity kick for the ragdoll if it dies
 // Options: NPC thinking off (they stand still) / NPCs ignore players (no targeting or following them)
@@ -110,6 +112,19 @@ void npc_ragdoll_drag(int r, int bone, vec3 target, float dt); // physics gun
 void npc_ragdoll_freeze(int r, int frozen);
 // Inflator: multiplies one bone's size by factor (within limits); returns the new size
 float npc_ragdoll_inflate(int r, int bone, float factor);
+// Face Poser: a ragdoll's expression (npc_face_name; 0 is its own face). Finger Poser: each hand's pose
+// (npc_hand_name; 0 is the natural hand), hand 0 the left, 1 the right. The setters return 0 when the
+// character can't (no face to pose, or that expression, or no fingers on that hand).
+int npc_face_count(void);
+const char *npc_face_name(int i);
+int npc_hand_count(void);
+const char *npc_hand_name(int i);
+int npc_ragdoll_can_face(int r, int face);
+int npc_ragdoll_set_face(int r, int face);
+int npc_ragdoll_face(int r);
+int npc_ragdoll_set_hand(int r, int hand, int pose);
+int npc_ragdoll_hand(int r, int hand);
+int npc_ragdoll_nearest_hand(int r, vec3 p, float *dist); // -1: it has no hands to pose
 void npc_ragdoll_debug(int *startsolid, int *hits, int *asleep);
 
 // Multiplayer ragdolls: the host simulates them all; a client mirrors them (npc_ragdolls_set_remote) and
@@ -118,7 +133,7 @@ void npc_ragdoll_debug(int *startsolid, int *hits, int *asleep);
 #define RAG_NET_MAX_BONES 64
 typedef struct {
     uint8_t slot, gen, type, nb;
-    uint8_t spawned, pad[3];
+    uint8_t spawned, face, hand[2];      // face and hands: Face and Finger Poser
     float origin[3];                     // bone 0 at death
     float size;                          // the character's scale
     int16_t pos[RAG_NET_MAX_BONES][3];   // the points at death, from origin, in 1/8 units

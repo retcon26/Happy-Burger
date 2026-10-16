@@ -12,6 +12,7 @@
 #include "audio.h"
 #include "gfx.h"
 #include "mem.h"
+#include "nav.h"
 #include "pak.h"
 #include "pmap_format.h"
 
@@ -69,6 +70,59 @@ typedef struct {
     int32_t bone;
     float m[12];
 } NpcWeapon;
+
+// "FXEX" / "FXDL": Face Poser expressions (tools/bspconv/faces.py): per NPC type and expression, the
+// face vertices it moves, sorted by vertex
+typedef struct {
+    uint32_t first, count;
+} FaceExpr;
+typedef struct {
+    uint32_t vertex;  // into VERT
+    int16_t d[3];     // bind-pose offset, 1/256 units
+    int16_t pad;
+} FaceDelta;
+
+// "NPCK": Finger Poser hands. The finger bones aren't animated: they take the palette slots after the
+// model's bones (hand * 15 + finger * 3 + segment) and follow their hand, turned at their knuckles.
+#define FINGERS 5
+#define FINGER_SEGS 3
+#define FINGER_SLOTS (2 * FINGERS * FINGER_SEGS)
+#define MAX_DRAW_BONES (MAX_PALETTE + FINGER_SLOTS)
+typedef struct {
+    float pivot[FINGER_SEGS][3]; // each segment's knuckle, bind pose
+    float curl[3], spread[3];    // axes: towards the palm, towards the thumb
+    int32_t segs;                // 0: no such finger
+} NpcFinger;
+typedef struct {
+    int32_t bone; // palette bone of the hand, -1: no fingers
+    NpcFinger f[FINGERS];
+} NpcHand;
+typedef struct {
+    NpcHand h[2]; // left, right
+} NpcHands;
+
+// Face Poser expressions (faces.py's EXPRESSIONS) and Finger Poser hand poses: how far each finger
+// (thumb first) curls, 1 a fist, and how far it spreads (degrees, + towards the thumb)
+static const char *const k_faces[] = {"Neutral", "Smile", "Grin", "Angry", "Sad", "Surprised", "Scared", "Pain",
+                                      "Shout", "Eyes Shut"};
+#define NUM_FACES (int)(sizeof(k_faces) / sizeof(k_faces[0]))
+static const struct {
+    const char *name;
+    float curl[FINGERS], spread[FINGERS];
+} k_hands[] = {
+    {"Natural", {0, 0, 0, 0, 0}, {0, 0, 0, 0, 0}},
+    {"Fist", {0.8f, 1, 1, 1, 1}, {0, 0, 0, 0, 0}},
+    {"Point", {0.8f, 0, 1, 1, 1}, {0, 0, 0, 0, 0}},
+    {"Thumbs Up", {-0.2f, 1, 1, 1, 1}, {10, 0, 0, 0, 0}},
+    {"Peace", {0.8f, 0, 0, 1, 1}, {0, 9, -9, 0, 0}},
+    {"Rock On", {0.6f, 0, 1, 1, 0}, {0, 6, 0, 0, -10}},
+    {"Open", {-0.15f, -0.1f, -0.1f, -0.1f, -0.1f}, {18, 7, 0, -6, -12}},
+    {"OK", {0.45f, 0.55f, 0.1f, 0.05f, 0}, {0, 0, -3, -6, -10}},
+};
+#define NUM_HANDS (int)(sizeof(k_hands) / sizeof(k_hands[0]))
+// Each segment's bend at a full curl (degrees): knuckle, middle, tip; the thumb's
+static const float k_curl_deg[FINGER_SEGS] = {75.0f, 95.0f, 60.0f};
+static const float k_thumb_deg[FINGER_SEGS] = {35.0f, 40.0f, 45.0f};
 
 // How NPCs use each weapon
 typedef struct {
@@ -134,6 +188,14 @@ typedef struct {
     // The held weapon as drawn this frame
     ScePspFMatrix4 weapon_world;
     int weapon_drawn;
+    // Navigation (nav.c): the route along the map's nodes to where it's going
+    int16_t route[NAV_ROUTE_MAX];
+    int route_len, route_pos;
+    vec3 route_goal;
+    float route_timer, direct_timer;
+    int direct;    // nothing in the way: it heads straight there
+    int goal_node; // wandering or running away: the node it's making for (-1: none)
+    vec3 flee_from;
 } Npc;
 
 #define MAX_PUPPETS 4
@@ -163,6 +225,8 @@ typedef struct {
     int8_t stump[RAG_MAX_BONES]; // a hidden (scale 0) bone's mesh closes up at this bone's point (-1: its own)
     int held; // 1 + the bone the physics gun holds (it doesn't give to the constraints), else 0
     vec3 held_from; // where the held bone was before this frame's drag
+    int face;       // Face Poser expression (k_faces), 0: its own face
+    int hand[2];    // Finger Poser pose of each hand (k_hands), 0: natural
     unsigned int ambient;
     int sunlit, light_age;
 } Ragdoll;
@@ -198,6 +262,9 @@ static const uint32_t *g_flags;    // NPCF: 1 ragdoll only, 2 player model; NULL
 enum { NPCF_RAGDOLL_ONLY = 1, NPCF_PLAYER = 2, NPCF_RELEASE_CRAB = 4, NPCF_WORKSHOP = 8, NPCF_HALVES = 16 };
 static const uint64_t *g_crab_bones; // NPCH: per type, the palette bones of its headcrab (NULL in older packs)
 static const uint64_t *g_leg_bones;  // NPCL: per type, the palette bones below the waist (NULL in older packs)
+static const FaceExpr *g_faces;       // FXEX: per type, NUM_FACES - 1 expressions (NULL in older packs)
+static const FaceDelta *g_face_deltas;
+static const NpcHands *g_hands;       // NPCK: per type (NULL in older packs)
 static int g_crab_type = -1;          // the Headcrab NPC a zombie's crab becomes
 static int g_torso_type = -1;         // the Zombie Torso a sawblade leaves crawling on
 static int g_blade_model = -1;        // the spawnable prop (lib 0) that cuts zombies in half
@@ -252,6 +319,15 @@ int npcs_load(void) {
     const PmapSection *ls = pak_find(g_file, PMAP_SECTION_ID('N', 'P', 'C', 'L'));
     g_leg_bones = ls ? (const uint64_t *)(base + ls->offset) : NULL;
     g_num_models = (int)pak_find(g_file, PMAP_SECTION_ID('N', 'P', 'C', 'M'))->count;
+    const PmapSection *xs = pak_find(g_file, PMAP_SECTION_ID('F', 'X', 'E', 'X'));
+    const PmapSection *ds = pak_find(g_file, PMAP_SECTION_ID('F', 'X', 'D', 'L'));
+    int faces_ok = xs && ds && xs->count == (uint32_t)g_num_models * (NUM_FACES - 1);
+    g_faces = faces_ok ? (const FaceExpr *)(base + xs->offset) : NULL;
+    g_face_deltas = faces_ok ? (const FaceDelta *)(base + ds->offset) : NULL;
+    const PmapSection *ks = pak_find(g_file, PMAP_SECTION_ID('N', 'P', 'C', 'K'));
+    g_hands = ks && ks->count == (uint32_t)g_num_models && ks->size == ks->count * sizeof(NpcHands)
+                  ? (const NpcHands *)(base + ks->offset)
+                  : NULL;
     g_snd_hit = snd_find("impact_flesh");
     g_snd_die = snd_find("impact_flesh");
     g_snd_rag = snd_find("ragdoll_hit");
@@ -334,6 +410,7 @@ int npc_spawn(int type, vec3 pos, float yaw) {
         player_spawn(&n->mover, pos);
         n->last_pos = pos;
         n->light_age = 1000;
+        n->goal_node = -1;
         return i;
     }
     return -1;
@@ -528,6 +605,7 @@ void npc_damage_dir(int i, float amount, vec3 dv) {
         n->state = ST_FLEE;
         n->state_time = 0.0f;
         n->wander_yaw = n->yaw + 180.0f; // run the other way
+        n->goal_node = -1;
     }
     if (n->ai == AI_MINGE && g_minge) g_minge((int)(n - g_npcs), MINGE_HURT, n->mover.origin, n->mover.origin);
 }
@@ -732,6 +810,97 @@ static void fire_at_enemy(Npc *n, const NpcGun *gun, void (*damage)(int target, 
     }
 }
 
+// --- Navigation ---------------------------------------------------------------------------------------
+// With the map's node graph (nav.c), an NPC that can't walk straight to where it's going follows a route
+// along the nodes, planned again as the goal moves. Without one, or with nothing in the way, it heads
+// straight there, as it always did.
+
+#define NAV_REACHED 40.0f // close enough to a node to make for the next
+#define NAV_LOOK 600.0f   // how far round it looks for a node to start from
+
+// A character can walk straight from a to b: nothing solid at its height, and floor under the way
+static int walk_clear(Map *m, vec3 a, vec3 b) {
+    vec3 d = v3_sub(b, a);
+    float len = sqrtf(d.x * d.x + d.y * d.y);
+    if (len < 1.0f) return 1;
+    if (fabsf(d.z) > len + 24.0f) return 0;
+    Trace tr;
+    cm_trace(m, v3_add(a, v3(0, 0, 18)), v3_add(b, v3(0, 0, 18)), v3(-12, -12, 0), v3(12, 12, 40), MASK_PLAYERSOLID, NULL,
+             0, &tr);
+    if (tr.fraction < 1.0f || tr.startsolid) return 0;
+    for (int k = 1; k < 3 && len > 64.0f; k++) {
+        vec3 p = v3_add(v3_lerp(a, b, k / 3.0f), v3(0, 0, 18));
+        cm_trace_line(m, p, v3_add(p, v3(0, 0, -18.0f - 48.0f)), MASK_PLAYERSOLID, NULL, 0, &tr);
+        if (tr.fraction >= 1.0f) return 0; // a drop or a pit on the way
+    }
+    return 1;
+}
+
+static void nav_plan(Npc *n, Map *m, vec3 goal) {
+    n->route_timer = 2.0f + frand();
+    n->route_goal = goal;
+    n->route_len = n->route_pos = 0;
+    int a = nav_nearest(m, n->mover.origin, NAV_LOOK);
+    int b = nav_nearest(m, goal, NAV_LOOK);
+    if (a < 0 || b < 0) return;
+    n->route[0] = (int16_t)a; // the node it starts from, then on along the way
+    int k = nav_route(a, b, n->route + 1, NAV_ROUTE_MAX - 1);
+    n->route_len = k < 0 ? 0 : k + 1;
+}
+
+static int near_node(const Npc *n, int node) {
+    vec3 p = nav_node_pos(node), at = n->mover.origin;
+    float dx = p.x - at.x, dy = p.y - at.y;
+    return dx * dx + dy * dy < NAV_REACHED * NAV_REACHED && fabsf(p.z - at.z) < 64.0f;
+}
+
+// Which way to head for goal: straight at it when nothing's in the way, otherwise along the route
+static float nav_yaw(Npc *n, Map *m, vec3 goal, float dt) {
+    vec3 at = n->mover.origin;
+    if (!nav_available()) return yaw_to(at, goal);
+    n->direct_timer -= dt;
+    n->route_timer -= dt;
+    int look = n->direct_timer <= 0.0f; // traces a few times a second, not every frame
+    if (look) {
+        n->direct_timer = 0.3f + frand() * 0.15f;
+        n->direct = v3_len(v3_sub(goal, at)) < 48.0f || walk_clear(m, at, goal);
+    }
+    if (n->direct) {
+        n->route_len = 0;
+        return yaw_to(at, goal);
+    }
+    if (n->route_timer <= 0.0f || (n->route_len > 0 && v3_len(v3_sub(goal, n->route_goal)) > 160.0f)) nav_plan(n, m, goal);
+    if (n->route_len == 0) return yaw_to(at, goal);
+    // On to the next node once it's there, or as soon as it can walk straight to the one after
+    int reached = near_node(n, n->route[n->route_pos]);
+    if (!reached && look && n->route_pos + 1 < n->route_len) reached = walk_clear(m, at, nav_node_pos(n->route[n->route_pos + 1]));
+    if (reached && ++n->route_pos >= n->route_len) {
+        n->route_len = 0; // at the end of the route: the goal's in reach
+        n->direct_timer = 0.0f;
+        return yaw_to(at, goal);
+    }
+    return yaw_to(at, nav_node_pos(n->route[n->route_pos]));
+}
+
+void npc_nav_debug(int i, char *out, int size) {
+    const Npc *n = &g_npcs[i < 0 || i >= MAX_NPCS ? 0 : i];
+    snprintf(out, (size_t)size, "NPC %d: %.0f %.0f %.0f %s %d/%d", i, n->mover.origin.x, n->mover.origin.y,
+             n->mover.origin.z, n->direct ? "straight" : "route", n->route_pos, n->route_len);
+}
+
+// Stuck on the way (a closed door, a pile of props): that link is out for a while, and it plans again
+static void nav_stuck(Npc *n) {
+    if (n->route_len > 0 && n->route_pos == 0 && n->route_len > 1) {
+        n->route_pos++; // can't get to the node it set off for: try the next one instead
+    } else {
+        if (n->route_len > 0 && n->route_pos > 0) nav_block(n->route[n->route_pos - 1], n->route[n->route_pos], 20.0f);
+        n->route_len = 0;
+        n->route_timer = 0.0f;
+    }
+    n->direct = 0;
+    n->direct_timer = 1.5f; // and no going straight for a bit
+}
+
 static void advance_animation(Npc *n, int want_seq, float dt) {
     if (want_seq != n->seq) {
         n->seq = want_seq;
@@ -765,6 +934,7 @@ void npcs_update(Map *m, float dt, const NpcTarget *targets, int num_targets, Ph
     // Options > NPCs ignore players: players still block them, but nobody targets or follows one
     if (g_ignore_players) num_targets = 0;
     if (g_bait_time > 0.0f) g_bait_time -= dt;
+    nav_update(dt);
     int ant_leader_ok = g_ant_leader >= 0 && g_ant_leader < num_targets && targets[g_ant_leader].valid;
     for (int i = 0; i < MAX_NPCS; i++) {
         Npc *n = &g_npcs[i];
@@ -859,9 +1029,11 @@ void npcs_update(Map *m, float dt, const NpcTarget *targets, int num_targets, Ph
 
             }
         } else if (gunner && n->enemy_kind) {
-            // Close in to two thirds of the gun's range, then stand, face the enemy and fire bursts
-            n->yaw = turn_towards(n->yaw, yaw_to(n->mover.origin, pp), 300.0f * dt);
-            if (to_enemy > gun->range * 0.66f) {
+            // Close in to two thirds of the gun's range (round walls, by the map's nodes), then stand, face
+            // the enemy and fire bursts
+            int closing = to_enemy > gun->range * 0.66f;
+            n->yaw = turn_towards(n->yaw, closing ? nav_yaw(n, m, pp, dt) : yaw_to(n->mover.origin, pp), 300.0f * dt);
+            if (closing) {
                 n->state = ST_CHASE;
                 speed = move_speed(n, SEQ_RUN);
                 want_seq = SEQ_RUN;
@@ -923,7 +1095,7 @@ void npcs_update(Map *m, float dt, const NpcTarget *targets, int num_targets, Ph
                 int kind = n->ai == AI_ANTLION || n->ai == AI_COMBINE || n->ai == AI_REBEL ? SEQ_RUN : SEQ_WALK;
                 speed = move_speed(n, kind);
                 want_seq = kind;
-                n->yaw = turn_towards(n->yaw, yaw_to(n->mover.origin, pp), 270.0f * dt);
+                n->yaw = turn_towards(n->yaw, nav_yaw(n, m, pp, dt), 270.0f * dt);
             }
         } else if (bait_ally(n) &&
                    ((g_bait_time > 0.0f && v3_len(v3_sub(g_bait_pos, n->mover.origin)) > 80.0f) ||
@@ -934,26 +1106,33 @@ void npcs_update(Map *m, float dt, const NpcTarget *targets, int num_targets, Ph
             n->state = ST_CHASE;
             speed = move_speed(n, SEQ_RUN);
             want_seq = SEQ_RUN;
-            n->yaw = turn_towards(n->yaw, yaw_to(n->mover.origin, goal), 300.0f * dt);
+            n->yaw = turn_towards(n->yaw, nav_yaw(n, m, goal, dt), 300.0f * dt);
         } else if (n->ai == AI_REBEL && near_player >= 0 && to_player > 220.0f && to_player < 3000.0f) {
             // Nothing to fight: keep up with the player
             n->state = ST_CHASE;
             int kind = to_player > 500.0f ? SEQ_RUN : SEQ_WALK;
             speed = move_speed(n, kind);
             want_seq = kind;
-            n->yaw = turn_towards(n->yaw, yaw_to(n->mover.origin, targets[near_player].pos), 270.0f * dt);
+            n->yaw = turn_towards(n->yaw, nav_yaw(n, m, targets[near_player].pos, dt), 270.0f * dt);
         } else {
             n->burst_left = 0;
             vec3 threat;
             if ((n->ai == AI_CITIZEN || n->ai == AI_MINGE) && n->state == ST_FLEE && n->state_time < (n->ai == AI_MINGE ? 1.2f : 4.0f)) {
-                // Keep running from where it got hurt
+                // Keep running from where it got hurt, or along the map's nodes away from the danger
                 speed = move_speed(n, SEQ_RUN);
                 want_seq = SEQ_RUN;
+                if (n->goal_node >= 0 && near_node(n, n->goal_node)) {
+                    int next = nav_flee_node(n->goal_node, n->flee_from);
+                    n->goal_node = next != n->goal_node ? next : -1;
+                }
+                if (n->goal_node >= 0) n->wander_yaw = nav_yaw(n, m, nav_node_pos(n->goal_node), dt);
             } else if (n->ai == AI_CITIZEN && nearest_hostile(n, &threat)) {
                 if (n->state != ST_FLEE) npc_say(n, VOICE_ALERT); // "Run for your life!"
                 n->state = ST_FLEE;
                 n->state_time = 0.0f;
                 n->wander_yaw = yaw_to(threat, n->mover.origin);
+                n->flee_from = threat;
+                n->goal_node = nav_available() ? nav_flee_node(nav_nearest(m, n->mover.origin, NAV_LOOK), threat) : -1;
                 speed = move_speed(n, SEQ_RUN);
                 want_seq = SEQ_RUN;
             } else if (n->ai == AI_REBEL && to_player <= 220.0f) {
@@ -969,13 +1148,18 @@ void npcs_update(Map *m, float dt, const NpcTarget *targets, int num_targets, Ph
                     n->state = ST_WANDER;
                     n->state_time = 0.0f;
                     n->wander_yaw = n->yaw + (float)((rand() % 240) - 120);
-                } else if (n->state == ST_WANDER && n->state_time > 4.0f) {
+                    // With the map's nodes: off to one a few links away, round whatever's in between
+                    n->goal_node = nav_available() ? nav_wander_node(nav_nearest(m, n->mover.origin, NAV_LOOK)) : -1;
+                } else if (n->state == ST_WANDER && (n->state_time > (n->goal_node >= 0 ? 10.0f : 4.0f) ||
+                                                     (n->goal_node >= 0 && near_node(n, n->goal_node)))) {
                     n->state = ST_IDLE;
                     n->state_time = 0.0f;
+                    n->goal_node = -1;
                 }
                 if (n->state == ST_WANDER) {
                     speed = move_speed(n, SEQ_WALK);
                     want_seq = SEQ_WALK;
+                    if (n->goal_node >= 0) n->wander_yaw = nav_yaw(n, m, nav_node_pos(n->goal_node), dt);
                 }
             }
             if (speed > 0.0f) n->yaw = turn_towards(n->yaw, n->wander_yaw, 180.0f * dt);
@@ -986,6 +1170,7 @@ void npcs_update(Map *m, float dt, const NpcTarget *targets, int num_targets, Ph
             float moved = v3_len(v3_sub(n->mover.origin, n->last_pos));
             n->stuck_time = moved < speed * dt * 0.25f ? n->stuck_time + dt : 0.0f;
             if (n->stuck_time > 0.6f) {
+                if (nav_available()) nav_stuck(n); // round another way
                 n->wander_yaw = n->yaw + 90.0f + (float)(rand() % 180);
                 n->yaw = n->wander_yaw;
                 n->stuck_time = 0.0f;
@@ -1447,6 +1632,8 @@ void npc_ragdoll_net_info(int r, RagInfo *out) {
     out->type = (uint8_t)g->type;
     out->nb = (uint8_t)(g->nb < RAG_NET_MAX_BONES ? g->nb : RAG_NET_MAX_BONES);
     out->spawned = (uint8_t)g->spawned;
+    out->face = (uint8_t)g->face;
+    out->hand[0] = (uint8_t)g->hand[0], out->hand[1] = (uint8_t)g->hand[1];
     vec3 o = g->p0[0];
     out->origin[0] = o.x, out->origin[1] = o.y, out->origin[2] = o.z;
     // The rotations at death are a rotation times the character's (uniform) size
@@ -1524,11 +1711,13 @@ void npc_ragdoll_net_set_info(const RagInfo *in) {
         rag_build(g, g_ragbones + md->first_rag);
         g_rag_gen[in->slot] = in->gen;
     }
-    // Size (inflator) and sawblade cuts can change any time
+    // Size (inflator), sawblade cuts and poses can change any time
     for (int b = 0; b < nb; b++) {
         g->scale[b] = in->scale[b] / 32.0f;
         g->stump[b] = in->stump[b];
     }
+    g->face = in->face < NUM_FACES ? in->face : 0;
+    for (int h = 0; h < 2; h++) g->hand[h] = in->hand[h] < NUM_HANDS ? in->hand[h] : 0;
 }
 
 void npc_ragdoll_net_set_pose(const RagPose *in) {
@@ -1806,6 +1995,130 @@ static void rag_palette(const Ragdoll *g, float (*out)[12]) {
     }
 }
 
+// --- Face and Finger Poser ------------------------------------------------------------------------
+
+int npc_face_count(void) {
+    return NUM_FACES;
+}
+
+const char *npc_face_name(int i) {
+    return i >= 0 && i < NUM_FACES ? k_faces[i] : "";
+}
+
+int npc_hand_count(void) {
+    return NUM_HANDS;
+}
+
+const char *npc_hand_name(int i) {
+    return i >= 0 && i < NUM_HANDS ? k_hands[i].name : "";
+}
+
+int npc_ragdoll_can_face(int r, int face) {
+    if (!npc_ragdoll_active(r) || !g_faces) return 0;
+    if (face <= 0) return 1;
+    return face < NUM_FACES && g_faces[g_rags[r].type * (NUM_FACES - 1) + face - 1].count > 0;
+}
+
+int npc_ragdoll_set_face(int r, int face) {
+    if (face < 0 || face >= NUM_FACES || !npc_ragdoll_can_face(r, face)) return 0;
+    g_rags[r].face = face;
+    return 1;
+}
+
+int npc_ragdoll_face(int r) {
+    return npc_ragdoll_active(r) ? g_rags[r].face : 0;
+}
+
+static const NpcHand *hand_of(int type, int h) {
+    if (!g_hands || type < 0 || type >= g_num_models || h < 0 || h > 1) return NULL;
+    const NpcHand *hd = &g_hands[type].h[h];
+    return hd->bone >= 0 && hd->bone < (int)g_models[type].num_bones ? hd : NULL;
+}
+
+int npc_ragdoll_set_hand(int r, int h, int pose) {
+    if (!npc_ragdoll_active(r) || pose < 0 || pose >= NUM_HANDS || !hand_of(g_rags[r].type, h)) return 0;
+    g_rags[r].hand[h] = pose;
+    return 1;
+}
+
+int npc_ragdoll_hand(int r, int h) {
+    return npc_ragdoll_active(r) && h >= 0 && h < 2 ? g_rags[r].hand[h] : 0;
+}
+
+int npc_ragdoll_nearest_hand(int r, vec3 p, float *dist) {
+    if (!npc_ragdoll_active(r)) return -1;
+    const Ragdoll *g = &g_rags[r];
+    int best = -1;
+    float bd = 1e9f;
+    for (int h = 0; h < 2; h++) {
+        const NpcHand *hd = hand_of(g->type, h);
+        if (!hd || hd->bone >= g->nb) continue;
+        float d = v3_len(v3_sub(g->p[hd->bone], p));
+        if (d < bd) bd = d, best = h;
+    }
+    if (dist) *dist = bd;
+    return best;
+}
+
+// Rotation by ang radians round a unit axis through the point p (3x4, rows)
+static void rot_about(float out[12], const float axis[3], float ang, const float p[3]) {
+    float c = cosf(ang), s = sinf(ang), t = 1.0f - c, x = axis[0], y = axis[1], z = axis[2];
+    const float R[9] = {t * x * x + c,     t * x * y - s * z, t * x * z + s * y,
+                        t * x * y + s * z, t * y * y + c,     t * y * z - s * x,
+                        t * x * z - s * y, t * y * z + s * x, t * z * z + c};
+    for (int i = 0; i < 3; i++) {
+        out[i * 4] = R[i * 3], out[i * 4 + 1] = R[i * 3 + 1], out[i * 4 + 2] = R[i * 3 + 2];
+        out[i * 4 + 3] = p[i] - (R[i * 3] * p[0] + R[i * 3 + 1] * p[1] + R[i * 3 + 2] * p[2]);
+    }
+}
+
+// m = m * b (3x4 affine matrices)
+static void mul34(float m[12], const float b[12]) {
+    float o[12];
+    for (int r = 0; r < 3; r++) {
+        for (int c = 0; c < 4; c++) {
+            o[r * 4 + c] = m[r * 4] * b[c] + m[r * 4 + 1] * b[4 + c] + m[r * 4 + 2] * b[8 + c] + (c == 3 ? m[r * 4 + 3] : 0.0f);
+        }
+    }
+    memcpy(m, o, sizeof(o));
+}
+
+// The finger slots after the model's bones: each finger follows its hand, curled and spread by the
+// hand's pose (pose: k_hands index per hand, or NULL for natural hands)
+static void finger_palette(int type, float (*out)[12], const int *pose) {
+    int nb = (int)g_models[type].num_bones;
+    for (int h = 0; h < 2; h++) {
+        const NpcHand *hd = hand_of(type, h);
+        if (!hd) continue;
+        int p = pose ? pose[h] : 0;
+        float (*slot)[12] = out + nb + h * FINGERS * FINGER_SEGS;
+        for (int f = 0; f < FINGERS; f++) {
+            const NpcFinger *fg = &hd->f[f];
+            float m[12], r[12];
+            memcpy(m, out[hd->bone], sizeof(m));
+            for (int k = 0; k < FINGER_SEGS; k++) {
+                if (p > 0 && k < fg->segs) {
+                    if (k == 0 && k_hands[p].spread[f] != 0.0f) {
+                        rot_about(r, fg->spread, k_hands[p].spread[f] * DEG2RAD, fg->pivot[0]);
+                        mul34(m, r);
+                    }
+                    float deg = (f == 0 ? k_thumb_deg : k_curl_deg)[k] * k_hands[p].curl[f];
+                    if (deg != 0.0f) {
+                        rot_about(r, fg->curl, deg * DEG2RAD, fg->pivot[k]);
+                        mul34(m, r);
+                    }
+                }
+                memcpy(slot[f * FINGER_SEGS + k], m, sizeof(m));
+            }
+        }
+    }
+}
+
+// Palette entries a type's vertices use: its bones, plus the finger slots
+static int draw_bones(int type) {
+    return (int)g_models[type].num_bones + (g_hands ? FINGER_SLOTS : 0);
+}
+
 // --- Drawing --------------------------------------------------------------------------------------
 
 // Area ambient plus the sun if nothing blocks it, refreshed every few frames
@@ -1830,7 +2143,10 @@ static void apply_light(Map *m, vec3 c, unsigned int *ambient, int *sunlit, int 
 #define SKIN_VERT_BUDGET 14000
 static int g_skin_verts;
 
-static void draw_skinned(const NpcModel *md, float (*palette)[12], int num_matrices, const float *nscale) {
+// face: a Face Poser expression (FaceDeltas sorted by vertex), or NULL
+static void draw_skinned(const NpcModel *md, float (*palette)[12], int num_matrices, const float *nscale,
+                         const FaceExpr *face) {
+    const FaceDelta *fd = face ? g_face_deltas + face->first : NULL, *fd_end = face ? fd + face->count : NULL;
     for (uint32_t k = 0; k < md->num_meshes; k++) {
         const NpcMesh *mesh = &g_meshes[md->first_mesh + k];
         if (g_skin_verts + (int)mesh->num_vertices > SKIN_VERT_BUDGET) return;
@@ -1845,9 +2161,17 @@ static void draw_skinned(const NpcModel *md, float (*palette)[12], int num_matri
             DrawVert *o = &out[v];
             o->u = sv->u;
             o->v = sv->v;
-            o->x = p[0] * sv->x + p[1] * sv->y + p[2] * sv->z + p[3];
-            o->y = p[4] * sv->x + p[5] * sv->y + p[6] * sv->z + p[7];
-            o->z = p[8] * sv->x + p[9] * sv->y + p[10] * sv->z + p[11];
+            float x = sv->x, y = sv->y, z = sv->z;
+            if (fd) {
+                uint32_t gv = mesh->first_vertex + v;
+                while (fd < fd_end && fd->vertex < gv) fd++;
+                if (fd < fd_end && fd->vertex == gv) {
+                    x += fd->d[0] * (1.0f / 256.0f), y += fd->d[1] * (1.0f / 256.0f), z += fd->d[2] * (1.0f / 256.0f);
+                }
+            }
+            o->x = p[0] * x + p[1] * y + p[2] * z + p[3];
+            o->y = p[4] * x + p[5] * y + p[6] * z + p[7];
+            o->z = p[8] * x + p[9] * y + p[10] * z + p[11];
             o->nx = (p[0] * sv->nx + p[1] * sv->ny + p[2] * sv->nz) * ns;
             o->ny = (p[4] * sv->nx + p[5] * sv->ny + p[6] * sv->nz) * ns;
             o->nz = (p[8] * sv->nx + p[9] * sv->ny + p[10] * sv->nz) * ns;
@@ -1894,7 +2218,7 @@ void npcs_draw(Map *m, const Camera *cam) {
     sceGuLight(0, GU_DIRECTIONAL, GU_DIFFUSE, &sun);
     sceGuColor(0xFFFFFFFF);
 
-    static float palette[MAX_PALETTE][12];
+    static float palette[MAX_DRAW_BONES][12];
     for (int i = 0; i < MAX_NPCS; i++) g_npcs[i].weapon_drawn = 0; // only what's drawn below gets a weapon
     for (int i = 0; i < MAX_NPCS + MAX_PUPPETS + 1; i++) {
         Npc *n = i < MAX_NPCS ? &g_npcs[i] : i < MAX_NPCS + MAX_PUPPETS ? &g_puppets[i - MAX_NPCS] : &g_self;
@@ -1914,8 +2238,9 @@ void npcs_draw(Map *m, const Camera *cam) {
         sceGumMatrixMode(GU_MODEL);
         sceGumLoadMatrix(&w);
         blended_palette(n, palette);
+        finger_palette(n->type, palette, NULL);
         if (n->tint) sceGuColor(n->tint);
-        draw_skinned(&g_models[n->type], palette, MAX_PALETTE, NULL);
+        draw_skinned(&g_models[n->type], palette, draw_bones(n->type), NULL, NULL);
         if (n->tint) sceGuColor(0xFFFFFFFF);
 
         n->weapon_drawn = 0;
@@ -1952,9 +2277,22 @@ void npcs_draw(Map *m, const Camera *cam) {
         if (!g->active || !visible(cam, g->p[0], fwd_x, fwd_y)) continue;
         apply_light(m, v3_add(g->p[0], v3(0, 0, 8)), &g->ambient, &g->sunlit, &g->light_age);
         rag_palette(g, palette);
-        static float nscale[RAG_MAX_BONES];
+        static float nscale[MAX_DRAW_BONES];
         for (int b = 0; b < g->nb; b++) nscale[b] = g->scale[b] > 0.01f ? 1.0f / g->scale[b] : 1.0f;
-        draw_skinned(&g_models[g->type], palette, g->nb, nscale);
+        int nm = g->nb;
+        if (g->nb == (int)g_models[g->type].num_bones && g_hands) {
+            // Fingers: posed by the Finger Poser, sized with their hand
+            finger_palette(g->type, palette, g->hand);
+            for (int h = 0; h < 2; h++) {
+                const NpcHand *hd = hand_of(g->type, h);
+                for (int s = 0; s < FINGERS * FINGER_SEGS; s++) {
+                    nscale[g->nb + h * FINGERS * FINGER_SEGS + s] = hd ? nscale[hd->bone] : 1.0f;
+                }
+            }
+            nm = draw_bones(g->type);
+        }
+        const FaceExpr *fx = g->face > 0 && g_faces ? &g_faces[g->type * (NUM_FACES - 1) + g->face - 1] : NULL;
+        draw_skinned(&g_models[g->type], palette, nm, nscale, fx && fx->count ? fx : NULL);
     }
 
     sceGumMatrixMode(GU_MODEL);
