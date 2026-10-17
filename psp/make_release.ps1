@@ -1,4 +1,4 @@
-# Builds release\PSP\GAME\PSPSandbox\ (EBOOT.PBP + data\), laid out the way a PSP memory stick or PPSSPP
+# Builds release\PSP\GAME\RetconsMod\ (EBOOT.PBP + data\), laid out the way a PSP memory stick or PPSSPP
 # expects. Files are hard links to the build's own (no extra disk space); the PS2-only NPC pack and saves are left out.
 # Copy the release\PSP folder onto the memory stick / PPSSPP's folder, merging with any PSP folder there.
 #
@@ -9,7 +9,7 @@ param([switch]$Dev, [int]$MaxMB = 500)
 $ErrorActionPreference = "Stop"
 $psp = $PSScriptRoot
 $name = if ($Dev) { "release_dev" } else { "release" }
-$out = Join-Path $psp "$name\PSP\GAME\PSPSandbox"
+$out = Join-Path $psp "$name\PSP\GAME\RetconsMod"
 if (Test-Path (Join-Path $psp $name)) { Remove-Item (Join-Path $psp $name) -Recurse -Force }
 New-Item -ItemType Directory -Force $out | Out-Null
 
@@ -28,7 +28,7 @@ function Wanted($file) {
 
 # Your own saves and test files stay out: a fresh install starts with default settings, no achievements, no
 # saved builds (data\saves) and no servers added
-$skip = @("npcs.ps2.pnpc", "settings.cfg", "achievements.cfg", "autoload.txt", "servers.cfg", "update.log")
+$skip = @("npcs.ps2.pnpc", "settings.cfg", "achievements.cfg", "autoload.txt", "servers.cfg", "update.log", "achievements.tmp")
 function Link($src, $dst) {
     New-Item -ItemType Directory -Force (Split-Path $dst) | Out-Null
     try { New-Item -ItemType HardLink -Path $dst -Target $src | Out-Null } catch { Copy-Item $src $dst }

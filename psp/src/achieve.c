@@ -10,6 +10,7 @@
 #include "ui.h"
 
 #define ACH_PATH "data/achievements.cfg"
+#define ACH_TMP "data/achievements.tmp"
 #define MAX_MAPS_SEEN 64
 #define SAVE_EVERY 60.0f // seconds of play between saves of the playtime
 
@@ -23,7 +24,7 @@ static const AchDef k_ach[ACH_COUNT] = {
     {"Regular", "Play for an hour", 60},
     {"Addict", "Play for 10 hours", 600},
     {"Not Alone", "Play a game with another real person", 0},
-    {"Full House", "Play a game with all four players", 0},
+    {"Full House", "Play a game with four players or more", 0},
     {"The Real Deal", "Play on a real PSP", 0},
     {"Old Faithful", "Play on a PSP-1000", 0},
     {"Slim and Bright", "Play on a PSP-2000 or PSP-3000", 0},
@@ -105,6 +106,7 @@ static void check_counts(void) {
 void achieve_init(void) {
     memset(&A, 0, sizeof(A));
     FILE *f = fopen(ACH_PATH, "r");
+    if (!f) f = fopen(ACH_TMP, "r"); // switched off between achieve_save's remove and rename
     if (f) {
         char key[32];
         unsigned int v;
@@ -121,13 +123,20 @@ void achieve_init(void) {
     A.loaded = 1;
 }
 
+// Written to a temporary file, then swapped in: the playtime saves every minute, and a PSP switched off (or
+// PPSSPP closed) halfway through writing the file itself would leave it empty
 void achieve_save(void) {
     if (!A.loaded) return; // never over someone's progress with nothing
-    FILE *f = fopen(ACH_PATH, "w");
+    FILE *f = fopen(ACH_TMP, "w");
     if (!f) return;
     fprintf(f, "unlocked %u\nplaytime %u\nprops %d\nmingebags %d\n", A.unlocked, (unsigned int)A.playtime, A.props, A.minges);
     for (int i = 0; i < A.num_maps; i++) fprintf(f, "map %u\n", A.maps[i]);
-    fclose(f);
+    int ok = !ferror(f);
+    if (fclose(f) != 0) ok = 0;
+    if (ok) {
+        remove(ACH_PATH);
+        rename(ACH_TMP, ACH_PATH);
+    }
     A.since_save = 0.0f;
 }
 

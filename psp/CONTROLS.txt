@@ -1,4 +1,4 @@
-RETCON'S MOD (FORMERLY PSP SANDBOX) - CONTROLS  (v1.9.1)
+RETCON'S MOD (FORMERLY PSP SANDBOX) - CONTROLS  (v1.10.0)
 =========================================
 
 ON FOOT                      PSP
@@ -98,6 +98,8 @@ Camera tool (Tool Gun)
 ITEMS (spawn menu > Items)
   Health Kit, Health Vial, Suit Battery: walk over one to take it (only when
     it would help: health under 100, or suit power under 100 with the HEV suit on).
+  Ammo (Pistol, .357, SMG, Shotgun Shells, AR2, Crossbow Bolts, RPG Round,
+    Grenade): walk over it to take it, when that gun isn't full.
   Health Charger, Suit Charger: tap Use (D-pad Right) on one to charge; it stops
     when you're full, it's empty, you walk away or you tap Use again. They
     fill up again slowly. Move them onto a wall with the Physics Gun.
@@ -165,10 +167,11 @@ MULTIPLAYER
   Host on Wi-Fi             host through your access point: PSPs on the
                             same Wi-Fi find it in Online Servers
   Online Servers            games on your Wi-Fi and dedicated servers
-                            (psp-sandbox-server). Triangle adds a server's
+                            (retcons-mod-server). Triangle adds a server's
                             address (a name or 1.2.3.4, ":port" if it isn't
                             18256), Square removes it, X joins. R sets the
                             server list: every public server on it shows up.
+                            "locked" servers ask for their password.
   Wi-Fi uses the first connection in System Settings > Network Settings.
 
 

@@ -1,12 +1,13 @@
 # Retcon's Mod
 
-A physics sandbox for the PSP, by Retcon. Current version: **1.9.1** (shown in the main menu's corner,
+A physics sandbox for the PSP, by Retcon. Current version: **1.10.0** (shown in the main menu's corner,
 set in `psp/src/version.h`).
 
-**Retcon's Mod is PSP Sandbox's new name.** The name is changing step by step: the game (the XMB, the menus, the
-credits) and the docs say Retcon's Mod now, and the menus have the game's own logo instead of Garry's Mod's. The
-repositories, the `PSP/GAME/PSPSandbox` folder and its save files keep their old names for now, so links and saves
-keep working.
+**Retcon's Mod is PSP Sandbox's new name.** From 1.10.0 everything uses it: the repositories are
+`retcons-mod` and `retcons-mod-server` (GitHub forwards the old `psp-sandbox` links), the game's folder on the
+memory stick is `PSP/GAME/RetconsMod`, and the dedicated server is `retcons-mod-server`. The first time the game
+runs from its new folder, it brings your saves over from `PSP/GAME/PSPSandbox` (settings, achievements, Workshop
+choices, servers and saved builds); delete the old folder once you're happy.
 
 - **`psp/`**: the engine, written from scratch in C for the PSP. It draws with the GE (the PSP's graphics chip)
   directly and has its own physics, ragdolls, sound mixer, NPCs, multiplayer and Lua scripting.
@@ -14,7 +15,7 @@ keep working.
   Garry's Mod and Valve game installs and turns them into compact files the consoles can load.
 - **[PS2-GMOD](https://github.com/retcon26/PS2-GMOD)** (a separate repo): the PS2 port, **no longer supported**
   from 1.8.0. It stays up as it was (on the 1.3.0 engine); new versions are for the PSP only.
-- **[psp-sandbox-server](https://github.com/retcon26/psp-sandbox-server)** (a separate repo): a dedicated server.
+- **[retcons-mod-server](https://github.com/retcon26/retcons-mod-server)** (a separate repo): a dedicated server.
   It runs this engine on a Linux PC or server, with nobody playing on it, and hosts games that PSPs join over Wi-Fi
   and the internet (see [Multiplayer](#multiplayer)).
 
@@ -39,7 +40,7 @@ contain it are for your own use. Don't share them.
 - **48 NPCs and 98 ragdolls**, including Team Fortress 2's nine mercenaries on both teams (also as player
   models), mingebags, and characters from Counter-Strike: Source and Half-Life: Source. On maps with a node graph
   NPCs find their way round walls, and the Face Poser and Finger Poser pose ragdolls' faces and hands.
-- **14 weapons and 26 tool gun tools**, health kits, suit batteries and chargers, blood and bullet holes, a
+- **14 weapons and 26 tool gun tools**, health kits, suit batteries, ammo and chargers, blood and bullet holes, a
   flashlight, an HEV suit, Lua addons and 4-player multiplayer with voice chat: ad-hoc, over Wi-Fi, or on a
   dedicated server.
 - **Saves:** your builds saved to the memory stick and loaded back on any map (see [Saves](#saves)).
@@ -58,7 +59,7 @@ load it, it falls back to the map's low-detail version.
 
 ## Playing
 
-`psp/make_release.ps1` lays the game out ready to copy: `psp/release/PSP/GAME/PSPSandbox/` holds `EBOOT.PBP`,
+`psp/make_release.ps1` lays the game out ready to copy: `psp/release/PSP/GAME/RetconsMod/` holds `EBOOT.PBP`,
 `CONTROLS.txt` and the `data` folder.
 
 - **Real PSP** (needs custom firmware for homebrew): copy `release/PSP` to the root of the memory stick.
@@ -155,7 +156,9 @@ nearest lamps or lights that are on light the world, on top of your flashlight.
   Lab, Items), then about 3,000 extra props from 12 games, each game's in its own spawnlists. Up to 40 spawned props
   per player, plus the map's own physics props.
 - **Items:** HL2's Health Kit (+25 health), Health Vial (+10) and Suit Battery (+15 suit power): walk over one to
-  take it, when you need it. The Health Charger and Suit Charger stay where you put them (move them with the
+  take it, when you need it. **Ammo** too: Pistol Ammo (+20), .357 Ammo (+6), SMG Ammo (+45), Shotgun Shells (+20),
+  AR2 Ammo (+20), Crossbow Bolts (+6), an RPG Round and a Grenade, each taken when that gun isn't full (not with
+  unlimited ammo on). The Health Charger and Suit Charger stay where you put them (move them with the
   physics gun, onto a wall): tap Use on one and it charges you until you're full, it's empty, you walk away or you
   tap again. A health charger holds 50 and a suit charger 75, and they slowly fill up again. Batteries and suit
   chargers need the HEV suit on (Options).
@@ -315,7 +318,8 @@ gm_construct's files, so it takes no extra space.
 
 ## Multiplayer
 
-Up to 4 players. The host runs the physics, NPCs, ragdolls and doors. Multiplayer has three ways to play:
+Up to 4 players when a PSP hosts, and up to 7 on a dedicated server. The host runs the physics, NPCs, ragdolls
+and doors. Multiplayer has three ways to play:
 
 - **Host Game / Join Game:** ad-hoc, PSP to PSP, no access point needed.
 - **Host on Wi-Fi:** your PSP hosts through your access point, using the first connection set up in System
@@ -325,12 +329,14 @@ Up to 4 players. The host runs the physics, NPCs, ragdolls and doors. Multiplaye
   18256), Square removes it and X joins. R sets the **server list**: its address, and every public server it
   knows shows up without typing theirs. Both are kept in `data/servers.cfg`.
 
-A **dedicated server** ([psp-sandbox-server](https://github.com/retcon26/psp-sandbox-server)) runs this game's
-engine on a Linux PC or a rented server, with nobody playing on it, so up to 3 PSPs can play there. It has a
-console for kicking, chat, changing maps and loading saved builds. For players outside your network, forward UDP
+A **dedicated server** ([retcons-mod-server](https://github.com/retcon26/retcons-mod-server)) runs this game's
+engine on a Linux PC or a rented server, with nobody playing on it, for up to 7 PSPs. It can have a **password**
+(Online Servers marks the server "locked" and asks for it when you join), a **map rotation** (every player's PSP
+joins the next map by itself) and saves the players' build every few minutes, loading it again when the map comes
+back round. It has a console for kicking, chat, changing maps and loading saved builds. For players outside your network, forward UDP
 port 18256 on your router to the PC that runs it.
 
-A **server list** is the same program in list mode (`psp-sandbox-server --mode list`, UDP port 18257).
+A **server list** is the same program in list mode (`retcons-mod-server --mode list`, UDP port 18257).
 Dedicated servers set `list` to its address and tell it they're up every 30 seconds; PSPs ask it for the servers
 of their own game version and then ask each server about its game, so the list only ever shows servers that are
 answering.
@@ -419,13 +425,13 @@ sudo mkdir -p /mnt/d && sudo mount -t drvfs D: /mnt/d
 **Get the code.** In Ubuntu:
 
 ```bash
-git clone https://github.com/retcon26/psp-sandbox.git
-cd psp-sandbox
+git clone https://github.com/retcon26/retcons-mod.git
+cd retcons-mod
 ```
 
 ### 2. Build everything
 
-Close PPSSPP first: it locks the EBOOT while it runs. In Ubuntu, in the `psp-sandbox` folder:
+Close PPSSPP first: it locks the EBOOT while it runs. In Ubuntu, in the `retcons-mod` folder:
 
 ```bash
 bash tools/rebuild_all.sh
@@ -441,20 +447,20 @@ bash tools/bspconv.sh extras
 
 ### 3. Put it on a PSP or in PPSSPP
 
-Make the folder to copy. In PowerShell, in the `psp-sandbox` folder:
+Make the folder to copy. In PowerShell, in the `retcons-mod` folder:
 
 ```powershell
 powershell -File psp/make_release.ps1
 ```
 
-This makes `psp\release\PSP\GAME\PSPSandbox\`. Copy `psp\release\PSP` onto the memory stick (or into PPSSPP's
+This makes `psp\release\PSP\GAME\RetconsMod\`. Copy `psp\release\PSP` onto the memory stick (or into PPSSPP's
 `memstick` folder), merging it with the `PSP` folder that's already there. Add `-Dev` for a smaller build
 (`psp\release_dev\`, under 500 MB) with only the maps in [psp/dev_maps.txt](psp/dev_maps.txt), which is
 quicker to copy and test with.
 
 ### Changing just one part
 
-After the first full build you can redo one step on its own. Run these in Ubuntu, from the `psp-sandbox`
+After the first full build you can redo one step on its own. Run these in Ubuntu, from the `retcons-mod`
 folder:
 
 | To rebuild | Run | It reads |
@@ -556,8 +562,8 @@ The latest three. Every version, with dates, what's in each and which ones can p
 
 | Version | Changes |
 |---|---|
+| 1.10.0 | Ammo boxes in the Items spawnlist; dedicated servers for 7 players with a password, map rotation and autosaves; the rename's done (repos, `PSP/GAME/RetconsMod` with saves moved across, `retcons-mod-server`) |
 | 1.9.1 | Options > Updates works when the PSP's clock is wrong (1.9.0 said to check the date and time) |
-| 1.9.0 | Options > Updates: downloads and installs new versions from GitHub over Wi-Fi; Options > LOD distance slider (how far props and NPCs are drawn); Wi-Fi errors say what went wrong (they all said "Offline") |
 | 1.8.3 | Options > Target FPS: 25, 30, 60 or 120 frames a second; Select closes the spawn menu again (letting go of it opened the menu straight back up) |
 
 ## Roadmap
@@ -590,9 +596,11 @@ The latest three. Every version, with dates, what's in each and which ones can p
 - [x] NPC navigation along the map's own node graph (`info_node`), so NPCs walk round walls instead of into them
 - [x] Face Poser expressions and Finger Poser hands for ragdolls; the physics gun turns props on every axis
 - [x] Wi-Fi multiplayer (Host on Wi-Fi, Online Servers) and dedicated servers
-      ([psp-sandbox-server](https://github.com/retcon26/psp-sandbox-server)); doors and triggers for every player
+      ([retcons-mod-server](https://github.com/retcon26/retcons-mod-server)); doors and triggers for every player
 - [x] Server list: every public dedicated server in Online Servers, without typing addresses
 - [x] Updates over Wi-Fi: Options > Updates installs new versions from GitHub
+- [x] Ammo boxes; the rest of the rename (repositories, the `RetconsMod` game folder with saves moved across, the
+      server); bigger servers (7 players, a password, map rotation, the build autosaved)
 
 - [ ] **Effects:** sparks on metal, smoke, fire after explosions, muzzle smoke and tracer impacts
 - [ ] **Lua gamemodes:** a bigger Lua API and small gamemodes built on it, like Prop Hunt and a zombie survival mode
@@ -602,11 +610,7 @@ The latest three. Every version, with dates, what's in each and which ones can p
       keyboard
 - [ ] **Share builds:** send a saved build to the other players in a game (ad-hoc, Wi-Fi or a server), and let
       players who joined save and load builds too (only the host can now)
-- [ ] **The rest of the rename:** the repositories, the `PSPSandbox` game folder (moving saves across) and the
-      server's name, as Retcon's Mod
-- [ ] **Bigger servers:** more than 3 players on a dedicated server (the game has 4 slots and the server keeps one
-      empty), plus a password, map rotation and the build saved every few minutes
-- [ ] **Server on Windows:** psp-sandbox-server built for Windows too (it runs on Linux and WSL now)
+- [ ] **Server on Windows:** retcons-mod-server built for Windows too (it runs on Linux and WSL now)
 - [ ] **Day, night and weather:** a time-of-day option with fog and rain, built on gm_construct_13's fog
 - [ ] **Screenshots:** a pause menu button that saves the screen to the memory stick
 - [ ] **Workshop maps:** convert maps from your GMod Workshop downloads too (the converter already reads their

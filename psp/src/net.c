@@ -55,6 +55,7 @@ static struct {
     int joining;
     uint32_t nonce;
     NetHost join_target;
+    char password[16]; // what joins send (net_lobby_set_password)
     // Online Servers: the server list asked last, and the servers it gave
     uint8_t list_addr[6];
     int num_listed; // -1: no answer yet
@@ -445,6 +446,10 @@ int net_lobby_listed(void) {
     return N.num_listed;
 }
 
+void net_lobby_set_password(const char *password) {
+    snprintf(N.password, sizeof(N.password), "%s", password ? password : "");
+}
+
 void net_lobby_join(const NetHost *h) {
     N.joining = 1;
     N.nonce = sceKernelGetSystemTimeLow() | 1;
@@ -499,6 +504,7 @@ int net_lobby_update(float dt, NetHost *hosts, int max_hosts, int *num_hosts) {
             h->players = pk.beacon.players;
             h->max = pk.beacon.max;
             h->dedicated = (pk.beacon.flags & BEACON_DEDICATED) != 0;
+            h->password = (pk.beacon.flags & BEACON_PASSWORD) != 0;
             h->age = 0.0f;
         } else if (N.joining && memcmp(from, N.join_target.mac, 6) == 0) {
             if (pk.h.type == PK_WELCOME && len >= (int)sizeof(PkWelcome)) {
@@ -508,7 +514,7 @@ int net_lobby_update(float dt, NetHost *hosts, int max_hosts, int *num_hosts) {
                 result = 1;
             } else if (pk.h.type == PK_FULL) {
                 N.joining = 0;
-                result = -1;
+                result = pk.h.slot == JOIN_REFUSED_PASSWORD ? -2 : -1;
             }
         }
     }
@@ -528,6 +534,7 @@ int net_lobby_update(float dt, NetHost *hosts, int max_hosts, int *num_hosts) {
             j.h = (NetHeader){NET_MAGIC, PK_JOIN, 0, NET_VERSION};
             snprintf(j.name, sizeof(j.name), "%s", net_nickname());
             j.nonce = N.nonce;
+            memcpy(j.password, N.password, sizeof(j.password));
             net_send(N.join_target.mac, &j, sizeof(j));
             N.join_timer = JOIN_RESEND;
         }

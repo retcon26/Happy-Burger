@@ -29,7 +29,7 @@
 #include "ui.h"
 #include "version.h"
 
-#define REPO "retcon26/psp-sandbox"
+#define REPO "retcon26/retcons-mod" // GitHub forwards the old name, psp-sandbox
 #define ASSET "EBOOT.PBP"
 #define LOG_PATH "data/update.log"
 #define JSON_MAX (64 * 1024) // the release's JSON; its assets come before the long notes

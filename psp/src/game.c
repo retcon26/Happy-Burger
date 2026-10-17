@@ -43,7 +43,7 @@ float g_ps2_prof[4];
 void gu_profile_text(char *buf, int len);
 #endif
 static int g_flashlight; // Square toggles it on the PS2, holding D-pad Right on the PSP
-// A dedicated server (psp-sandbox-server): it hosts, but nobody plays on it. Its own player stays out of
+// A dedicated server (retcons-mod-server): it hosts, but nobody plays on it. Its own player stays out of
 // the game (noclip, not sent, not a target) and notes go to its log.
 static int g_dedicated;
 static void (*g_log)(const char *msg);
@@ -332,7 +332,7 @@ enum {
                      // emitter effect << 24; f: point, surface normal, then view direction or the first pick
     CMD_LAUNCH,      // i0 weapon (crossbow, RPG, grenade, bug bait), f: eye[3] dir[3]
     CMD_SQUEEZE,     // bug bait squeezed: antlions follow this player
-    CMD_PICKUP,      // i0 body: a health kit, vial or battery this player walked over
+    CMD_PICKUP,      // i0 body: a health kit, vial, battery or ammo box this player walked over
     CMD_HEAL,        // f0 health from a charger
     CMD_RAG_POSE,    // i0 ragdoll, i1 0 its face / 1 left hand / 2 right hand, u the expression or hand pose
 };
@@ -498,6 +498,7 @@ static struct {
         int jeep_engine, airboat_engine, vehicle_enter, vehicle_exit;
         int bolt_hit, bolt_flesh, gren_tick, bait_squeeze, bait_splat;
         int medkit, medvial, battery, charge_health, charge_suit, charge_no_health, charge_no_suit, charge_done_suit;
+        int ammo;
     } snd;
 
     // Multiplayer (see the Multiplayer section). Slot 0 is the host.
@@ -576,6 +577,7 @@ static int g_test_body = -1, g_test_drive;
 static float g_test_throttle, g_test_steer, g_test_walk;
 // autoload.txt "physrot": buttons held down and the stick, as if pressed (R and X: the physics gun turning)
 static unsigned int g_test_hold, g_test_hold_prev;
+static char g_rejoin[48]; // the server to join again after it changed map (game_rejoin_address)
 static float g_test_ax, g_test_ay;
 static void net_leave(void);
 static void vm_event(int kind);
@@ -684,14 +686,27 @@ static void test_use_aim(void);
 static void test_use_body(int body);
 static void launch(int w, vec3 eye, vec3 f);
 static void projectiles_clear(void);
-// Items (see Items): what a prop is, for pickups and chargers
-enum { ITEM_NONE, ITEM_HEALTHKIT, ITEM_HEALTHVIAL, ITEM_BATTERY, ITEM_HEALTH_CHARGER, ITEM_SUIT_CHARGER };
+// Items (see Items): what a prop is, for pickups and chargers. Ammo boxes come after the chargers, one
+// kind per gun (k_ammo_items).
+enum {
+    ITEM_NONE, ITEM_HEALTHKIT, ITEM_HEALTHVIAL, ITEM_BATTERY, ITEM_HEALTH_CHARGER, ITEM_SUIT_CHARGER,
+    ITEM_AMMO_PISTOL, ITEM_AMMO_357, ITEM_AMMO_SMG, ITEM_AMMO_SHOTGUN, ITEM_AMMO_AR2, ITEM_AMMO_CROSSBOW,
+    ITEM_AMMO_RPG, ITEM_AMMO_GRENADE, ITEM_COUNT
+};
+static int is_charger(int kind) {
+    return kind == ITEM_HEALTH_CHARGER || kind == ITEM_SUIT_CHARGER;
+}
+static int is_pickup(int kind) { // taken by walking over it
+    return (kind >= ITEM_HEALTHKIT && kind <= ITEM_BATTERY) || kind >= ITEM_AMMO_PISTOL;
+}
 static int item_kind(int body);
 static void items_clear(void);
 static void charger_use(int body);
 static void test_use_item(void);
 static void stop_charging(int sound);
 static void save_build(const char *name);
+static Build g_build;
+static int build_capture(Build *bd);
 static int load_build(const char *name, int in_place);
 static void cleanup_props(void);
 
@@ -794,6 +809,7 @@ static void load_shared(void) {
     G.snd.medkit = snd_find("medkit");
     G.snd.medvial = snd_find("medvial");
     G.snd.battery = snd_find("battery");
+    G.snd.ammo = snd_find("ammo_pickup");
     G.snd.charge_health = snd_find("charge_health");
     G.snd.charge_suit = snd_find("charge_suit");
     G.snd.charge_no_health = snd_find("charge_no_health");
@@ -1161,6 +1177,15 @@ void game_command(const char *line) {
         saves_open(G.map_name);
     } else if (strncmp(line, "pause", 5) == 0) {
         G.paused = 1;
+    } else if (strncmp(line, "autosave ", 9) == 0) { // autosave NAME: savebuild, but quiet with nothing to save
+        char nm[BUILD_NAME_LEN];
+        snprintf(nm, sizeof(nm), "%s", line + 9);
+        nm[strcspn(nm, "\r\n")] = 0;
+        if (build_capture(&g_build) > 0 && build_write(nm, &g_build) == 0) {
+            char msg[64];
+            snprintf(msg, sizeof(msg), "Autosaved %d props as %s", g_build.num_props, nm);
+            if (g_log) g_log(msg);
+        }
     } else if (strncmp(line, "savebuild ", 10) == 0) { // savebuild NAME
         char nm[BUILD_NAME_LEN];
         snprintf(nm, sizeof(nm), "%s", line + 10);
@@ -1283,6 +1308,10 @@ void game_command(const char *line) {
         if (is_launcher(G.weapon)) launch(G.weapon, player_eye(&G.player), view_forward());
     } else if (strncmp(line, "squeeze", 7) == 0) { // squeezes bug bait: antlions follow
         npc_bugbait_squeeze(G.my_slot);
+    } else if (sscanf(line, "unlimited %d", &i) == 1) { // Options > Unlimited ammo (not saved)
+        g_settings.unlimited_ammo = i != 0;
+    } else if (sscanf(line, "ammo %d", &i) == 1) { // every gun's spare ammo, for testing ammo boxes
+        for (int w = 0; w < WEAPON_COUNT; w++) G.ammo[w] = i;
     } else if (sscanf(line, "health %f", &x) == 1) { // sets health / suit power, for testing items
         G.health = clampf(x, 1.0f, 100.0f);
     } else if (sscanf(line, "suit %f", &x) == 1) {
@@ -1839,7 +1868,7 @@ static int new_body(int model, vec3 pos, quat rot, unsigned int tint, const vec3
     G.phys.bodies[i].tint_abgr = tint;
     G.phys.bodies[i].surface = (int)md->surface;
     if (model == camera_model()) G.phys.bodies[i].frozen = 1; // cameras hang where they're put, as in GMod
-    if (item_kind(i) >= ITEM_HEALTH_CHARGER) G.phys.bodies[i].frozen = 1; // and chargers, as on a wall
+    if (is_charger(item_kind(i))) G.phys.bodies[i].frozen = 1; // and chargers, as on a wall
     G.body_owner[i] = G.acting;
     return i;
 }
@@ -3598,11 +3627,11 @@ static void bugbait_update(const InputState *in, float dt) {
     launch(WEAPON_BUGBAIT, player_eye(&G.player), view_forward());
 }
 
-// --- Items: medkits, batteries and chargers ----------------------------------------------------------
-// Health kits, vials and suit batteries are props you take by walking over them (when they'd help);
+// --- Items: medkits, batteries, ammo and chargers ----------------------------------------------------
+// Health kits, vials, suit batteries and ammo boxes are props you take by walking over them (when they'd help);
 // health and suit chargers stay where they're put and charge you after a tap of Use, while they've charge
 // left (they slowly fill up again). Each PSP looks after its own player: a multiplayer client asks the host
-// to remove what it took (CMD_PICKUP) and to add the health (CMD_HEAL); suit power is each PSP's own.
+// to remove what it took (CMD_PICKUP) and to add the health (CMD_HEAL); suit power and ammo are each PSP's own.
 
 #define PICKUP_RANGE 48.0f
 #define CHARGE_RANGE 120.0f
@@ -3623,11 +3652,13 @@ static int item_kind(int body) {
     static int ready;
     if (!body_valid(body) || !G.props_loaded) return ITEM_NONE;
     if (!ready) {
-        static const char *const names[6] = {NULL, "Health Kit", "Health Vial", "Suit Battery", "Health Charger",
-                                             "Suit Charger"};
+        static const char *const names[ITEM_COUNT] = {
+            NULL,         "Health Kit", "Health Vial", "Suit Battery",   "Health Charger", "Suit Charger",
+            "Pistol Ammo", ".357 Ammo", "SMG Ammo",    "Shotgun Shells", "AR2 Ammo",       "Crossbow Bolts",
+            "RPG Round",  "Grenade"};
         ready = 1;
         for (int m = 0; m < G.props.num_models && m < MAX_ITEM_MODELS; m++) {
-            for (int k = 1; k < 6; k++) {
+            for (int k = 1; k < ITEM_COUNT; k++) {
                 if (strncmp(G.props.models[m].name, names[k], sizeof(G.props.models[m].name)) == 0) kinds[m] = (unsigned char)k;
             }
         }
@@ -3640,12 +3671,23 @@ static int item_kind(int body) {
 // Test command "charge": Use on the charger in front
 static void test_use_item(void) {
     Aim a = aim_trace(CHARGE_RANGE);
-    if (a.body >= 0 && item_kind(a.body) >= ITEM_HEALTH_CHARGER) charger_use(a.body);
+    if (a.body >= 0 && is_charger(item_kind(a.body))) charger_use(a.body);
 }
 
 static float item_amount(int kind) {
     return kind == ITEM_HEALTHKIT ? 25.0f : kind == ITEM_HEALTHVIAL ? 10.0f : 15.0f;
 }
+
+// Ammo boxes, by kind from ITEM_AMMO_PISTOL: the gun, how much a box holds (HL2's) and the most you can
+// carry for it (HL2's, or what you start with when that's more)
+static const struct {
+    int weapon, amount, max;
+    const char *name;
+} k_ammo_items[] = {
+    {WEAPON_PISTOL, 20, 150, "Pistol ammo"},     {WEAPON_357, 6, 36, ".357 ammo"},    {WEAPON_SMG, 45, 270, "SMG ammo"},
+    {WEAPON_SHOTGUN, 20, 34, "Shotgun shells"},  {WEAPON_AR2, 20, 90, "AR2 ammo"},     {WEAPON_CROSSBOW, 6, 10, "Bolts"},
+    {WEAPON_RPG, 1, 3, "RPG rounds"},            {WEAPON_GRENADE, 1, 5, "Grenades"},
+};
 
 // A charger's charge left: full the first time it's seen
 static float *charger_left(int body) {
@@ -3734,19 +3776,31 @@ static void items_update(float dt) {
     vec3 c = v3_add(G.player.origin, v3(0, 0, 36));
     for (int i = 0; i < MAX_BODIES; i++) {
         int kind = item_kind(i);
-        if (kind < ITEM_HEALTHKIT || kind > ITEM_BATTERY || (i == G.taken_body && G.taken_time > 0.0f)) continue;
+        if (!is_pickup(kind) || (i == G.taken_body && G.taken_time > 0.0f)) continue;
         if (v3_len(v3_sub(G.phys.bodies[i].pos, c)) > PICKUP_RANGE) continue;
-        int battery = kind == ITEM_BATTERY;
-        if (battery ? !(g_settings.hev_suit && G.suit < MAX_SUIT - 0.5f) : G.health >= MAX_HEALTH - 0.5f) continue;
-        float amount = item_amount(kind);
         char msg[32];
-        snprintf(msg, sizeof(msg), battery ? "Suit +%d" : "Health +%d", (int)amount);
-        notify(msg, NOTE_HINT);
-        play(battery ? G.snd.battery : kind == ITEM_HEALTHKIT ? G.snd.medkit : G.snd.medvial, 0.8f);
-        if (battery) {
-            G.suit = fminf(MAX_SUIT, G.suit + amount);
-        } else if (!is_client()) { // a client's health: the host adds it when it takes the kit away
-            G.health = fminf(MAX_HEALTH, G.health + amount);
+        if (kind >= ITEM_AMMO_PISTOL) {
+            // Ammo: into the gun's reserve, up to what you can carry (none needed with unlimited ammo)
+            int w = k_ammo_items[kind - ITEM_AMMO_PISTOL].weapon, max = k_ammo_items[kind - ITEM_AMMO_PISTOL].max;
+            if (g_settings.unlimited_ammo || G.ammo[w] >= max) continue;
+            int got = k_ammo_items[kind - ITEM_AMMO_PISTOL].amount;
+            if (got > max - G.ammo[w]) got = max - G.ammo[w];
+            G.ammo[w] += got;
+            snprintf(msg, sizeof(msg), "%s +%d", k_ammo_items[kind - ITEM_AMMO_PISTOL].name, got);
+            notify(msg, NOTE_HINT);
+            play(G.snd.ammo, 0.8f);
+        } else {
+            int battery = kind == ITEM_BATTERY;
+            if (battery ? !(g_settings.hev_suit && G.suit < MAX_SUIT - 0.5f) : G.health >= MAX_HEALTH - 0.5f) continue;
+            float amount = item_amount(kind);
+            snprintf(msg, sizeof(msg), battery ? "Suit +%d" : "Health +%d", (int)amount);
+            notify(msg, NOTE_HINT);
+            play(battery ? G.snd.battery : kind == ITEM_HEALTHKIT ? G.snd.medkit : G.snd.medvial, 0.8f);
+            if (battery) {
+                G.suit = fminf(MAX_SUIT, G.suit + amount);
+            } else if (!is_client()) { // a client's health: the host adds it when it takes the kit away
+                G.health = fminf(MAX_HEALTH, G.health + amount);
+            }
         }
         if (is_client()) {
             // The host takes it away (and adds the health) when it hears; until then this one's ours
@@ -5010,11 +5064,11 @@ static void exec_cmd(int slot, const NetCmd *c) {
         npc_bugbait_squeeze(slot);
         break;
     case CMD_PICKUP: {
-        // A kit or battery the player walked over: gone for everyone, and their health up
+        // A kit, battery or ammo box the player walked over: gone for everyone, and a kit's health theirs
         int kind = item_kind(i);
-        if (kind < ITEM_HEALTHKIT || kind > ITEM_BATTERY || p->health <= 0.0f) break;
+        if (!is_pickup(kind) || p->health <= 0.0f) break;
         if (v3_len(v3_sub(G.phys.bodies[i].pos, v3_add(p->pos, v3(0, 0, 36)))) > 150.0f) break;
-        if (kind != ITEM_BATTERY) p->health = fminf(MAX_HEALTH, p->health + item_amount(kind));
+        if (kind == ITEM_HEALTHKIT || kind == ITEM_HEALTHVIAL) p->health = fminf(MAX_HEALTH, p->health + item_amount(kind));
         remove_body(i);
         break;
     }
@@ -5061,6 +5115,21 @@ static void drop_peer(int s, const char *why) {
 
 static int num_players(void);
 
+// A dedicated server's rules (game_set_server): how many can play, and the password to join
+static int g_server_players = NET_MAX_PLAYERS - 1;
+static char g_server_password[16];
+
+void game_set_server(int max_players, const char *password) {
+    g_server_players = max_players < 1 ? 1 : max_players > NET_MAX_PLAYERS - 1 ? NET_MAX_PLAYERS - 1 : max_players;
+    snprintf(g_server_password, sizeof(g_server_password), "%s", password ? password : "");
+}
+
+// The slots this host gives out, its own (slot 0) included: a PSP takes 4 players, a dedicated server
+// keeps slot 0 to itself and takes up to 7
+static int host_slots(void) {
+    return g_dedicated ? g_server_players + 1 : NET_PSP_HOST_SLOTS;
+}
+
 // "A game is running here": the host's name, the map and how full it is
 static void make_beacon(PkBeacon *bc) {
     memset(bc, 0, sizeof(*bc));
@@ -5068,8 +5137,8 @@ static void make_beacon(PkBeacon *bc) {
     map_base(bc->map, sizeof(bc->map));
     snprintf(bc->host, sizeof(bc->host), "%s", net_nickname());
     bc->players = (uint8_t)num_players();
-    bc->max = (uint8_t)(g_dedicated ? NET_MAX_PLAYERS - 1 : NET_MAX_PLAYERS);
-    bc->flags = g_dedicated ? BEACON_DEDICATED : 0;
+    bc->max = (uint8_t)(g_dedicated ? host_slots() - 1 : host_slots());
+    bc->flags = (g_dedicated ? BEACON_DEDICATED : 0) | (g_dedicated && g_server_password[0] ? BEACON_PASSWORD : 0);
 }
 
 static void host_receive(void) {
@@ -5094,11 +5163,18 @@ static void host_receive(void) {
         if (pk.h.type == PK_JOIN && len >= (int)sizeof(PkJoin)) {
             int is_new = s < 0;
             if (is_new) {
-                for (s = 1; s < NET_MAX_PLAYERS && G.peers[s].active; s++) {
+                NetHeader no = net_header(PK_FULL);
+                if (g_dedicated && g_server_password[0] &&
+                    strncmp(pk.join.password, g_server_password, sizeof(pk.join.password)) != 0) {
+                    no.slot = JOIN_REFUSED_PASSWORD;
+                    net_send(from, &no, sizeof(no));
+                    continue;
                 }
-                if (s == NET_MAX_PLAYERS) {
-                    NetHeader full = net_header(PK_FULL);
-                    net_send(from, &full, sizeof(full));
+                for (s = 1; s < host_slots() && G.peers[s].active; s++) {
+                }
+                if (s == host_slots()) {
+                    no.slot = JOIN_REFUSED_FULL;
+                    net_send(from, &no, sizeof(no));
                     continue;
                 }
             }
@@ -5716,11 +5792,15 @@ static int client_update(float dt) {
             }
             break;
         case PK_LEAVE:
-            // h.slot says why (GAME_LEAVE_*): servers kick players and change maps
+            // h.slot says why (GAME_LEAVE_*): servers kick players and change maps. A map change joins
+            // the same server again straight away (game_rejoin_address).
             snprintf(G.exit_msg, sizeof(G.exit_msg), "%s",
                      pk.h.slot == GAME_LEAVE_KICKED ? "You were kicked from the server"
-                     : pk.h.slot == GAME_LEAVE_MAP  ? "The server is changing map: join again"
+                     : pk.h.slot == GAME_LEAVE_MAP  ? "The server is changing map: joining again..."
                                                     : "The host ended the game");
+            if (pk.h.slot == GAME_LEAVE_MAP && net_mode() == NET_MODE_INET) {
+                net_addr_text(G.host_mac, g_rejoin, sizeof(g_rejoin));
+            }
             return 0;
         default:
             break;
@@ -5921,6 +6001,13 @@ void game_join(int slot, const uint8_t host_mac[6]) {
 
 const char *game_exit_message(void) {
     return G.exit_msg;
+}
+
+int game_rejoin_address(char *out, int len) {
+    if (!g_rejoin[0]) return 0;
+    snprintf(out, (size_t)len, "%s", g_rejoin);
+    g_rejoin[0] = 0;
+    return 1;
 }
 
 // --- For the dedicated server's console -------------------------------------------------------------
@@ -6497,7 +6584,7 @@ GameResult game_update(const InputState *in, float dt) {
                           vehicle_kind(&G.phys.bodies[use_aim.body]) != VEH_NONE;
             // A health or suit charger within reach: charge from it (Use again stops)
             if (!vehicle && use_aim.body >= 0 && use_aim.dist < CHARGE_RANGE &&
-                item_kind(use_aim.body) >= ITEM_HEALTH_CHARGER) {
+                is_charger(item_kind(use_aim.body))) {
                 charger_use(use_aim.body);
                 use_aim.body = -1;
                 use_pressed = 0;

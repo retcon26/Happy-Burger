@@ -142,6 +142,15 @@ models/healthvial.mdl                             | Health Vial      | cat=Items
 models/items/battery.mdl                          | Suit Battery     | cat=Items
 models/props_combine/health_charger001.mdl        | Health Charger   | cat=Items
 models/props_combine/suit_charger001.mdl          | Suit Charger     | cat=Items
+# Ammo: walk over it to take it, when that gun isn't full (game.c Items, k_ammo_items)
+models/items/boxsrounds.mdl                       | Pistol Ammo      | cat=Items
+models/items/357ammo.mdl                          | .357 Ammo        | cat=Items
+models/items/boxmrounds.mdl                       | SMG Ammo         | cat=Items
+models/items/boxbuckshot.mdl                      | Shotgun Shells   | cat=Items
+models/items/combine_rifle_cartridge01.mdl        | AR2 Ammo         | cat=Items
+models/items/crossbowrounds.mdl                   | Crossbow Bolts   | cat=Items
+models/weapons/w_missile_closed.mdl               | RPG Round        | cat=Items shape=cylinder
+models/items/grenadeammo.mdl                      | Grenade          | cat=Items
 models/props_interiors/furniture_lamp01a.mdl      | Lamp             | cat=Furniture
 models/props_interiors/refrigerator01a.mdl        | Fridge 2         | cat=Furniture
 models/props_vehicles/van001a_physics.mdl         | Van              | cat=Vehicles

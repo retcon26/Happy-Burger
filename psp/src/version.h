@@ -2,7 +2,7 @@
 
 // Shown in the main menu's corner. Bump it with every release: the last number for fixes, the middle
 // one for new features (shared by the PS2 and PSP versions)
-#define GAME_VERSION "1.9.1"
+#define GAME_VERSION "1.10.0"
 
 // The game data this engine reads. Bump it when the converter changes the data so that an older engine
 // or older data stops working: Options > Updates then won't install a release that needs newer data (its

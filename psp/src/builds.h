@@ -8,7 +8,7 @@
 // text files in data/saves/ (on the memory stick, or the PSP Go's internal storage), and load on any
 // map: where you're looking, turned the way you face, or where they were built when it's the same map.
 
-#define BUILD_MAX_PROPS 160 // every player's props when hosting (PLAYER_PROP_LIMIT x NET_MAX_PLAYERS)
+#define BUILD_MAX_PROPS MAX_BODIES // every prop there can be (a full server's autosave)
 #define BUILD_MAX_JOINTS MAX_JOINTS
 #define BUILD_MAX_FORCES MAX_FORCES
 #define BUILD_MAX_DEVICES 24

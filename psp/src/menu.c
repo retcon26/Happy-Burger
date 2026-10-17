@@ -92,8 +92,10 @@ static struct {
     int saved_ok[MAX_SAVED]; // 1 resolved, -1 couldn't be, 0 not tried yet (DNS waits for Wi-Fi)
     int num_saved;
     float query_timer;
-    int adding; // the keyboard is open: 1 a new server's address, 2 the server list's
-    // The server list (psp-sandbox-server in list mode): every public server, without typing their addresses
+    int adding; // the keyboard is open: 1 a new server's address, 2 the server list's, 3 a password
+    NetHost join_host; // the server being joined (asked for its password, or joined again after a map change)
+    int sent_password; // that join sent a password
+    // The server list (retcons-mod-server in list mode): every public server, without typing their addresses
     char list[48];
     uint8_t list_addr[6];
     int list_ok; // as saved_ok
@@ -419,6 +421,8 @@ MenuResult menu_update(const InputState *in, float dt, char *map_out, int map_ou
             memset(&h, 0, sizeof(h));
             if (net_resolve(M.autojoin, h.mac) == 0) {
                 M.joining = 1;
+                M.join_host = h;
+                M.sent_password = 1; // the one it joined with before, if any
                 net_lobby_join(&h);
             } else {
                 menu_set_error("Couldn't find that address");
@@ -434,6 +438,16 @@ MenuResult menu_update(const InputState *in, float dt, char *map_out, int map_ou
             if (osk_active()) return MENU_STAY;
             int was = M.adding;
             M.adding = 0;
+            if (was == 3) {
+                // The server's password: join with it (Circle on the keyboard gives up)
+                if (osk_result(typed, sizeof(typed)) && typed[0]) {
+                    net_lobby_set_password(typed);
+                    M.sent_password = 1;
+                    M.joining = 1;
+                    net_lobby_join(&M.join_host);
+                }
+                return MENU_STAY;
+            }
             if (osk_result(typed, sizeof(typed))) {
                 char *s = typed;
                 while (*s == ' ') s++;
@@ -464,6 +478,12 @@ MenuResult menu_update(const InputState *in, float dt, char *map_out, int map_ou
             M.joining = 0;
             menu_set_error("That game is full");
         }
+        if (r == -2) {
+            // A password: asked for (again, if the one sent was wrong)
+            M.joining = 0;
+            if (M.sent_password) menu_set_error("Wrong password");
+            if (osk_start(M.sent_password ? "Wrong password: try again" : "This server needs a password", "", 15) == 0) M.adding = 3;
+        }
         if ((in->pressed & PSP_CTRL_UP) && M.host_sel > 0) {
             M.host_sel--;
             click(M.snd_move, 0.4f);
@@ -477,8 +497,15 @@ MenuResult menu_update(const InputState *in, float dt, char *map_out, int map_ou
             if (row >= 0) {
                 click(M.snd_select, 0.6f);
                 M.error[0] = 0;
-                M.joining = 1;
-                net_lobby_join(&M.hosts[row]);
+                M.join_host = M.hosts[row];
+                M.sent_password = 0;
+                net_lobby_set_password("");
+                if (M.hosts[row].password) {
+                    if (osk_start("This server needs a password", "", 15) == 0) M.adding = 3;
+                } else {
+                    M.joining = 1;
+                    net_lobby_join(&M.hosts[row]);
+                }
             } else {
                 menu_set_error(M.saved_ok[-1 - row] < 0 ? "Couldn't find that address" : "That server isn't answering");
             }
@@ -684,7 +711,8 @@ static void draw_join(void) {
         ui_map_thumb(hs->map, x + 11, ry + 2, 22, 22);
         ui_text_clip(FONT_BOLD, x + 40, ry + 6, 132, tc, hs->host);
         ui_text_clip(FONT_SMALL, x + 180, ry + 7, 130, tc, hs->map);
-        ui_textf(FONT_SMALL, x + w - 16, ry + 7, tc, ALIGN_RIGHT, "%s%d / %d", hs->dedicated ? "server  " : "", hs->players,
+        ui_textf(FONT_SMALL, x + w - 16, ry + 7, tc, ALIGN_RIGHT, "%s%d / %d",
+                 hs->password ? "locked  " : hs->dedicated ? "server  " : "", hs->players,
                  hs->max);
     }
     if (M.joining) {

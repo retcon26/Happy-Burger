@@ -6,21 +6,23 @@
 //   Ad-hoc: every PSP joins one ad-hoc group ("GmodPSP") and talks with PDP datagrams: broadcasts for
 //     the host's beacons and world snapshots, unicast for the rest.
 //   Wi-Fi: UDP through an access point, to games on the same network (a PSP hosting over Wi-Fi) or
-//     dedicated servers anywhere (psp-sandbox-server, on a PC). Addresses are the IPv4 address and
+//     dedicated servers anywhere (retcons-mod-server, on a PC). Addresses are the IPv4 address and
 //     port packed into the 6 bytes the game uses for a MAC.
 // The game protocol on top of this lives in game.c (host-authoritative: the host runs physics,
 // NPCs and doors; clients send their position, aim and actions).
 
-#define NET_MAX_PLAYERS 4
+#define NET_MAX_PLAYERS 8 // slots: a PSP hosting takes 4 (itself and 3), a dedicated server up to 8 (7 players)
+#define NET_PSP_HOST_SLOTS 4
 #define NET_PORT 18256
-#define NET_LIST_PORT 18257 // server lists (psp-sandbox-server in list mode)
+#define NET_LIST_PORT 18257 // server lists (retcons-mod-server in list mode)
 #define NET_LIST_MAX 64     // servers in one list answer
-#define NET_VERSION 12 // 2: rope packets name the joint type (sliders); 3: player models;
+#define NET_VERSION 13 // 2: rope packets name the joint type (sliders); 3: player models;
                        // 4: the host's ragdolls sent to clients, and their physics gun holds; 5: vehicles;
                        // 6: Profile colours, mingebags; 7: TF2 teams (NPC numbers moved); 8: devices, hydraulics;
                        // 9: Wi-Fi and dedicated servers (PK_INFO, beacon flags); 10: AR2, crossbow, RPG, grenades,
                        // bug bait (PK_PROJ, CMD_LAUNCH, CMD_SQUEEZE); 11: medkits and chargers (CMD_PICKUP, CMD_HEAL);
-                       // 12: Face and Finger Poser (CMD_RAG_POSE, RagInfo face and hands)
+                       // 12: Face and Finger Poser (CMD_RAG_POSE, RagInfo face and hands);
+                       // 13: 8 player slots, server passwords (PkJoin.password, PK_FULL reasons, BEACON_PASSWORD)
 
 enum { NET_MODE_ADHOC, NET_MODE_INET };
 
@@ -53,7 +55,7 @@ enum {
     PK_BEACON = 1, // host -> all: "a game is running here"
     PK_JOIN,       // client -> host
     PK_WELCOME,    // host -> client: your slot and the map
-    PK_FULL,       // host -> client: no room
+    PK_FULL,       // host -> client: can't join; h.slot says why (JOIN_REFUSED_*)
     PK_CSTATE,     // client -> host: player state and actions
     PK_PLAYERS,    // host -> all: players and NPCs
     PK_BODIES,     // host -> all: a chunk of physics bodies
@@ -90,6 +92,9 @@ typedef struct {
     uint8_t players, max, flags, pad;
 } PkBeacon;
 #define BEACON_DEDICATED 1 // a dedicated server: nobody plays on the host
+#define BEACON_PASSWORD 2  // joining needs the server's password
+
+enum { JOIN_REFUSED_FULL, JOIN_REFUSED_PASSWORD }; // PK_FULL's h.slot
 
 // h.version is the game's: a list only offers players the servers they can join
 typedef struct {
@@ -108,6 +113,7 @@ typedef struct {
     NetHeader h;
     char name[16];
     uint32_t nonce; // new for each join attempt, so the host can tell a rejoin from a resend
+    char password[16]; // a dedicated server's password ("" if none)
 } PkJoin;
 
 typedef struct {
@@ -123,13 +129,16 @@ typedef struct {
     char host[16];
     int players, max;
     int dedicated;
+    int password; // joining it needs a password
     float age; // seconds since the last beacon
 } NetHost;
 
 // Reads beacons and join replies. Returns 1 once a join was accepted (see net_lobby_result),
-// -1 if the host was full, else 0.
+// -1 if the host was full, -2 if the password was wrong (or missing), else 0.
 int net_lobby_update(float dt, NetHost *hosts, int max_hosts, int *num_hosts);
 void net_lobby_join(const NetHost *h); // starts asking this host to join (resent until answered)
+// The password the next joins send ("": none); it stays set, so joining again after a map change reuses it
+void net_lobby_set_password(const char *password);
 // Asks a host about its game (it answers with a beacon); NULL asks everyone nearby
 void net_lobby_query(const uint8_t *addr);
 // Asks a server list for its servers; once it answers, net_lobby_query(NULL) asks each of them too

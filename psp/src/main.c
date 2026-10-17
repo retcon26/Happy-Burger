@@ -4,6 +4,7 @@
 #include <pspthreadman.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 
 #include "achieve.h"
 #include "workshop.h"
@@ -21,12 +22,69 @@
 #include "ui.h"
 #include "update.h"
 
-PSP_MODULE_INFO("PSPSandbox", PSP_MODULE_USER, 0, 1);
+PSP_MODULE_INFO("RetconsMod", PSP_MODULE_USER, 0, 1);
 PSP_MAIN_THREAD_ATTR(PSP_THREAD_ATTR_USER | PSP_THREAD_ATTR_VFPU);
 // Take all user memory except 1MB, which the kernel needs for thread stacks and file buffers.
 PSP_HEAP_SIZE_KB(-1024);
 
 static volatile int g_running = 1;
+static int g_moved_saves; // move_saves_across brought saves over from PSP Sandbox's folder
+
+static int copy_file(const char *from, const char *to) {
+    FILE *a = fopen(from, "rb");
+    if (!a) return 0;
+    FILE *b = fopen(to, "wb");
+    if (!b) {
+        fclose(a);
+        return 0;
+    }
+    char buf[4096];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), a)) > 0) fwrite(buf, 1, n, b);
+    fclose(a);
+    fclose(b);
+    return 1;
+}
+
+// The release puts the game in PSP/GAME/RetconsMod (it was PSP/GAME/PSPSandbox). The first time it runs
+// from a new folder, it copies your saves over from a PSPSandbox folder beside it: settings, achievements,
+// Workshop choices, servers and saved builds. Nothing happens once it has settings of its own, and the old
+// folder stays as it was. eboot: argv[0], "ms0:/PSP/GAME/RetconsMod/EBOOT.PBP".
+static void move_saves_across(const char *eboot) {
+    if (!eboot) return;
+    const char *end = strrchr(eboot, '/'); // the game's folder ends here
+    const char *start = end;
+    while (start > eboot && start[-1] != '/') start--;
+    if (!end || start == eboot || strncasecmp(start, "PSPSandbox", (size_t)(end - start)) == 0) return;
+    FILE *own = fopen("data/settings.cfg", "rb");
+    if (own) {
+        fclose(own);
+        return;
+    }
+    char old[256], from[320], to[96];
+    snprintf(old, sizeof(old), "%.*sPSPSandbox/data", (int)(start - eboot), eboot);
+    static const char *const files[] = {"settings.cfg", "achievements.cfg", "workshop.cfg", "servers.cfg"};
+    for (int i = 0; i < 4; i++) {
+        snprintf(from, sizeof(from), "%s/%s", old, files[i]);
+        snprintf(to, sizeof(to), "data/%s", files[i]);
+        g_moved_saves |= copy_file(from, to);
+    }
+    snprintf(from, sizeof(from), "%s/saves", old);
+    SceUID d = sceIoDopen(from);
+    if (d < 0) return;
+    sceIoMkdir("data/saves", 0777);
+    SceIoDirent ent;
+    memset(&ent, 0, sizeof(ent));
+    while (sceIoDread(d, &ent) > 0) {
+        if (ent.d_name[0] != '.' && FIO_S_ISREG(ent.d_stat.st_mode)) {
+            snprintf(from, sizeof(from), "%.200s/saves/%.100s", old, ent.d_name);
+            snprintf(to, sizeof(to), "data/saves/%.80s", ent.d_name);
+            g_moved_saves |= copy_file(from, to);
+        }
+        memset(&ent, 0, sizeof(ent));
+    }
+    sceIoDclose(d);
+}
 static int g_ignore_input; // set by "lockinput" in autoload.txt, for unattended test runs
 
 static int exit_callback(int arg1, int arg2, void *common) {
@@ -155,6 +213,7 @@ int main(int argc, char *argv[]) {
     gfx_init();
     draw_loading(NULL); // plain blue until ui.pak is in
     hud_init();
+    move_saves_across(argc > 0 ? argv[0] : NULL);
     settings_load();
     update_init(argc > 0 ? argv[0] : NULL);
     settings_set_updates_page(update_page_open, update_page_update, update_page_draw);
@@ -170,7 +229,11 @@ int main(int argc, char *argv[]) {
     char status[96] = "";
     open_menu();
     int in_game = run_autoload(status, sizeof(status));
-    if (status[0]) menu_set_error(status);
+    if (status[0]) {
+        menu_set_error(status);
+    } else if (g_moved_saves) {
+        menu_set_error("Your saves came over from PSP/GAME/PSPSandbox");
+    }
 
     InputState in;
     SceInt64 t_prev = sceKernelGetSystemTimeWide();
@@ -212,6 +275,8 @@ int main(int argc, char *argv[]) {
                 in_game = 0;
                 open_menu();
                 if (why[0]) menu_set_error(why);
+                char rejoin[48];
+                if (game_rejoin_address(rejoin, sizeof(rejoin))) menu_autojoin(rejoin); // the server changed map
             } else {
                 game_render(fps);
             }

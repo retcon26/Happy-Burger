@@ -6,7 +6,7 @@
 # Needs the GitHub CLI (gh), signed in to an account that can publish to the repo.
 # The notes are the version's section of docs/CHANGELOG.md, plus a hidden <!-- data N --> line
 # (GAME_DATA_VERSION): a PSP whose data is older doesn't install a release that needs newer data.
-param([string]$Repo = "retcon26/psp-sandbox")
+param([string]$Repo = "retcon26/retcons-mod")
 $ErrorActionPreference = "Stop"
 $psp = $PSScriptRoot
 $header = Get-Content -Raw (Join-Path $psp "src\version.h")

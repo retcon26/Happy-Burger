@@ -2,7 +2,7 @@
 
 #include "input.h"
 
-// Options > Updates: checks GitHub for a newer engine (a release of retcon26/psp-sandbox with an EBOOT.PBP),
+// Options > Updates: checks GitHub for a newer engine (a release of retcon26/retcons-mod with an EBOOT.PBP),
 // downloads it over Wi-Fi (HTTPS through mbedTLS) and puts it in place of the running EBOOT, keeping the old
 // one as EBOOT.OLD. Only the engine updates: the game data is built from your own games on a PC, so a
 // release that needs new data (its notes say <!-- data N --> with N above GAME_DATA_VERSION) is shown but

@@ -8,6 +8,7 @@ another protocol don't show up in Join Game or Online Servers.
 
 | Version | Date | Plays with | In short |
 |---|---|---|---|
+| [1.10.0](#1100) | 2026-10-16 | 1.10.0 | Ammo boxes; bigger servers with passwords, rotation, autosave; the rename's done |
 | [1.9.1](#191) | 2026-10-16 | 1.8.2 – 1.9.1 | Updates work with a wrong PSP clock |
 | [1.9.0](#190) | 2026-10-16 | 1.8.2 – 1.9.1 | Options > Updates: new versions from GitHub over Wi-Fi; LOD distance slider |
 | [1.8.3](#183) | 2026-10-16 | 1.8.2 – 1.9.1 | Target FPS option; Select closes the spawn menu again |
@@ -29,6 +30,24 @@ another protocol don't show up in Join Game or Online Servers.
 | [1.1.0](#110) | before 2026-10-11 | not recorded | Camera tool |
 | [1.0.1](#101) | before 2026-10-11 | not recorded | Ragdoll crash fixes |
 | [1.0.0](#100) | before 2026-10-11 | not recorded | Version label, new options, more ragdolls |
+
+## 1.10.0
+
+- **Ammo boxes** (Items spawnlist): Pistol Ammo (+20), .357 Ammo (+6), SMG Ammo (+45), Shotgun Shells (+20),
+  AR2 Ammo (+20), Crossbow Bolts (+6), an RPG Round and a Grenade. Walk over one to take it when that gun isn't
+  full; with Options > Unlimited ammo on they stay where they are. They need the props, sounds and icons rebuilt
+  (`tools/bspconv.sh props`, `sounds`, `ui`).
+- **Bigger servers:** a dedicated server takes up to 7 players (`max_players`; the game has 8 slots now, and a
+  PSP that hosts still takes 4). `password` makes players type it in: Online Servers marks the server "locked".
+  `maps` and `map_minutes` rotate the map, with a minute's warning, and every player's PSP joins the next map by
+  itself. The players' build is saved every `autosave_minutes` (5), on a map change and on shutdown, and a map
+  starts with its last autosave.
+- **The rename's done:** the repositories are `retcons-mod` and `retcons-mod-server` (GitHub forwards the old
+  links), the release folder is `PSP/GAME/RetconsMod`, and the server is `retcons-mod-server`. The first time
+  the game runs from a new folder it brings your saves over from `PSP/GAME/PSPSandbox`.
+- Achievements save to a temporary file first, so switching off mid-save no longer empties them.
+- The Full House achievement is for four players or more.
+- Network protocol 13: 1.10.0 only plays with 1.10.0, and dedicated servers need 1.2.0.
 
 ## 1.9.1
 
@@ -228,6 +247,7 @@ another protocol don't show up in Join Game or Online Servers.
 
 | Server | For the game | Changes |
 |---|---|---|
+| 1.2.0 | 1.10.0 | Renamed `retcons-mod-server`; up to 7 players (`max_players`), `password`, map rotation (`maps`, `map_minutes`, console `next`), autosaves (`autosave_minutes`, `autosave_resume`) |
 | 1.1.1 | 1.8.2 | The game 1.8.2's engine (NPC navigation: the server's NPCs follow the maps' node graphs, `data/maps/<map>.pnav`) |
 | 1.1.0 | 1.7.1 | Server lists (`--mode list`); game servers sign up to one (`list`, `public_address`); the Retcon's Mod name |
 | 1.0.0 | 1.7.0 | First version: hosts a map with nobody playing on it, for up to 3 PSPs; console; `server.cfg` |

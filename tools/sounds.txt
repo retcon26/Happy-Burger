@@ -51,6 +51,7 @@ bugbait_splat    0 sound/weapons/bugbait/bugbait_impact1.wav sound/weapons/bugba
 medkit           0 sound/items/smallmedkit1.wav
 medvial          0 sound/items/medshot4.wav
 battery          0 sound/items/battery_pickup.wav
+ammo_pickup      0 sound/items/ammo_pickup.wav
 charge_health    1 sound/items/medcharge4.wav
 charge_suit      1 sound/items/suitcharge1.wav
 charge_no_health 0 sound/items/medshotno1.wav
