@@ -19,7 +19,7 @@ MenuResult menu_update(const InputState *in, float dt, char *map_out, int map_ou
 void menu_render(float fps);
 void menu_set_error(const char *msg);
 void menu_show_achievements(void); // autoload.txt "menu achievements"
-void menu_show_newgame(void);      // autoload.txt "menu newgame": Start New Game
+void menu_show_newgame(const char *category); // autoload.txt "menu newgame [Workshop]": Start New Game
 void menu_show_updates(void);      // Options > Updates (autoload.txt "menu updates")
 void menu_show_workshop(void);     // autoload.txt "menu workshop"
 void menu_show_multiplayer(void); // autoload.txt "menu multiplayer"

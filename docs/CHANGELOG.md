@@ -8,9 +8,10 @@ another protocol don't show up in Join Game or Online Servers.
 
 | Version | Date | Plays with | In short |
 |---|---|---|---|
-| [1.13.1](#1131) | 2026-10-17 | 1.12.0 – 1.13.1 | Gamemodes on the Workshop's Addons tab; short-named Lua files found again |
-| [1.13.0](#1130) | 2026-10-17 | 1.12.0 – 1.13.1 | Workshop maps |
-| [1.12.0](#1120) | 2026-10-17 | 1.12.0 – 1.13.1 | Lua gamemodes: Prop Hunt, Zombie Survival, Deathmatch; a bigger Lua API |
+| [1.13.2](#1132) | 2026-10-17 | 1.12.0 – 1.13.2 | New Game's map grid fits; too-big Workshop maps flagged |
+| [1.13.1](#1131) | 2026-10-17 | 1.12.0 – 1.13.2 | Gamemodes on the Workshop's Addons tab; short-named Lua files found again |
+| [1.13.0](#1130) | 2026-10-17 | 1.12.0 – 1.13.2 | Workshop maps |
+| [1.12.0](#1120) | 2026-10-17 | 1.12.0 – 1.13.2 | Lua gamemodes: Prop Hunt, Zombie Survival, Deathmatch; a bigger Lua API |
 | [1.11.0](#1110) | 2026-10-16 | 1.11.0 | Quick chat: messages and gestures |
 | [1.10.1](#1101) | 2026-10-16 | 1.10.0 – 1.10.1 | Pause menu > Screenshot |
 | [1.10.0](#1100) | 2026-10-16 | 1.10.0 – 1.10.1 | Ammo boxes; bigger servers with passwords, rotation, autosave; the rename's done |
@@ -35,6 +36,16 @@ another protocol don't show up in Join Game or Online Servers.
 | [1.1.0](#110) | before 2026-10-11 | not recorded | Camera tool |
 | [1.0.1](#101) | before 2026-10-11 | not recorded | Ragdoll crash fixes |
 | [1.0.0](#100) | before 2026-10-11 | not recorded | Version label, new options, more ragdolls |
+
+## 1.13.2
+
+- **Fixed:** Start New Game's second row of maps ran into the bottom line and the Start button (in any category
+  with more than three maps); the rows sit closer now, with the map's name on its picture as before.
+- **Workshop maps:** `tools/bspconv.sh workshop` (and `--list`) says "too big for a PSP" when a map's low-detail
+  file is over about 14.5 MB: the game has room for about that much map once its packs are loaded (gm_valley's
+  13.9 MB loads, gm_bigcity's 15.1 MB doesn't, and the game says so).
+- autoload.txt `menu newgame Workshop` opens Start New Game on that category (for tests).
+- Network protocol 15, as 1.12.0 to 1.13.1.
 
 ## 1.13.1
 

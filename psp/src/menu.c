@@ -4,6 +4,7 @@
 #include <pspkernel.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 
 #include "achieve.h"
 #include "audio.h"
@@ -281,9 +282,13 @@ void menu_close(void) {
     M.bg_loaded = 0;
 }
 
-void menu_show_newgame(void) {
+void menu_show_newgame(const char *category) {
     M.page = PAGE_NEWGAME;
     M.host = 0;
+    for (int c = 0; category && c < NUM_CATS; c++) {
+        if (strcasecmp(k_cats[c].name, category) == 0) M.cat = c;
+    }
+    M.map_sel = M.scroll = 0;
 }
 
 void menu_show_achievements(void) {
@@ -684,7 +689,7 @@ static void draw_newgame(void) {
     if (n == 0) ui_text(FONT_SMALL, gx, gy + 10, 0xFF606060, ALIGN_LEFT, "No maps here. Add some in tools/maps.txt");
     for (int k = M.scroll * GRID_COLS; k < n && k < (M.scroll + 2) * GRID_COLS; k++) {
         int r = k / GRID_COLS - M.scroll, c = k % GRID_COLS;
-        float tx = gx + c * (tile + gap), ty = gy + r * (tile + 12 + gap);
+        float tx = gx + c * (tile + gap), ty = gy + r * (tile + gap); // the name is on the tile: two rows fit above the buttons
         int sel = k == M.map_sel;
         ui_rrect(tx - 2, ty - 2, tile + 4, tile + 4, 3, sel ? 0xFFE6A03D : 0xFFC8C8C8);
         if (!ui_map_thumb(M.maps[idx[k]], tx, ty, tile, tile)) {
@@ -696,9 +701,9 @@ static void draw_newgame(void) {
     }
     int rows = (n + GRID_COLS - 1) / GRID_COLS;
     if (rows > 2) {
-        float bar_h = 196.0f * 2 / rows;
-        ui_rect(x + w - 8, gy, 3, 196, 0xFFC0C0C0);
-        ui_rect(x + w - 8, gy + M.scroll * (196.0f - bar_h) / (rows - 2), 3, bar_h, 0xFF808080);
+        float bar_h = 174.0f * 2 / rows;
+        ui_rect(x + w - 8, gy, 3, 174, 0xFFC0C0C0);
+        ui_rect(x + w - 8, gy + M.scroll * (174.0f - bar_h) / (rows - 2), 3, bar_h, 0xFF808080);
     }
 
     // Start button, GMod blue, and the gamemode it starts with

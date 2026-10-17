@@ -18,6 +18,9 @@ from .gma import CACHE, read_gma, workshop_items
 
 LIST_NAME = "workshop.txt"
 MAX_NAME = 26  # the game keeps map names in 32 bytes, with ".low" after them
+# The low-detail map a PSP has room for once the game's packs are loaded (gm_valley's 13.9 MB loads,
+# gm_bigcity's 15.1 MB doesn't)
+TOO_BIG_MB = 14.5
 MOUNTED = ["Counter-Strike Source/cstrike", "Half-Life 2/episodic", "Half-Life 2/ep2", "Team Fortress 2/tf",
            "Half-Life 2/hl1"]
 
@@ -97,7 +100,12 @@ def convert_one(name, bsp, item, gmod, out_dir):
     except Exception as e:  # one map failing doesn't stop the rest
         return f"FAIL {name}: {type(e).__name__}: {e}"
     wrote = next((l for l in lines if "wrote" in l), "").strip()
-    return f"OK   {name}  {wrote}  |  {nav_for_map(bsp, out_dir)}"
+    msg = f"OK   {name}  {wrote}  |  {nav_for_map(bsp, out_dir)}"
+    low_mb = os.path.getsize(os.path.join(out_dir, f"{name}.low.pmap")) / (1024 * 1024)
+    if low_mb > TOO_BIG_MB:
+        msg += (f"\n     {name} is too big for a PSP: {low_mb:.1f} MB even in low detail, and the game has room for"
+                f" about {TOO_BIG_MB:g} MB of map (it says so when you load it)")
+    return msg
 
 
 def stock_names(maps_txt):
@@ -152,7 +160,10 @@ def run(gmod, out_dir, maps_txt, list_only=False, all_maps=False, jobs=1, log=pr
             why = f"name longer than {MAX_NAME} characters"
         elif name in stock:
             why = "maps.txt has a map of that name"
-        log(f"{name:28s} {size:4d} MB  {'converted' if done else '-':9s}  {title} ({item}){'  SKIPPED: ' + why if why else ''}")
+        low = os.path.join(out_dir, name + ".low.pmap")
+        big = done and os.path.getsize(low) / (1024 * 1024) > TOO_BIG_MB
+        log(f"{name:28s} {size:4d} MB  {'converted' if done else '-':9s}  {title} ({item})"
+            f"{'  SKIPPED: ' + why if why else ''}{'  (too big for a PSP)' if big else ''}")
         if not why and (all_maps or not done):
             todo.append((name, bsp, item))
     usable = [m for m in maps if len(m[0]) <= MAX_NAME and m[0] not in stock]

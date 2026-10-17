@@ -179,7 +179,9 @@ static int run_autoload(char *status, int status_len) {
             if (sscanf(line, "%*s %*s %15s", tab) == 1) workshop_show_tab(strcmp(tab, "addons") == 0 ? 1 : 2); // "menu workshop addons"
         }
         if (strcmp(nm, "menu") == 0 && sscanf(line, "%*s %31s", page) == 1 && strcmp(page, "newgame") == 0) {
-            menu_show_newgame();
+            char cat[32] = "";
+            sscanf(line, "%*s %*s %31s", cat);
+            menu_show_newgame(cat[0] ? cat : NULL);
         }
         if (strcmp(nm, "menu") == 0 && sscanf(line, "%*s %31s", page) == 1 && strcmp(page, "achievements") == 0) {
             menu_show_achievements();

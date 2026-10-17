@@ -1,6 +1,6 @@
 # Retcon's Mod
 
-A physics sandbox for the PSP, by Retcon. Current version: **1.13.1** (shown in the main menu's corner,
+A physics sandbox for the PSP, by Retcon. Current version: **1.13.2** (shown in the main menu's corner,
 set in `psp/src/version.h`).
 
 **Retcon's Mod is PSP Sandbox's new name.** From 1.10.0 everything uses it: the repositories are
@@ -338,8 +338,10 @@ Source, the HL2 episodes, Team Fortress 2 and Half-Life: Source if you have them
 with their thumbnails when the addon has one. `--list` just shows what it found, `--all` converts them all again,
 and `--jobs N` does several at once (big Workshop maps take a lot of memory, so it does one at a time unless you
 say). A Workshop map named like one in `maps.txt` is left out. Very big ones may only fit a PSP in low detail, and
-the game holds 224 props at a time, so a map with more physics props than that (Prop Hunt maps often have
-hundreds) gets the first 224. To play one together, everyone needs it converted.
+some don't fit even then (gm_bigcity doesn't): the converter and `--list` say "too big for a PSP" when a map's
+low-detail file is over about 14.5 MB, and the game says so if you try to load it. The game holds 224 props at a
+time, so a map with more physics props than that (Prop Hunt maps often have hundreds) gets the first 224. To play
+one together, everyone needs it converted.
 
 The list also has **gm_construct_13**: gm_construct at night, in thick dark fog. A black figure turns up in the
 distance now and then, at the edge of your view. Look straight at it, or walk towards it, and it's gone. It reuses
@@ -630,9 +632,9 @@ The latest three. Every version, with dates, what's in each and which ones can p
 
 | Version | Changes |
 |---|---|
+| 1.13.2 | Start New Game's second row of maps no longer runs into the buttons; the Workshop map converter says when a map is too big for a PSP |
 | 1.13.1 | Gamemodes on the Workshop's Addons tab (off ones aren't offered in Start New Game); Lua addons with short file names run on a PSP again |
 | 1.13.0 | Workshop maps: `tools/bspconv.sh workshop` converts the maps in your GMod Workshop downloads, listed under Workshop in Start New Game and the Workshop menu |
-| 1.12.0 | Lua gamemodes: Prop Hunt, Zombie Survival and Deathmatch (New Game's Triangle, or a server's `gamemode`); a much bigger Lua API ([docs/LUA.md](docs/LUA.md)); scoreboard; spectating |
 
 ## Roadmap
 
