@@ -3759,11 +3759,12 @@ static void draw_quick_chat(void) {
     }
     ui_text(FONT_BOLD, cx, cy - 16, 0xFFFFFFFF, ALIGN_CENTER, gestures ? "Gestures" : "Messages");
     ui_text(FONT_SMALL, cx, cy + 2, 0xFFA0A0A0, ALIGN_CENTER, "L / R: page");
+    // The hint above the wheel: below it are the health and suit boxes
+    float hy = cy - QC_RADIUS - 36;
     if (gestures && !npc_gesture_count()) {
-        ui_text_shadow(FONT_SMALL, cx, cy + QC_RADIUS + 22, 0xFFE0E0E0, ALIGN_CENTER, "Gestures need the NPC pack rebuilt");
+        ui_text_shadow(FONT_SMALL, cx, hy, 0xFFE0E0E0, ALIGN_CENTER, "Gestures need the NPC pack rebuilt");
     } else {
-        ui_text_shadow(FONT_SMALL, cx, cy + QC_RADIUS + 22, 0xFFE0E0E0, ALIGN_CENTER,
-                       "Circle pad: pick    Let go of Down: send");
+        ui_text_shadow(FONT_SMALL, cx, hy, 0xFFE0E0E0, ALIGN_CENTER, "Circle pad: pick    Let go of Down: send");
     }
 }
 
