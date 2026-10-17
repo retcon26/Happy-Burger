@@ -15,6 +15,9 @@
 #include <string.h>
 
 #define MAP_DIR "data/maps"
+
+struct RowCache;
+static struct RowCache *row_cache_new(uint32_t row_words);
 #define VTYPE (GU_TEXTURE_16BIT | GU_COLOR_8888 | GU_VERTEX_16BIT | GU_INDEX_16BIT | GU_TRANSFORM_3D)
 #define DEG2RAD (3.14159265f / 180.0f)
 
@@ -101,8 +104,8 @@ int map_load(Map *m, const char *name, char *err, int err_len) {
         return -1;
     }
     const PmapHeader *h = m->file;
-    if (memcmp(h->magic, PMAP_MAGIC, 4) != 0 || h->version != PMAP_VERSION) {
-        snprintf(err, err_len, "%s: not a v%d pmap", path, PMAP_VERSION);
+    if (memcmp(h->magic, PMAP_MAGIC, 4) != 0 || h->version < PMAP_VERSION_OLDEST || h->version > PMAP_VERSION) {
+        snprintf(err, err_len, "%s: not a v%d-%d pmap", path, PMAP_VERSION_OLDEST, PMAP_VERSION);
         map_free(m);
         return -2;
     }
@@ -130,7 +133,14 @@ int map_load(Map *m, const char *name, char *err, int err_len) {
     SECTION(m->planes, PmapPlane, 'P', 'L', 'A', 'N', unused);
     SECTION(m->nodes, PmapNode, 'N', 'O', 'D', 'E', m->num_nodes);
     SECTION(m->leafs, PmapLeaf, 'L', 'E', 'A', 'F', m->num_leafs);
-    SECTION(m->pvs, uint32_t, 'P', 'V', 'S', ' ', m->num_clusters);
+    // Visibility: coded rows (v6) or raw ones
+    const PmapSection *pz = pak_find(h, PMAP_SECTION_ID('P', 'V', 'S', 'Z'));
+    if (pz) {
+        m->pvsz = base + pz->offset;
+        m->num_clusters = (int)pz->count;
+    } else {
+        SECTION(m->pvs, uint32_t, 'P', 'V', 'S', ' ', m->num_clusters);
+    }
     SECTION(m->brushes, PmapBrush, 'B', 'R', 'S', 'H', m->num_brushes);
     SECTION(m->brush_sides, uint32_t, 'B', 'S', 'I', 'D', unused);
     SECTION(m->leaf_brushes, uint32_t, 'L', 'B', 'R', 'S', unused);
@@ -139,7 +149,12 @@ int map_load(Map *m, const char *name, char *err, int err_len) {
     SECTION(m->ent_brushes, uint32_t, 'E', 'B', 'R', 'L', unused);
     SECTION(m->outputs, PmapOutput, 'E', 'O', 'U', 'T', unused);
     SECTION(m->sprops, PmapStaticProp, 'S', 'P', 'R', 'P', m->num_sprops);
-    SECTION(m->spvs, uint32_t, 'S', 'P', 'V', 'S', unused);
+    const PmapSection *sz = pak_find(h, PMAP_SECTION_ID('S', 'P', 'V', 'Z'));
+    if (sz) {
+        m->spvsz = base + sz->offset;
+    } else {
+        SECTION(m->spvs, uint32_t, 'S', 'P', 'V', 'S', unused);
+    }
     SECTION(m->phys_props, PmapPhysProp, 'P', 'H', 'Y', 'S', m->num_phys_props);
     SECTION(m->lstyles, PmapLightStyle, 'L', 'S', 'T', 'Y', m->num_lstyles);
     SECTION(m->lpatterns, PmapLightPattern, 'L', 'S', 'T', 'P', unused);
@@ -153,7 +168,9 @@ int map_load(Map *m, const char *name, char *err, int err_len) {
 
     m->brush_check = calloc(m->num_brushes > 0 ? m->num_brushes : 1, sizeof(uint32_t));
     m->texref = calloc(m->num_textures > 0 ? m->num_textures : 1, sizeof(TexRef));
-    if (!m->brush_check || !m->texref) {
+    if (m->pvsz) m->pvs_cache = row_cache_new(m->info->pvs_row_words);
+    if (m->spvsz) m->spvs_cache = row_cache_new(m->info->sprp_row_words);
+    if (!m->brush_check || !m->texref || (m->pvsz && !m->pvs_cache) || (m->spvsz && !m->spvs_cache)) {
         snprintf(err, err_len, "out of memory");
         map_free(m);
         return -4;
@@ -182,7 +199,57 @@ void map_free(Map *m) {
     if (m->texref) {
         free(m->texref);
     }
+    free(m->pvs_cache);
+    free(m->spvs_cache);
     memset(m, 0, sizeof(*m));
+}
+
+// --- Visibility rows -------------------------------------------------------------------------------
+// v6 maps code them (PMAP "PVSZ"/"SPVZ"): one is unpacked when the camera moves into a new cluster,
+// a few hundred bytes to a few KB, instead of the whole table sitting in RAM (7 MB on gm_bigcity).
+
+struct RowCache {
+    int cluster; // whose row is in words (-1: none yet)
+    uint32_t words[];
+};
+
+static struct RowCache *row_cache_new(uint32_t row_words) {
+    struct RowCache *c = malloc(sizeof(struct RowCache) + (row_words ? row_words : 1) * sizeof(uint32_t));
+    if (c) c->cluster = -1;
+    return c;
+}
+
+static const uint32_t *coded_row(const unsigned char *sec, struct RowCache *c, uint32_t row_words, int cluster) {
+    if (c->cluster == cluster) return c->words;
+    const uint32_t *offsets = (const uint32_t *)sec;
+    const unsigned char *p = sec + offsets[cluster];
+    unsigned char *out = (unsigned char *)c->words;
+    uint32_t n = row_words * 4, i = 0;
+    while (i < n) {
+        unsigned char b = *p++;
+        if (b == 0x00 || b == 0xFF) {
+            uint32_t run = *p++;
+            if (run > n - i) run = n - i;
+            memset(out + i, b, run);
+            i += run;
+        } else {
+            out[i++] = b;
+        }
+    }
+    c->cluster = cluster;
+    return c->words;
+}
+
+const uint32_t *map_pvs_row(const Map *m, int cluster) {
+    if (cluster < 0 || cluster >= m->num_clusters) return NULL;
+    if (m->pvsz) return coded_row(m->pvsz, m->pvs_cache, m->info->pvs_row_words, cluster);
+    return m->pvs + (unsigned int)cluster * m->info->pvs_row_words;
+}
+
+const uint32_t *map_spvs_row(const Map *m, int cluster) {
+    if (cluster < 0 || cluster >= m->num_clusters || !m->info->sprp_row_words) return NULL;
+    if (m->spvsz) return coded_row(m->spvsz, m->spvs_cache, m->info->sprp_row_words, cluster);
+    return m->spvs + (unsigned int)cluster * m->info->sprp_row_words;
 }
 
 void map_update_lightstyles(Map *m, float time_s) {
@@ -515,9 +582,7 @@ void map_draw(const Map *m, const Camera *cam, MapDrawStats *stats) {
     int cluster = (leaf >= 0 && leaf < m->num_leafs) ? m->leafs[leaf].cluster : -1;
     stats->cluster = cluster;
     // Outside the map or inside a wall there's no PVS row, so everything is a candidate.
-    const uint32_t *row = (cluster >= 0 && cluster < m->num_clusters)
-                              ? m->pvs + (unsigned int)cluster * m->info->pvs_row_words
-                              : NULL;
+    const uint32_t *row = map_pvs_row(m, cluster);
 
     FPlane frustum[5], guard[5];
     build_frustum(cam, m->info->fog_end < g_view_limit ? m->info->fog_end : g_view_limit, frustum);

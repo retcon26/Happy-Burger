@@ -13,7 +13,7 @@
 
 #define SETTINGS_PATH "data/settings.cfg"
 
-Settings g_settings = {1, 3, 0, 1, 0, 1, 1, 1, 4, 3, 2, 3, 0, 0, 0, 1, 0, 0, 1, 0, 0, "", ""};
+Settings g_settings = {1, 3, 0, 1, 0, 1, 1, 1, 4, 3, 2, 3, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, "", ""};
 
 // Values with names show the name; other multi-step options show dots; 0/1 options a checkbox
 static const char *const k_dist_names[] = {"Near", "Medium", "Far", "Full"};
@@ -54,6 +54,7 @@ static Option k_options[] = {
     {"npc_ignore_players", "NPCs ignore players", &g_settings.npc_ignore_players, 0, 1, NULL},
     {"unlimited_ammo", "Unlimited ammo", &g_settings.unlimited_ammo, 0, 1, NULL},
     {"hev_suit", "HEV suit", &g_settings.hev_suit, 0, 1, NULL},
+    {"spawn_weapons", "Spawn with weapons", &g_settings.spawn_weapons, 0, 1, NULL},
     {"show_hud", "Show HUD", &g_settings.show_hud, 0, 1, NULL},
     {"crosshair", "Crosshair", &g_settings.crosshair, 0, 1, NULL},
     {"show_fps", "Show FPS", &g_settings.show_fps, 0, 1, NULL},

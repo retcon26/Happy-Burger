@@ -15,7 +15,7 @@ while IFS= read -r line; do
   [ -z "$line" ] && continue
   python3 -m bspconv convert "$line"
 done < maps.txt
-python3 -m bspconv workshop --no-ui  # maps from your GMod Workshop downloads (none: nothing to do)
+python3 -m bspconv workshop --all --no-ui  # maps from your GMod Workshop downloads (none: nothing to do)
 python3 -m bspconv props
 python3 -m bspconv vmodels
 python3 -m bspconv sounds

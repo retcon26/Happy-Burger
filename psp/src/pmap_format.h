@@ -6,7 +6,8 @@
 #include <stdint.h>
 
 #define PMAP_MAGIC "PMAP"
-#define PMAP_VERSION 5
+#define PMAP_VERSION 6        // 6: compressed visibility ("PVSZ", "SPVZ") and box-bevel brushes
+#define PMAP_VERSION_OLDEST 5 // v5 maps (raw "PVS " / "SPVS", every bevel a plane) still load
 #define PMAP_MAX_TEX_LEVELS 5
 
 #define PMAP_SECTION_ID(a, b, c, d) ((uint32_t)(a) | ((uint32_t)(b) << 8) | ((uint32_t)(c) << 16) | ((uint32_t)(d) << 24))
@@ -111,8 +112,17 @@ typedef struct {
 } PmapLeaf;
 
 // "PVS ": count = number of clusters; each row is a bitset over batches, pvs_row_words long.
+// "PVSZ" (v6, instead of "PVS "): the same rows run-length coded. count = clusters; the section starts with
+// a uint32 offset per cluster (from the section's start) to its row's code, and clusters that see the same
+// share one. A code is bytes: 0x00 n = n zero bytes, 0xFF n = n 0xFF bytes, any other byte as it is.
+// "SPVZ" (v6, instead of "SPVS") codes the static props' rows the same way.
 
 // "BRSH": convex collision brushes; a point is inside when it's behind every side plane
+// num_sides with PMAP_BRUSH_BOXBEVELS (v6): its real sides, then 6 floats in "BSID" (the brush's mins and
+// maxs, as raw bits) standing for the 6 axis planes of its box: the bevels box sweeps need. Displacement
+// triangles are stored this way (a plane each would be 6 x 16 bytes; most of a terrain map's collision).
+#define PMAP_BRUSH_BOXBEVELS 0x80000000u
+#define PMAP_BRUSH_SIDES(n) ((n) & 0x7FFFFFFFu)
 #define PMAP_CONTENTS_SOLID 0x1
 #define PMAP_CONTENTS_WINDOW 0x2
 #define PMAP_CONTENTS_GRATE 0x8

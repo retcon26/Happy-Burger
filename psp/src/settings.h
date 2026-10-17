@@ -23,6 +23,7 @@ typedef struct {
     int npc_ignore_players; // 0/1: NPCs don't target or follow players (ai_ignoreplayers)
     int unlimited_ammo; // 0/1: guns never run out or need reloading
     int hev_suit;       // 0/1: you wear the HEV suit: 100 suit power at spawn soaks up most damage
+    int spawn_weapons;  // 0/1: spawn with every weapon (off: the toolbox; guns from the spawn menu's Weapons)
     // Multiplayer > Profile: how other players see you
     int player_colour;  // profile_colour index: tints your player model and name (0: none)
     int physgun_colour; // profile_colour index for your physics gun's beam (0: GMod's blue)

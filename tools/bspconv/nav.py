@@ -62,8 +62,15 @@ class MapCollision:
         lbrs = [s[0] for s in arr(b"LBRS", "<I")]
         self.brushes = []
         for first, num, contents in brushes:
-            pl = tuple(self.planes[sides[first + k] & 0x7FFFFFFF] for k in range(min(num, 64)))
-            self.brushes.append((contents, pl))
+            real = num & 0x7FFFFFFF
+            pl = [self.planes[sides[first + k] & 0x7FFFFFFF] for k in range(min(real, 64))]
+            if num & 0x80000000:
+                # A box-bevel brush (v6): its bounds follow its sides, standing for 6 axis planes
+                mn = struct.unpack("<3f", struct.pack("<3I", *sides[first + real:first + real + 3]))
+                mx = struct.unpack("<3f", struct.pack("<3I", *sides[first + real + 3:first + real + 6]))
+                pl += [(1.0, 0.0, 0.0, mx[0]), (-1.0, 0.0, 0.0, -mn[0]), (0.0, 1.0, 0.0, mx[1]),
+                       (0.0, -1.0, 0.0, -mn[1]), (0.0, 0.0, 1.0, mx[2]), (0.0, 0.0, -1.0, -mn[2])]
+            self.brushes.append((contents, tuple(pl)))
         self.leaf_brushes = [tuple(lbrs[l[2] + k] for k in range(l[3])) for l in leafs]
         self.stamp = [0] * len(self.brushes)
         self.check = 0

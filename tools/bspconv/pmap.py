@@ -7,7 +7,7 @@ The PSP loads the whole file into one buffer and uses the sections in place, so 
 import struct
 
 PMAP_MAGIC = b"PMAP"
-PMAP_VERSION = 5
+PMAP_VERSION = 6  # 6: coded visibility (PVSZ, SPVZ) and box-bevel brushes (collision.py)
 MAX_TEX_LEVELS = 5
 
 BATCH_ALPHATEST = 1

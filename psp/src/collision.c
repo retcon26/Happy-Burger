@@ -2,6 +2,7 @@
 
 #include <float.h>
 #include <stddef.h>
+#include <string.h>
 
 #include "ents.h"
 
@@ -76,18 +77,38 @@ typedef struct {
     vec3 ext; // half-size of the swept box, centred
 } TreeWork;
 
+// A brush's planes for a box sweep: its sides, and for box-bevel brushes (v6 maps' displacement triangles)
+// the 6 axis planes of its bounds, made here in box[] from the 6 floats stored after its sides
+static int brush_planes(const Map *m, const PmapBrush *b, const PmapPlane **planes, PmapPlane *box) {
+    int boxed = (b->num_sides & PMAP_BRUSH_BOXBEVELS) != 0;
+    int real = (int)PMAP_BRUSH_SIDES(b->num_sides), ns = real > (boxed ? 58 : 64) ? (boxed ? 58 : 64) : real;
+    const uint32_t *sd = &m->brush_sides[b->first_side];
+    for (int s = 0; s < ns; s++) planes[s] = &m->planes[PMAP_SIDE_PLANE(sd[s])];
+    if (!boxed) return ns;
+    float bb[6]; // mins xyz, maxs xyz
+    memcpy(bb, sd + real, sizeof(bb));
+    box[0] = (PmapPlane){1, 0, 0, bb[3]};
+    box[1] = (PmapPlane){-1, 0, 0, -bb[0]};
+    box[2] = (PmapPlane){0, 1, 0, bb[4]};
+    box[3] = (PmapPlane){0, -1, 0, -bb[1]};
+    box[4] = (PmapPlane){0, 0, 1, bb[5]};
+    box[5] = (PmapPlane){0, 0, -1, -bb[2]};
+    for (int k = 0; k < 6; k++) planes[ns++] = &box[k];
+    return ns;
+}
+
 static void trace_leaf(TreeWork *t, int leaf_index) {
     Map *m = t->m;
     const PmapLeaf *leaf = &m->leafs[leaf_index];
     const PmapPlane *planes[64];
+    PmapPlane box[6];
     for (uint32_t k = 0; k < leaf->num_brushes; k++) {
         uint32_t bi = m->leaf_brushes[leaf->first_brush + k];
         if (m->brush_check[bi] == m->check_count) continue;
         m->brush_check[bi] = m->check_count;
         const PmapBrush *b = &m->brushes[bi];
         if (!(b->contents & t->w->mask)) continue;
-        int ns = b->num_sides > 64 ? 64 : (int)b->num_sides;
-        for (int s = 0; s < ns; s++) planes[s] = &m->planes[PMAP_SIDE_PLANE(m->brush_sides[b->first_side + s])];
+        int ns = brush_planes(m, b, planes, box);
         clip_to_planes(t->w, planes, ns, TRACE_HIT_WORLD);
         if (t->w->tr->allsolid) return;
     }
@@ -231,11 +252,11 @@ void cm_trace(Map *m, vec3 start, vec3 end, vec3 mins, vec3 maxs, unsigned int m
             }
             float before = tr->fraction;
             const PmapPlane *planes[64];
+            PmapPlane box[6];
             for (uint32_t k = 0; k < e->num_brushes; k++) {
                 const PmapBrush *b = &m->brushes[m->ent_brushes[e->first_brush + k]];
                 if (!(b->contents & mask)) continue;
-                int ns = b->num_sides > 64 ? 64 : (int)b->num_sides;
-                for (int sd = 0; sd < ns; sd++) planes[sd] = &m->planes[PMAP_SIDE_PLANE(m->brush_sides[b->first_side + sd])];
+                int ns = brush_planes(m, b, planes, box);
                 clip_to_planes(&lw, planes, ns, TRACE_HIT_WORLD);
             }
             if (tr->fraction < before) tr->normal = q_rotate(s->rot, tr->normal);
@@ -282,7 +303,7 @@ unsigned int cm_point_contents(Map *m, vec3 p) {
     for (uint32_t k = 0; k < leaf->num_brushes; k++) {
         const PmapBrush *b = &m->brushes[m->leaf_brushes[leaf->first_brush + k]];
         int inside = 1;
-        for (uint32_t s = 0; s < b->num_sides && inside; s++) {
+        for (uint32_t s = 0; s < PMAP_BRUSH_SIDES(b->num_sides) && inside; s++) {
             const PmapPlane *pl = &m->planes[PMAP_SIDE_PLANE(m->brush_sides[b->first_side + s])];
             if (pl->nx * p.x + pl->ny * p.y + pl->nz * p.z - pl->dist > 0.0f) inside = 0;
         }
@@ -301,7 +322,7 @@ int cm_point_penetration(Map *m, vec3 p, unsigned int mask, vec3 *normal, float 
         float shallow = FLT_MAX;
         vec3 n = {0, 0, 1};
         int inside = 1;
-        for (uint32_t s = 0; s < b->num_sides; s++) {
+        for (uint32_t s = 0; s < PMAP_BRUSH_SIDES(b->num_sides); s++) {
             uint32_t side = m->brush_sides[b->first_side + s];
             const PmapPlane *pl = &m->planes[PMAP_SIDE_PLANE(side)];
             float d = pl->nx * p.x + pl->ny * p.y + pl->nz * p.z - pl->dist;
@@ -334,7 +355,7 @@ int cm_point_penetration(Map *m, vec3 p, unsigned int mask, vec3 *normal, float 
             float shallow = FLT_MAX;
             vec3 n = {0, 0, 1};
             int inside = 1;
-            for (uint32_t sd = 0; sd < b->num_sides; sd++) {
+            for (uint32_t sd = 0; sd < PMAP_BRUSH_SIDES(b->num_sides); sd++) {
                 uint32_t side = m->brush_sides[b->first_side + sd];
                 const PmapPlane *pl = &m->planes[PMAP_SIDE_PLANE(side)];
                 float d = pl->nx * lp.x + pl->ny * lp.y + pl->nz * lp.z - pl->dist;

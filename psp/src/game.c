@@ -79,6 +79,7 @@ static int g_flash_fired;
 // Spawn menu grid entries past the prop model numbers: NPCs and ragdolls by NPC type
 #define GRID_NPC 100000
 #define GRID_RAG 200000
+#define GRID_WEAPON 300000 // spawn menu grid entries: GRID_WEAPON + Weapon
 #define RECENT_MAX 12   // the spawn menu's Recent list
 #define RECENT_CAT (-2) // G.cat for it
 #define PHYSGUN_MIN_DIST 32.0f
@@ -631,6 +632,13 @@ static struct {
 static char g_next_mode[NET_MODE_LEN]; // game_set_gamemode
 static int g_npc_attacker = -1;        // the player whose shot or blast is hurting NPCs right now
 static unsigned int g_buttons;         // this frame's held buttons (game_button_down, for HUD scripts)
+// The sandbox's weapons: everything, or with Options > Spawn with weapons off just the toolbox until the
+// spawn menu's Weapons hands you more (a gamemode's game has its own: g_gm)
+#define TOOLBOX ((1u << WEAPON_HANDS) | (1u << WEAPON_PHYSGUN) | (1u << WEAPON_GRAVGUN) | (1u << WEAPON_TOOLGUN))
+static unsigned int g_sandbox_weapons = ALL_WEAPONS;
+static void sandbox_loadout(void);
+static void gm_switch_weapon(int w);
+static void physgun_release(int quiet);
 
 // The sandbox's tools (spawn menu, tool gun, noclip, God mode...): no gamemode, or one that keeps them
 static int gm_sandbox(void) {
@@ -697,6 +705,9 @@ static int prop_named(const char *name);
 static void vehicle_enter(int body);
 static void recent_add(int item);
 static void qmenu_test_state(void);
+static void qmenu_test_list(const char *name);
+static int grid_items(int *out);
+static void qmenu_test_pick(int k);
 static int shoot(int weapon, vec3 eye, vec3 f, uint32_t seed, int world, int effects);
 static vec3 view_right(void);
 // autoload.txt test commands: the last prop "spawnat" made, and "autodrive"'s held stick
@@ -1210,6 +1221,7 @@ int game_start(const char *map_name, char *err, int err_len) {
     if (G.veh_snd >= 0) snd_stop(G.veh_snd);
     G.veh = G.veh_snd = -1;
     refill_ammo();
+    sandbox_loadout(); // Options > Spawn with weapons
     npcs_clear();
     // Single player until game_host / game_join say otherwise
     G.role = ROLE_OFFLINE;
@@ -1385,6 +1397,15 @@ void game_command(const char *line) {
         }
     } else if (strncmp(line, "qtest", 5) == 0) { // spawn menu: a couple of Recent entries, TF2 open, on Vehicles
         qmenu_test_state();
+    } else if (strncmp(line, "qcat ", 5) == 0) { // qcat NAME: the spawn menu open on that list (qcat Weapons)
+        char nm[32];
+        snprintf(nm, sizeof(nm), "%s", line + 5);
+        nm[strcspn(nm, "\r\n")] = 0;
+        qmenu_test_list(nm);
+    } else if (sscanf(line, "qpick %d", &i) == 1) { // qpick N: the open list's Nth tile, as if X was pressed on it
+        qmenu_test_pick(i);
+    } else if (strncmp(line, "wsel", 4) == 0) { // the weapon selector up for 5 seconds: what you carry
+        G.wsel_time = 5.0f;
     } else if (strncmp(line, "thirdperson", 11) == 0) {
         g_settings.third_person = 1;
     } else if (strncmp(line, "drive", 5) == 0) { // get into what spawnat made
@@ -2122,8 +2143,25 @@ static void spawn_ragdoll(int type, vec3 pos, float yaw) {
     }
 }
 
+// The spawn menu's Weapons: into your hands, with a full load of ammo if you didn't have it
+static void give_weapon(int w) {
+    unsigned int bit = 1u << w;
+    if (!(g_sandbox_weapons & bit)) {
+        g_sandbox_weapons |= bit;
+        G.clip[w] = k_ws[w].clip;
+        G.ammo[w] = k_ws[w].ammo;
+    }
+    physgun_release(1);
+    gm_switch_weapon(w);
+    play(G.snd.ammo, 0.7f);
+}
+
 static void spawn_from_menu(int model) {
     recent_add(model);
+    if (model >= GRID_WEAPON) {
+        if (!g_gm.on) give_weapon(model - GRID_WEAPON); // (from Recent, in a gamemode's game: its weapons only)
+        return;
+    }
     Aim a = aim_trace(SPAWN_RANGE);
     if (model >= GRID_NPC) {
         // NPCs stand on the floor below where you aim, facing you
@@ -4204,8 +4242,14 @@ static int ws_cat(void) {
     return any ? G.props.num_categories + 1 + (npc_cat() >= 0) + (rag_cat() >= 0) : -1;
 }
 
+// Weapons: the guns and tools, into your hands (Options > Spawn with weapons off starts you with the toolbox).
+// Not in a gamemode's game, even one that keeps the spawn menu: players carry what it gives them.
+static int wep_cat(void) {
+    return g_gm.on ? -1 : G.props.num_categories + 1 + (npc_cat() >= 0) + (rag_cat() >= 0) + (ws_cat() >= 0);
+}
+
 static int extra_row0(void) {
-    return G.props.num_categories + 1 + (npc_cat() >= 0) + (rag_cat() >= 0) + (ws_cat() >= 0);
+    return G.props.num_categories + 1 + (npc_cat() >= 0) + (rag_cat() >= 0) + (ws_cat() >= 0) + (wep_cat() >= 0);
 }
 
 static int num_cats(void) {
@@ -4273,6 +4317,7 @@ static const char *row_name(int row) {
     if (row == npc_cat()) return "NPCs";
     if (row == rag_cat()) return "Ragdolls";
     if (row == ws_cat()) return "Workshop";
+    if (row == wep_cat()) return "Weapons";
     if (row <= G.props.num_categories) return G.props.categories[row - 1];
     return propx_category(row - extra_row0());
 }
@@ -4331,6 +4376,29 @@ static void qmenu_test_state(void) {
     }
 }
 
+static void qmenu_test_list(const char *name) {
+    static int rows[MAX_PANEL_ROWS];
+    int nr = panel_rows(rows);
+    for (int k = 0; k < nr; k++) {
+        if (rows[k] >= 0 && strcmp(row_name(rows[k]), name) == 0) {
+            G.qmenu = 1;
+            G.focus = 1;
+            G.qrow = k;
+            G.cat = rows[k];
+            G.grid_sel = 0;
+        }
+    }
+}
+
+static void qmenu_test_pick(int k) {
+    static int items[MAX_SPAWNABLE];
+    int n = grid_items(items);
+    if (k < 0 || k >= n) return;
+    G.grid_sel = k;
+    spawn_from_menu(items[k]);
+    G.qmenu = 0;
+}
+
 // Spawned from the menu: to the front of Recent
 
 static void recent_add(int item) {
@@ -4360,6 +4428,10 @@ static int grid_items(int *out) {
         return n;
     }
 
+    if (G.cat == wep_cat()) {
+        for (int w = 0; w < WEAPON_COUNT; w++) out[n++] = GRID_WEAPON + w;
+        return n;
+    }
     if (G.cat == npc_cat() || G.cat == rag_cat() || G.cat == ws_cat()) {
         // Every character can be a ragdoll; the ragdoll-only ones (no animations) can't be NPCs. The
         // Workshop's are only under Workshop, as ragdolls.
@@ -4957,6 +5029,7 @@ static void respawn(void) {
     G.suit = 100.0f;
     G.dead_time = 0.0f;
     refill_ammo();
+    sandbox_loadout();
     if (is_client()) {
         send_cmd(CMD_RESPAWN, 0, 0, 0, NULL, 0);
         G.respawn_cmd = G.next_cmd;
@@ -7409,7 +7482,14 @@ static void gm_npc_died(int npc, int type, vec3 pos) {
 // --- This PSP's player: what the gamemode decided for it
 
 static unsigned int gm_carried(void) {
-    return g_gm.on && !g_dedicated ? g_gm.p[G.my_slot].weapons | 1u << WEAPON_HANDS : ALL_WEAPONS;
+    return g_gm.on && !g_dedicated ? g_gm.p[G.my_slot].weapons | 1u << WEAPON_HANDS
+                                   : g_sandbox_weapons | 1u << WEAPON_HANDS;
+}
+
+// A (re)spawn in the sandbox: every weapon, or the toolbox (Options > Spawn with weapons)
+static void sandbox_loadout(void) {
+    g_sandbox_weapons = g_settings.spawn_weapons ? ALL_WEAPONS : TOOLBOX;
+    if (!(gm_carried() & (1u << G.weapon))) G.weapon = WEAPON_PHYSGUN;
 }
 
 static void gm_switch_weapon(int w) {
@@ -7445,6 +7525,7 @@ static int gm_next_weapon(int w) {
 static void gm_local_update(float dt) {
     g_gm.center_time -= dt;
     g_gm.respawn_asked -= dt;
+    if (!g_gm.on && g_settings.spawn_weapons) g_sandbox_weapons = ALL_WEAPONS; // switched on in Options
     if (!g_gm.on || g_dedicated) return;
     GmPlayer *g = &g_gm.p[G.my_slot];
     if (g_gm.spawn_grace > 0.0f) g_gm.spawn_grace -= dt;
@@ -8287,9 +8368,7 @@ static void draw_props(void) {
     if (G.maplib_loaded && G.map.num_sprops) {
         int leaf = map_point_leaf(&G.map, &G.cam.pos);
         int cluster = (leaf >= 0 && leaf < G.map.num_leafs) ? G.map.leafs[leaf].cluster : -1;
-        const uint32_t *row = (cluster >= 0 && cluster < G.map.num_clusters && G.map.info->sprp_row_words)
-                                  ? G.map.spvs + (unsigned int)cluster * G.map.info->sprp_row_words
-                                  : NULL;
+        const uint32_t *row = map_spvs_row(&G.map, cluster);
         for (int i = 0; i < G.map.num_sprops; i++) {
             if (row && !(row[i >> 5] & (1u << (i & 31)))) continue;
             const PmapStaticProp *sp = &G.map.sprops[i];
@@ -8913,11 +8992,13 @@ static void draw_qmenu(int props) {
         int sel = k == G.grid_sel;
         ui_rrect(tx - 1, ty - 1, tile + 2, tile + 2, 3, sel ? (G.focus == 1 ? C_BLUE : C_BLUE_DIM) : 0xFFC8C8C8);
         ui_rect(tx + 1, ty + 1, tile - 2, tile - 2, 0xFFFFFFFF);
-        const char *iname = items[k] >= GRID_RAG ? npc_type_name(items[k] - GRID_RAG)
-                            : items[k] >= GRID_NPC   ? npc_type_name(items[k] - GRID_NPC)
-                                                        : model_name(items[k]);
+        int wep = items[k] >= GRID_WEAPON ? items[k] - GRID_WEAPON : -1;
+        const char *iname = wep >= 0               ? k_weapon_names[wep]
+                            : items[k] >= GRID_RAG ? npc_type_name(items[k] - GRID_RAG)
+                            : items[k] >= GRID_NPC ? npc_type_name(items[k] - GRID_NPC)
+                                                   : model_name(items[k]);
         char key[64];
-        snprintf(key, sizeof(key), "icon:%s", iname);
+        snprintf(key, sizeof(key), wep >= 0 ? "icon:weapon:%s" : "icon:%s", wep >= 0 ? k_weapon_ids[wep] : iname);
         int img = ui_image_find(key);
         int extra = items[k] < GRID_NPC && items[k] >= G.props.num_models;
         if (img >= 0) {
@@ -8943,7 +9024,12 @@ static void draw_qmenu(int props) {
     // Selected prop details
     float iy = gy + 170;
     ui_rect(gx, iy, gw, ch - 170, C_PANEL);
-    if (n > 0 && G.grid_sel < n && items[G.grid_sel] >= GRID_RAG) {
+    if (n > 0 && G.grid_sel < n && items[G.grid_sel] >= GRID_WEAPON) {
+        int w = items[G.grid_sel] - GRID_WEAPON;
+        ui_text(FONT_BOLD, gx + 6, iy + 5, C_TEXT, ALIGN_LEFT, k_weapon_names[w]);
+        ui_text(FONT_SMALL, gx + 6, iy + 22, gm_carried() & (1u << w) ? C_TEXT_DIM : C_BLUE, ALIGN_LEFT,
+                gm_carried() & (1u << w) ? "You have it: X takes it out" : "X: pick it up");
+    } else if (n > 0 && G.grid_sel < n && items[G.grid_sel] >= GRID_RAG) {
         ui_text(FONT_BOLD, gx + 6, iy + 5, C_TEXT, ALIGN_LEFT, npc_type_name(items[G.grid_sel] - GRID_RAG));
         ui_textf(FONT_SMALL, gx + 6, iy + 22, C_TEXT_DIM, ALIGN_LEFT, RAGDOLL_LOCAL_MSG);
     } else if (n > 0 && G.grid_sel < n && items[G.grid_sel] >= GRID_NPC) {

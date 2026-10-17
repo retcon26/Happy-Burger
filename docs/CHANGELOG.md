@@ -8,10 +8,11 @@ another protocol don't show up in Join Game or Online Servers.
 
 | Version | Date | Plays with | In short |
 |---|---|---|---|
-| [1.13.2](#1132) | 2026-10-17 | 1.12.0 – 1.13.2 | New Game's map grid fits; too-big Workshop maps flagged |
-| [1.13.1](#1131) | 2026-10-17 | 1.12.0 – 1.13.2 | Gamemodes on the Workshop's Addons tab; short-named Lua files found again |
-| [1.13.0](#1130) | 2026-10-17 | 1.12.0 – 1.13.2 | Workshop maps |
-| [1.12.0](#1120) | 2026-10-17 | 1.12.0 – 1.13.2 | Lua gamemodes: Prop Hunt, Zombie Survival, Deathmatch; a bigger Lua API |
+| [1.14.0](#1140) | 2026-10-17 | 1.12.0 – 1.14.0 | Spawn with weapons option and a Weapons spawnlist; smaller maps |
+| [1.13.2](#1132) | 2026-10-17 | 1.12.0 – 1.14.0 | New Game's map grid fits; too-big Workshop maps flagged |
+| [1.13.1](#1131) | 2026-10-17 | 1.12.0 – 1.14.0 | Gamemodes on the Workshop's Addons tab; short-named Lua files found again |
+| [1.13.0](#1130) | 2026-10-17 | 1.12.0 – 1.14.0 | Workshop maps |
+| [1.12.0](#1120) | 2026-10-17 | 1.12.0 – 1.14.0 | Lua gamemodes: Prop Hunt, Zombie Survival, Deathmatch; a bigger Lua API |
 | [1.11.0](#1110) | 2026-10-16 | 1.11.0 | Quick chat: messages and gestures |
 | [1.10.1](#1101) | 2026-10-16 | 1.10.0 – 1.10.1 | Pause menu > Screenshot |
 | [1.10.0](#1100) | 2026-10-16 | 1.10.0 – 1.10.1 | Ammo boxes; bigger servers with passwords, rotation, autosave; the rename's done |
@@ -36,6 +37,31 @@ another protocol don't show up in Join Game or Online Servers.
 | [1.1.0](#110) | before 2026-10-11 | not recorded | Camera tool |
 | [1.0.1](#101) | before 2026-10-11 | not recorded | Ragdoll crash fixes |
 | [1.0.0](#100) | before 2026-10-11 | not recorded | Version label, new options, more ragdolls |
+
+## 1.14.0
+
+- **Options > Spawn with weapons:** on (the default), you spawn with every weapon as before. Off, you start with
+  the toolbox (Hands, Physics Gun, Gravity Gun and Tool Gun) and take the rest from the spawn menu's new
+  **Weapons** list. Respawning starts you with the toolbox again; turning the option on hands you everything at
+  once. Gamemodes give their own weapons either way, and their games have no Weapons list.
+- **Weapons spawnlist:** all 14 weapons, after Workshop, with GMod's weapon icons (from `tools/bspconv.sh ui`;
+  without them the tiles show the names). X puts one in your hands with a full load of ammo, or takes out one
+  you already have.
+- **Smaller maps** (map format v6, from the converter):
+  - Visibility rows are run-length coded, and a row shared by several clusters is kept once. gm_bigcity's table
+    went from 7.8 MB to 2.7 MB.
+  - Terrain (displacement) collision keeps each triangle's bounding box instead of six bevel planes, which the
+    game makes as it traces. pl_goldrush's collision planes alone were 6.6 MB.
+  - Low-detail files: gm_bigcity 15.1 MB to 10.3 MB, pl_goldrush 16.0 MB to 13.1 MB, tc_hydro down to 13.7 MB.
+    All three now fit a PSP (about 14.5 MB of room), and every map takes that much less RAM in the game, since
+    it's held whole. Converted again, every one of the 264 stock and Workshop maps fits (tc_hydro is the biggest);
+    the 63 that gain most come to about 110 MB less in low detail.
+  - The game reads v5 maps too, so maps you converted before still work: convert them again
+    (`tools/rebuild_all.sh`, which now redoes your Workshop maps too) for the smaller files. Older versions of
+    the game can't load v6 maps; they say "not a v5 pmap".
+- autoload.txt test lines: `qcat NAME` opens the spawn menu on a list, `qpick N` picks its Nth tile, `wsel` shows
+  the weapon selector for 5 seconds.
+- Network protocol 15, as 1.12.0 to 1.13.2.
 
 ## 1.13.2
 

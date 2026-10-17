@@ -66,6 +66,35 @@ class Batch:
         self.maxs = [-math.inf] * 3
 
 
+def code_rows(data, row_bytes, count):
+    """PVSZ / SPVZ: visibility rows run-length coded, as the game unpacks them (map.c coded_row): a uint32 offset
+    per row, then the codes, where 0x00 n / 0xFF n stand for n of those bytes. Rows that are the same are kept
+    once (in an open map like gm_bigcity most of them see nearly everything, and its 7 MB table becomes 2-3)."""
+    head = bytearray(4 * count)
+    body = bytearray()
+    seen = {}
+    for c in range(count):
+        row = bytes(data[c * row_bytes:(c + 1) * row_bytes])
+        ofs = seen.get(row)
+        if ofs is None:
+            ofs = 4 * count + len(body)
+            seen[row] = ofs
+            i = 0
+            while i < len(row):
+                b = row[i]
+                if b in (0x00, 0xFF):
+                    j = i
+                    while j < len(row) and row[j] == b and j - i < 255:
+                        j += 1
+                    body += bytes((b, j - i))
+                    i = j
+                else:
+                    body.append(b)
+                    i += 1
+        struct.pack_into("<I", head, 4 * c, ofs)
+    return bytes(head + body)
+
+
 def content_dirs_for(bsp_path):
     """For maps from other Source games (.../<game>/<mod>/maps/x.bsp): that mod's folder and the
     game's hl2 folder, so its own materials and models are found before GMod's."""
@@ -663,7 +692,7 @@ def convert_map(bsp_path, gmod_root, out_path, tier_name, log=print, content_dir
     w.add("PLAN", plane_data, len(cd.planes))
     w.add("NODE", node_data, len(bsp.nodes))
     w.add("LEAF", leaf_data, len(bsp.leafs))
-    w.add("PVS ", pvs_data, num_clusters)
+    w.add("PVSZ", code_rows(pvs_data, row_words * 4, num_clusters), num_clusters)
     w.add("BRSH", brush_data, len(cd.brushes))
     w.add("BSID", side_data, len(cd.sides))
     w.add("LBRS", leafbrush_data, len(leafbrush_list))
@@ -672,7 +701,7 @@ def convert_map(bsp_path, gmod_root, out_path, tier_name, log=print, content_dir
     w.add("EBRL", struct.pack(f"<{len(ebrush_list)}I", *ebrush_list), len(ebrush_list))
     w.add("EOUT", outs_data, len(outputs))
     w.add("SPRP", sprp_data, len(mprops.statics) if mprops else 0)
-    w.add("SPVS", spvs_data, num_clusters if sprp_words else 0)
+    w.add("SPVZ", code_rows(spvs_data, sprp_words * 4, num_clusters) if sprp_words else b"", num_clusters if sprp_words else 0)
     w.add("PHYS", staticprops.pack_physics(mprops) if mprops else b"", len(mprops.physics) if mprops else 0)
     w.add("LSTY", lsty_data, len(lstyle_records))
     w.add("LSTP", lstp_data, 64)

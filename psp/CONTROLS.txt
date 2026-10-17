@@ -1,4 +1,4 @@
-RETCON'S MOD (FORMERLY PSP SANDBOX) - CONTROLS  (v1.13.2)
+RETCON'S MOD (FORMERLY PSP SANDBOX) - CONTROLS  (v1.14.0)
 =========================================
 
 ON FOOT                      PSP
@@ -125,9 +125,11 @@ SPAWN MENU (tap Select)
   X                   Spawn the item / pick the tool
   Circle or Select    Close
   Start               Close and pause
-  Spawnlists: Recent (what you last spawned), your lists, NPCs and Ragdolls, then one
-  header per game (+). On a game: X or Right opens its lists (closing the open one),
-  Left closes it again.
+  Spawnlists: Recent (what you last spawned), your lists, NPCs, Ragdolls, Workshop and
+  Weapons, then one header per game (+). On a game: X or Right opens its lists
+  (closing the open one), Left closes it again.
+  Weapons: X puts the weapon in your hands (with a full load of ammo if you didn't
+  have it). With Options > Spawn with weapons off, that's where your guns come from.
   A wheel badge marks props you can drive or sit in.
 
 
@@ -175,8 +177,10 @@ OPTIONS
   D-pad Up / Down to choose, X or Right / Left to change, Circle to go back.
   Includes: Sound, Look speed, Invert look, God mode, Player model,
   Third-person view, NPC thinking, NPCs ignore players, Unlimited ammo,
-  HEV suit, Show HUD, Crosshair, Show FPS, Target FPS, Draw distance,
-  LOD distance, Physics quality, Updates, Credits.
+  HEV suit, Spawn with weapons, Show HUD, Crosshair, Show FPS, Target FPS,
+  Draw distance, LOD distance, Physics quality, Updates, Credits.
+  Spawn with weapons: on (default), every weapon. Off, just the Hands, Physics
+  Gun, Gravity Gun and Tool Gun; the spawn menu's Weapons list has the rest.
   Target FPS: 25, 30, 60 (default) or 120. The screen shows 60 at most; 120
   doesn't wait for it, so the picture can tear.
   LOD distance: a slider, 0.5x to 2x, for how far props and NPCs are drawn

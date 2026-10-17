@@ -1,6 +1,6 @@
 # Retcon's Mod
 
-A physics sandbox for the PSP, by Retcon. Current version: **1.13.2** (shown in the main menu's corner,
+A physics sandbox for the PSP, by Retcon. Current version: **1.14.0** (shown in the main menu's corner,
 set in `psp/src/version.h`).
 
 **Retcon's Mod is PSP Sandbox's new name.** From 1.10.0 everything uses it: the repositories are
@@ -119,6 +119,11 @@ Explosions (rockets, grenades, the Explosive tool) hurt everyone near them, othe
 
 Every weapon is shown with GMod's first-person model and the citizen's arms.
 
+You spawn with all of them. Turn **Options > Spawn with weapons** off to start with just the Hands, Physics Gun,
+Gravity Gun and Tool Gun: the spawn menu's **Weapons** list hands out the rest, one at a time, each with a full
+load of ammo. You start with the four again when you respawn. Gamemodes give their own weapons either way, and
+their games have no Weapons list.
+
 Tool gun tools (the Tools list scrolls):
 
 | Group | Tool | What it does |
@@ -171,6 +176,8 @@ nearest lamps or lights that are on light the world, on top of your flashlight.
 - **Ragdolls:** every NPC, plus 50 ragdoll-only characters: more HL2 people and creatures, CS:S's counter-terrorists,
   terrorists and hostages, Half-Life: Source's scientist, Barney, grunts and aliens, Gordon Freeman, DoD:S
   soldiers and Chell. (The PSP-1000 has room for the NPCs' ragdolls only.)
+- **Weapons:** all 14, with GMod's weapon icons. X puts one in your hands, with a full load of ammo if you didn't
+  have it (see [Weapons](#weapons) for starting without them).
 
 ## Screenshots
 
@@ -286,8 +293,8 @@ The PSP doesn't let a game read its model directly, so the page's "Playing on" l
 
 Sound, look speed, invert look, God mode (also games you host), player model, third-person view, NPC thinking,
 NPCs ignore players, unlimited ammo, HEV suit (100 suit power at spawn that takes 80% of the damage, as in HL2),
-show HUD, crosshair, show FPS, target FPS, draw distance, LOD distance, physics quality, debug overlay, updates and
-the credits.
+spawn with weapons (off: just the toolbox, and the spawn menu's Weapons list for the rest), show HUD, crosshair,
+show FPS, target FPS, draw distance, LOD distance, physics quality, debug overlay, updates and the credits.
 
 **Target FPS** paces the game to 25, 30, 60 (the default) or 120 frames a second. 25 and 30 run steadier than a
 frame rate that keeps dropping, with physics still in real time. The screen shows 60 a second at most, so 120
@@ -337,9 +344,9 @@ Source, the HL2 episodes, Team Fortress 2 and Half-Life: Source if you have them
 **Workshop** in Start New Game and in Main menu > Workshop (`data/maps/workshop.txt` says which maps they are),
 with their thumbnails when the addon has one. `--list` just shows what it found, `--all` converts them all again,
 and `--jobs N` does several at once (big Workshop maps take a lot of memory, so it does one at a time unless you
-say). A Workshop map named like one in `maps.txt` is left out. Very big ones may only fit a PSP in low detail, and
-some don't fit even then (gm_bigcity doesn't): the converter and `--list` say "too big for a PSP" when a map's
-low-detail file is over about 14.5 MB, and the game says so if you try to load it. The game holds 224 props at a
+say). A Workshop map named like one in `maps.txt` is left out. Very big ones may only fit a PSP in low detail
+(gm_bigcity's is 10.3 MB), and if one doesn't fit even then, the converter and `--list` say "too big for a PSP"
+(a low-detail file over about 14.5 MB), and the game says so if you try to load it. The game holds 224 props at a
 time, so a map with more physics props than that (Prop Hunt maps often have hundreds) gets the first 224. To play
 one together, everyone needs it converted.
 
@@ -585,9 +592,12 @@ game data. If a version changes the converter so that older data stops working, 
 - **Textures:** VTF base textures are cut to 128px (or 64px), reduced to 256-colour paletted (T8), swizzled, and
   given mip levels. On the PSP the most-used ones are copied into the free ~1.2 MB of VRAM at load.
 - **Visibility:** batches of triangles per 1024-unit cell and material, plus static props, each get a bitset of
-  what every BSP cluster can see.
+  what every BSP cluster can see. The rows are run-length coded and a row shared by several clusters is stored
+  once; the game unpacks one when you move into another cluster. (gm_bigcity's table went from 7.8 MB to 2.7.)
 - **Collision:** map brushes (with bevels), displacement triangles as prism brushes, static brush entities, and
-  the convex pieces of solid static props (so a door frame leaves its doorway open).
+  the convex pieces of solid static props (so a door frame leaves its doorway open). A displacement prism keeps
+  its bounding box in place of its six axis bevel planes, which the game makes as it traces: terrain maps had
+  hundreds of thousands of those planes, all different.
 - **Entities:** sliding and swinging doors, buttons, fans and triggers, linked by the map's I/O outputs
   ("button OnPressed -> door Open"). Static props and the map's physics props come with their models.
 - **Props:** MDL/VVD/VTX models at a LOD that fits a triangle budget (simplified when there's no low LOD), with
@@ -632,9 +642,9 @@ The latest three. Every version, with dates, what's in each and which ones can p
 
 | Version | Changes |
 |---|---|
+| 1.14.0 | Options > Spawn with weapons (off: the toolbox, and a Weapons spawnlist for the rest); smaller maps, so gm_bigcity, tc_hydro and pl_goldrush fit a PSP |
 | 1.13.2 | Start New Game's second row of maps no longer runs into the buttons; the Workshop map converter says when a map is too big for a PSP |
 | 1.13.1 | Gamemodes on the Workshop's Addons tab (off ones aren't offered in Start New Game); Lua addons with short file names run on a PSP again |
-| 1.13.0 | Workshop maps: `tools/bspconv.sh workshop` converts the maps in your GMod Workshop downloads, listed under Workshop in Start New Game and the Workshop menu |
 
 ## Roadmap
 

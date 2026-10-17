@@ -26,7 +26,8 @@ typedef struct {
     int num_nodes;
     const PmapLeaf *leafs;
     int num_leafs;
-    const uint32_t *pvs;
+    const uint32_t *pvs;      // raw rows (v5), or NULL when they're coded (pvsz)
+    const unsigned char *pvsz; // "PVSZ": rows coded (map_pvs_row unpacks the one asked for)
     int num_clusters;
     const PmapBrush *brushes;
     int num_brushes;
@@ -45,6 +46,8 @@ typedef struct {
     const PmapStaticProp *sprops;
     int num_sprops;
     const uint32_t *spvs;
+    const unsigned char *spvsz;
+    struct RowCache *pvs_cache, *spvs_cache; // the last coded row unpacked
     const PmapPhysProp *phys_props;
     int num_phys_props;
     TexRef *texref;
@@ -74,6 +77,10 @@ int map_load(Map *m, const char *name, char *err, int err_len);
 void map_free(Map *m);
 
 int map_point_leaf(const Map *m, const ScePspFVector3 *p);
+// What a cluster can see: a bit per batch (PVS) / per static prop (SPVS); NULL when there's no row
+// (outside the map, or no static props)
+const uint32_t *map_pvs_row(const Map *m, int cluster);
+const uint32_t *map_spvs_row(const Map *m, int cluster);
 void map_draw(const Map *m, const Camera *cam, MapDrawStats *stats);
 
 // Packed-vertex batches: load the decode transform (optionally under a parent transform, for

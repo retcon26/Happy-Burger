@@ -2,10 +2,12 @@
 
 Map brushes are kept as they are, including the bevel planes vbsp adds so boxes slide smoothly.
 Displacements have no brushes, so each displacement triangle becomes a thin prism brush (the triangle,
-a back face, three edge planes and six axial bevels). One trace routine on the PSP then handles both.
+a back face and three edge planes), with its bounds instead of six axial bevel planes: the game makes those
+when it traces (BOX_BEVELS). One trace routine on the PSP then handles both.
 """
 
 import math
+import struct
 
 import numpy as np
 
@@ -18,6 +20,10 @@ KEEP_CONTENTS = (CONTENTS_SOLID | CONTENTS_WINDOW | CONTENTS_GRATE | CONTENTS_MO
 DISP_THICKNESS = 16.0
 # Set on side plane indices that are bevels: needed for smooth box sweeps, but not real surfaces.
 BEVEL_BIT = 0x80000000
+# Set on a brush's side count: after its sides come 6 floats (its mins and maxs, as raw bits), which stand for
+# the 6 axis bevel planes of its box (pmap_format.h PMAP_BRUSH_BOXBEVELS). Terrain maps had hundreds of
+# thousands of those planes, each different: about a third of gm_valley's and pl_goldrush's files.
+BOX_BEVELS = 0x80000000
 
 
 def leaves_touching_box(bsp, node, mins, maxs, out):
@@ -144,15 +150,10 @@ def build_collision(bsp, faces, disp_power, static_ents=(), prop_boxes=(), prop_
             pts = top + bot
             mins = [min(p[k] for p in pts) for k in range(3)]
             maxs = [max(p[k] for p in pts) for k in range(3)]
-            for k in range(3):
-                ax = [0.0, 0.0, 0.0]
-                ax[k] = 1.0
-                sides.append(plane_index(tuple(ax), maxs[k]) | BEVEL_BIT)
-                ax[k] = -1.0
-                sides.append(plane_index(tuple(ax), -mins[k]) | BEVEL_BIT)
             bidx = len(cd.brushes)
-            cd.brushes.append((len(cd.sides), len(sides), CONTENTS_SOLID))
+            cd.brushes.append((len(cd.sides), len(sides) | BOX_BEVELS, CONTENTS_SOLID))
             cd.sides.extend(sides)
+            cd.sides.extend(struct.unpack("<6I", struct.pack("<6f", *mins, *maxs)))
             leaves = []
             leaves_touching_box(bsp, world.headnode, mins, maxs, leaves)
             for l in leaves:

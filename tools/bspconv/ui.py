@@ -39,6 +39,13 @@ DECALS = [
     ("decal_wood1", "decals/wood/shot1", 32), ("decal_wood2", "decals/wood/shot2", 32),
     ("decal_glass1", "decals/glass/shot1", 32),
 ]
+# The spawn menu's Weapons: game.c k_weapon_ids, with GMod's own weapon icons (its Weapons tab's)
+WEAPON_ICONS = [
+    ("hands", "weapon_fists"), ("physgun", "weapon_physgun"), ("gravgun", "weapon_physcannon"),
+    ("toolgun", "gmod_tool"), ("crowbar", "weapon_crowbar"), ("pistol", "weapon_pistol"), ("357", "weapon_357"),
+    ("smg", "weapon_smg1"), ("shotgun", "weapon_shotgun"), ("ar2", "weapon_ar2"), ("crossbow", "weapon_crossbow"),
+    ("rpg", "weapon_rpg"), ("grenade", "weapon_frag"), ("bugbait", "weapon_bugbait"),
+]
 
 
 def _font_path(kind):
@@ -163,6 +170,12 @@ def build_ui(gmod_root, props, maps, out_path, log=print, thumb_files=None):
         if img is not None:
             add_image("icon:" + label, img, 64, 64)
             found += 1
+    weapons = 0
+    for wid, ent in WEAPON_ICONS:
+        img = _load_image(fs, f"materials/entities/{ent}.png")
+        if img is not None:
+            add_image("icon:weapon:" + wid, img, 64, 64)
+            weapons += 1
     # Map thumbnails go in a file of their own (thumbs.pak), read by the game only while they're
     # on screen: hundreds of maps' worth would take megabytes of RAM in this pack
     thumbs = []
@@ -213,7 +226,7 @@ def build_ui(gmod_root, props, maps, out_path, log=print, thumb_files=None):
         flat.alpha_composite(img.convert("RGBA"))
         add_image(name, flat.convert("RGB"), size, size, alpha=False)
         decals += 1
-    log(f"  ui: {len(FONTS)} fonts, {found}/{len(props)} spawn icons, "
+    log(f"  ui: {len(FONTS)} fonts, {found}/{len(props)} spawn icons, {weapons}/{len(WEAPON_ICONS)} weapon icons, "
         f"{len(thumbs)}/{len(maps)} map thumbnails (in {thumbs_path}), logo {'yes' if logo else 'no'}, {decals} decals")
 
     w = PmapWriter(PUI_MAGIC, PUI_VERSION)
