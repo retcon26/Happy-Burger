@@ -16,14 +16,15 @@
 #define NET_PORT 18256
 #define NET_LIST_PORT 18257 // server lists (retcons-mod-server in list mode)
 #define NET_LIST_MAX 64     // servers in one list answer
-#define NET_VERSION 14 // 2: rope packets name the joint type (sliders); 3: player models;
+#define NET_VERSION 15 // 2: rope packets name the joint type (sliders); 3: player models;
                        // 4: the host's ragdolls sent to clients, and their physics gun holds; 5: vehicles;
                        // 6: Profile colours, mingebags; 7: TF2 teams (NPC numbers moved); 8: devices, hydraulics;
                        // 9: Wi-Fi and dedicated servers (PK_INFO, beacon flags); 10: AR2, crossbow, RPG, grenades,
                        // bug bait (PK_PROJ, CMD_LAUNCH, CMD_SQUEEZE); 11: medkits and chargers (CMD_PICKUP, CMD_HEAL);
                        // 12: Face and Finger Poser (CMD_RAG_POSE, RagInfo face and hands);
                        // 13: 8 player slots, server passwords (PkJoin.password, PK_FULL reasons, BEACON_PASSWORD);
-                       // 14: quick chat (CMD_QUICKCHAT, CMD_GESTURE, NetPlayer.gesture)
+                       // 14: quick chat (CMD_QUICKCHAT, CMD_GESTURE, NetPlayer.gesture);
+                       // 15: Lua gamemodes (PK_GMSTATE, PK_GMEVENTS, the gamemode in beacons and welcomes)
 
 enum { NET_MODE_ADHOC, NET_MODE_INET };
 
@@ -73,7 +74,10 @@ enum {
     PK_LIST_REQ,   // player -> server list: "which servers are there?"
     PK_LIST,       // server list -> player: their addresses (each then answers PK_INFO with a beacon)
     PK_PROJ,       // host -> all: rockets, bolts and bug bait in flight, and the latest explosions
+    PK_GMSTATE,    // host -> all: the gamemode's rules for each player, and its networked variables
+    PK_GMEVENTS,   // host -> all: the gamemode's latest messages, sounds and ammo handouts
 };
+#define NET_MODE_LEN 16 // a gamemode's name (its file in data/lua/gamemodes, without .lua; "" sandbox)
 
 
 typedef struct {
@@ -91,6 +95,7 @@ typedef struct {
     char map[32];
     char host[16];
     uint8_t players, max, flags, pad;
+    char mode[NET_MODE_LEN]; // the gamemode ("" sandbox)
 } PkBeacon;
 #define BEACON_DEDICATED 1 // a dedicated server: nobody plays on the host
 #define BEACON_PASSWORD 2  // joining needs the server's password
@@ -120,6 +125,7 @@ typedef struct {
 typedef struct {
     NetHeader h; // h.slot is the joining player's slot
     char map[32];
+    char mode[NET_MODE_LEN]; // the gamemode to load the map with ("" sandbox)
 } PkWelcome;
 
 // --- Lobby (the Join Game screen) ----------------------------------------------------------------
@@ -131,6 +137,7 @@ typedef struct {
     int players, max;
     int dedicated;
     int password; // joining it needs a password
+    char mode[NET_MODE_LEN]; // its gamemode ("" sandbox)
     float age; // seconds since the last beacon
 } NetHost;
 
@@ -146,3 +153,4 @@ void net_lobby_query(const uint8_t *addr);
 void net_lobby_list_request(const uint8_t *list_addr);
 int net_lobby_listed(void); // how many servers the list gave (-1: no answer yet)
 void net_lobby_result(char *map, int map_len, int *slot, uint8_t host_mac[6]);
+const char *net_lobby_mode(void); // the gamemode the accepted join's welcome named ("" sandbox)

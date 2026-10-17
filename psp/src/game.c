@@ -568,6 +568,105 @@ static struct {
     char exit_msg[64];
 } G;
 
+// --- Gamemodes: what the rules decide about each player (see Gamemodes) ---
+#define GM_NO_DISGUISE 0xFFFF // GmPlayer.disguise: none
+#define GM_EVENTS 8
+#define GM_NW_MAX 1024      // the gamemode's networked variables, packed (script_nw_pack)
+#define GM_USE_RANGE 140.0f // how far Use reaches for a gamemode (Prop Hunt: the prop to become)
+#define ALL_WEAPONS ((1u << WEAPON_COUNT) - 1u)
+enum { GEV_CHAT = 1, GEV_CENTER, GEV_SOUND, GEV_AMMO };
+typedef struct {
+    int team, flags;      // GPF_*
+    int model;            // forced player model (NPC type), -1: their own
+    float speed;          // walking speed, 1 = usual
+    int disguise;         // the prop they look like: model | lib << 15, or GM_NO_DISGUISE
+    unsigned int weapons; // what they may carry (a bit per Weapon)
+    int spawn_seq;        // counts (re)spawns and moves (1-255, 0: none yet): a new one sends them to spawn_pos...
+    int spawn_move;       // ...moved there as they are, rather than respawned
+    vec3 spawn_pos;
+    float spawn_yaw;
+    int select_seq, select_weapon; // the gamemode put this weapon in their hand
+    float max_health;
+    // Where the rules run
+    int serial;     // counts who's had the slot (scripts' Player objects)
+    int known;      // the gamemode's been told they're here (PlayerInitialSpawn)...
+    uint32_t nonce; // ...as this join (a rejoin is someone new)
+    int alive;      // last frame
+    int attacker;   // who hurt them last (a slot, -1 the world)
+    float dead_for;
+} GmPlayer;
+// Something that happens once, for one player (target) or everyone (255)
+typedef struct {
+    uint16_t seq; // 0: an empty slot
+    uint8_t kind, target;
+    int16_t arg, arg2; // GEV_CENTER: arg seconds; GEV_SOUND: arg2 1 at pos; GEV_AMMO: the weapon (255 all), how much
+    float pos[3];
+    char text[44];
+} GmEvent;
+static struct {
+    int on; // a gamemode runs (not plain sandbox)
+    char mode[NET_MODE_LEN];
+    int flags; // GMF_*
+    float respawn_time;
+    GmPlayer p[NET_MAX_PLAYERS];
+    int scripts_pending; // they start on the first frame, once it's known whether this PSP hosts
+    // Where the rules run: sending it all
+    int dirty;
+    float state_timer, ev_timer;
+    GmEvent ev[GM_EVENTS];
+    uint16_t ev_seq;
+    int ev_sends;
+    // A client: the events it's seen
+    uint16_t ev_seen;
+    int ev_synced;
+    // This PSP's player
+    int seen_spawn, seen_select;
+    unsigned int had_weapons;
+    float spawn_grace;   // a client just respawned: dead in an older snapshot isn't dead (until an alive one)
+    float respawn_asked; // a client asked to respawn this long ago
+    int spectate;        // dead: whose view to watch (-1: where you died)
+    char center[48];     // text across the middle of the screen
+    float center_time;
+} g_gm;
+static char g_next_mode[NET_MODE_LEN]; // game_set_gamemode
+static int g_npc_attacker = -1;        // the player whose shot or blast is hurting NPCs right now
+static unsigned int g_buttons;         // this frame's held buttons (game_button_down, for HUD scripts)
+
+// The sandbox's tools (spawn menu, tool gun, noclip, God mode...): no gamemode, or one that keeps them
+static int gm_sandbox(void) {
+    return !g_gm.on || (g_gm.flags & GMF_SANDBOX);
+}
+
+// Options > God mode: when hosting it covers everyone (never in a gamemode's game)
+static int host_god(void) {
+    return gm_sandbox() && g_settings.god_mode;
+}
+
+// Options > Unlimited ammo (not in a gamemode's game)
+static int unlimited_ammo(void) {
+    return gm_sandbox() && g_settings.unlimited_ammo;
+}
+
+static int gm_disguised(int s);
+static void player_box(int s, vec3 feet, int ducked, vec3 *lo, vec3 *hi);
+static void gm_respawn_request(int s);
+static void gm_puppet(int s);
+static int gm_next_weapon(int w);
+static void gm_reset(void);
+static void gm_start_scripts(void);
+static void gm_local_update(float dt);
+static void gm_server_update(float dt);
+static void gm_host_send(float dt);
+static void gm_client_state(const void *data, int len);
+static void gm_client_events(const void *data, int len);
+static void gm_move(MoveCmd *cmd);
+static void gm_use(int body);
+static void gm_dead_update(const InputState *in);
+static void gm_spectate_camera(void);
+static int gm_tag_visible(int s);
+static void gm_npc_died(int npc, int type, vec3 pos);
+static unsigned int gm_carried(void);
+
 // Options > Player model: which NPC types are offered (settings.c shows their names)
 #define MAX_PLAYER_MODELS 32
 static int g_pm_types[MAX_PLAYER_MODELS];
@@ -579,6 +678,7 @@ static const char *player_model_name(int i) {
 
 // The NPC type this player looks like, or -1 for the default
 static int player_model(void) {
+    if (g_gm.on && G.my_slot >= 0 && G.my_slot < NET_MAX_PLAYERS && g_gm.p[G.my_slot].model >= 0) return g_gm.p[G.my_slot].model;
     return g_pm_count > 0 ? g_pm_types[g_settings.player_model % g_pm_count] : -1;
 }
 static int third_person(void);
@@ -590,7 +690,7 @@ static int is_client(void) {
 // God mode: the option covers single player and, when hosting, everyone in the game. A client goes
 // by the host's option, not its own.
 static int god_mode(void) {
-    return is_client() ? G.server_god : g_settings.god_mode;
+    return gm_sandbox() && (is_client() ? G.server_god : g_settings.god_mode);
 }
 static void send_cmd(int kind, int i0, int i1, uint32_t u, const float *f, int nf);
 static int prop_named(const char *name);
@@ -1122,7 +1222,8 @@ int game_start(const char *map_name, char *err, int err_len) {
     G.outq_n = 0;
     G.snap_timer = G.ents_timer = G.ropes_timer = G.beacon_timer = G.send_timer = 0.0f;
     if (!G.props_loaded) toast("No props: run the converter's props step");
-    script_start(G.map_name);
+    npc_set_death_handler(gm_npc_died);
+    gm_reset(); // the gamemode game_set_gamemode picked: its scripts start on the first frame
     return 0;
 }
 
@@ -1551,6 +1652,7 @@ static void explode_at(vec3 c, int attacker) {
     phys_blast(&G.phys, c, EXPLOSION_RADIUS, EXPLOSION_SPEED);
     show_explosion(c);
     fx_explosion(c); // and multiplayer clients see it too
+    g_npc_attacker = attacker;
     for (int n = 0; n < MAX_NPCS; n++) {
         if (!npc_active(n)) continue;
         NpcNet nn;
@@ -1563,10 +1665,12 @@ static void explode_at(vec3 c, int attacker) {
             blood_spray(v3(nn.pos[0], nn.pos[1], nn.pos[2] + 36.0f), v3_norm(d), 10);
         }
     }
+    g_npc_attacker = -1;
     vec3 d = v3_sub(v3_add(G.player.origin, v3(0, 0, 36)), c);
     float dist = v3_len(d);
-    if (dist < EXPLOSION_RADIUS && !G.player.noclip) {
+    if (dist < EXPLOSION_RADIUS && !G.player.noclip && (!g_gm.on || script_should_damage(G.my_slot, attacker))) {
         float k = 1.0f - dist / EXPLOSION_RADIUS;
+        g_gm.p[G.my_slot].attacker = attacker;
         damage_player(EXPLOSION_DAMAGE * 0.6f * k);
         G.player.velocity = v3_mad(G.player.velocity, v3_norm(v3(d.x, d.y, d.z + 60.0f)), 500.0f * k);
         G.player.on_ground = 0;
@@ -3137,7 +3241,9 @@ static int player_raycast(vec3 o, vec3 d, float max_t, int exclude, float *t_out
             ducked = (p->flags & PF_DUCKED) != 0;
         }
         float t;
-        if (ray_box(o, d, v3_add(feet, v3(-16, -16, 0)), v3_add(feet, v3(16, 16, ducked ? 36.0f : 72.0f)), max_t, &t)) {
+        vec3 lo, hi;
+        player_box(s, feet, ducked, &lo, &hi);
+        if (ray_box(o, d, lo, hi, max_t, &t)) {
             max_t = t;
             best = s;
         }
@@ -3153,6 +3259,8 @@ static const char *player_name(int s) {
 // Host: a player shot another
 static void pvp_damage(int victim, int attacker, float amount) {
     if (god_mode()) return;
+    if (g_gm.on && !script_should_damage(victim, attacker)) return; // the gamemode's rules (no friendly fire...)
+    g_gm.p[victim].attacker = attacker;
     int was_alive, dead;
     if (victim == G.my_slot) {
         was_alive = G.dead_time <= 0.0f;
@@ -3164,7 +3272,7 @@ static void pvp_damage(int victim, int attacker, float amount) {
         p->health = fmaxf(0.0f, p->health - amount);
         dead = p->health <= 0.0f;
     }
-    if (was_alive && dead) {
+    if (was_alive && dead && !g_gm.on) { // a gamemode says who killed whom itself
         char msg[40]; // two 15-character names fit; notifications hold 48
         snprintf(msg, sizeof(msg), "%.15s killed %.15s", player_name(attacker), player_name(victim));
         int acting = G.acting;
@@ -3226,7 +3334,9 @@ static int fire_bullet(vec3 eye, vec3 dir, const WeaponStats *ws, int world, int
             bd->angvel = v3_add(bd->angvel, v3_scale(v3_cross(v3_sub(hit, bd->pos), dir), k * 0.002f));
         }
     } else if (kind == 3 && world) {
+        g_npc_attacker = shooter;
         npc_damage_dir(idx, ws->damage, v3_scale(dir, ws->force));
+        g_npc_attacker = -1;
     } else if (kind == 5 && world) {
         pvp_damage(idx, shooter, ws->damage);
     } else if (kind == 4) {
@@ -3241,6 +3351,7 @@ static int fire_bullet(vec3 eye, vec3 dir, const WeaponStats *ws, int world, int
         int s = kind >= 3 ? G.snd.bullet_flesh : melee ? G.snd.crowbar_hit : G.snd.bullet_impact;
         if (g_settings.sound) snd_play_at(s, hit, 0.6f);
     }
+    if (kind == 2 && world && g_gm.on && body_valid(idx)) script_entity_damage(idx, shooter, ws->damage);
     return kind;
 }
 
@@ -3480,7 +3591,9 @@ static int proj_trace(vec3 a, vec3 b, int skip, float *frac, int *idx, int *bone
 static void bolt_hit(Projectile *p, int kind, int idx, int bone, vec3 hit, vec3 dir) {
     p->type = 0;
     if (kind == 3) {
+        g_npc_attacker = p->owner;
         npc_damage_dir(idx, BOLT_DAMAGE, v3_scale(dir, 600.0f));
+        g_npc_attacker = -1;
         blood_spray(hit, dir, 8);
     } else if (kind == 5) {
         pvp_damage(idx, p->owner, BOLT_DAMAGE);
@@ -3683,7 +3796,7 @@ static void quick_chat_send(int page, int sel) {
         snprintf(text, sizeof(text), "%s: %s", net_nickname(), k_quick_msgs[sel]);
         if (is_client()) {
             send_cmd(CMD_QUICKCHAT, sel, 0, 0, NULL, 0); // it comes back in the host's chat
-        } else {
+        } else if (!script_quick_chat(G.my_slot, k_quick_msgs[sel])) {
             game_chat(text);
         }
         return;
@@ -3923,7 +4036,7 @@ static void items_update(float dt) {
         if (kind >= ITEM_AMMO_PISTOL) {
             // Ammo: into the gun's reserve, up to what you can carry (none needed with unlimited ammo)
             int w = k_ammo_items[kind - ITEM_AMMO_PISTOL].weapon, max = k_ammo_items[kind - ITEM_AMMO_PISTOL].max;
-            if (g_settings.unlimited_ammo || G.ammo[w] >= max) continue;
+            if (unlimited_ammo() || G.ammo[w] >= max) continue;
             int got = k_ammo_items[kind - ITEM_AMMO_PISTOL].amount;
             if (got > max - G.ammo[w]) got = max - G.ammo[w];
             G.ammo[w] += got;
@@ -4013,7 +4126,7 @@ static void gun_update(const InputState *in, float dt) {
         }
         return;
     }
-    if (g_settings.unlimited_ammo && ws->clip) G.clip[w] = ws->clip; // turned on with an empty gun
+    if (unlimited_ammo() && ws->clip) G.clip[w] = ws->clip; // turned on with an empty gun
     int want = ws->automatic ? (in->held & PSP_CTRL_RTRIGGER) : (in->pressed & PSP_CTRL_RTRIGGER);
     if (!want || G.fire_cd > 0.0f) return;
     if (ws->clip && G.clip[w] == 0) {
@@ -4026,7 +4139,7 @@ static void gun_update(const InputState *in, float dt) {
         return;
     }
     G.fire_cd = ws->delay;
-    if (ws->clip && !g_settings.unlimited_ammo) G.clip[w]--;
+    if (ws->clip && !unlimited_ammo()) G.clip[w]--;
 #ifdef PS2
     play(G.snd.fire[w], ws->clip ? 0.8f : 0.5f);
 #else
@@ -4676,6 +4789,15 @@ static void saves_page(const InputState *in) {
     }
 }
 
+// The pause menu's items (k_pause_items indices): a gamemode's game leaves out saves, noclip and cleanup
+static int pause_items(int *out) {
+    int n = 0;
+    for (int i = 0; i < NUM_PAUSE_ITEMS; i++) {
+        if (gm_sandbox() || i == 0 || i == 1 || i == 3 || i == NUM_PAUSE_ITEMS - 1) out[n++] = i;
+    }
+    return n;
+}
+
 // GMod's escape menu: Resume, Options, cleanup, Disconnect
 static GameResult pause_update(const InputState *in) {
     if (g_shot_pending) return GAME_CONTINUE; // the screenshot's frame is on its way
@@ -4691,9 +4813,11 @@ static GameResult pause_update(const InputState *in) {
         saves_page(in);
         return GAME_CONTINUE;
     }
+    int items[NUM_PAUSE_ITEMS], n = pause_items(items);
+    if (G.pause_sel >= n) G.pause_sel = 0;
     int before = G.pause_sel;
-    if (in->pressed & PSP_CTRL_UP) G.pause_sel = (G.pause_sel + NUM_PAUSE_ITEMS - 1) % NUM_PAUSE_ITEMS;
-    if (in->pressed & PSP_CTRL_DOWN) G.pause_sel = (G.pause_sel + 1) % NUM_PAUSE_ITEMS;
+    if (in->pressed & PSP_CTRL_UP) G.pause_sel = (G.pause_sel + n - 1) % n;
+    if (in->pressed & PSP_CTRL_DOWN) G.pause_sel = (G.pause_sel + 1) % n;
     if (G.pause_sel != before) play(G.snd.menu_move, 0.4f);
     if (in->pressed & (PSP_CTRL_CIRCLE | PSP_CTRL_START)) {
         G.paused = 0;
@@ -4701,7 +4825,7 @@ static GameResult pause_update(const InputState *in) {
     }
     if (!(in->pressed & PSP_CTRL_CROSS)) return GAME_CONTINUE;
     play(G.snd.menu_select, 0.6f);
-    switch (G.pause_sel) {
+    switch (items[G.pause_sel]) {
     case 0: G.paused = 0; break;
     case 1: G.pause_options = 1; break;
     case 2:
@@ -4732,7 +4856,7 @@ static GameResult pause_update(const InputState *in) {
     case 6:
         if (is_client()) {
             notify("Only the host can do that", NOTE_ERROR);
-        } else if (G.pause_sel == 5) {
+        } else if (items[G.pause_sel] == 5) {
             freeze_all();
         } else {
             cleanup_props();
@@ -4843,6 +4967,7 @@ static void respawn(void) {
 // Hard landings hurt, like HL2: nothing below about 580 units/s
 static void fall_damage(void) {
     if (!G.player.noclip && G.player.on_ground && !G.was_on_ground && G.fall_speed > 580.0f) {
+        g_gm.p[G.my_slot].attacker = -1;
         damage_player((G.fall_speed - 580.0f) * 0.25f);
     }
 }
@@ -5054,11 +5179,25 @@ static int body_valid(int i) {
     return i >= 0 && i < MAX_BODIES && G.phys.bodies[i].active;
 }
 
+// The sandbox's building commands, which a gamemode's game turns away
+static int sandbox_cmd(int kind) {
+    switch (kind) {
+    case CMD_SPAWN: case CMD_SPAWN_NPC: case CMD_REMOVE: case CMD_REMOVE_NPC: case CMD_COLOUR: case CMD_BALLOON:
+    case CMD_WELD: case CMD_ROPE: case CMD_FREEZE: case CMD_BALLSOCKET: case CMD_ELASTIC: case CMD_NOCOLLIDE:
+    case CMD_WEIGHT: case CMD_THRUSTER: case CMD_HOVER: case CMD_EXPLODE: case CMD_SLIDER: case CMD_RAG_SPAWN:
+    case CMD_RAG_REMOVE: case CMD_RAG_FREEZE: case CMD_RAG_INFLATE: case CMD_TOOL: case CMD_RAG_POSE:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
 // Host: runs a client's action as that player
 static void exec_cmd(int slot, const NetCmd *c) {
     Peer *p = &G.peers[slot];
     int i = c->i0;
     Body *b = body_valid(i) ? &G.phys.bodies[i] : NULL;
+    if (!gm_sandbox() && sandbox_cmd(c->kind)) return;
     G.acting = slot;
     switch (c->kind) {
     case CMD_SPAWN:
@@ -5174,14 +5313,28 @@ static void exec_cmd(int slot, const NetCmd *c) {
     case CMD_UNDO:
         undo_pop(slot);
         break;
-    case CMD_USE:
-        ents_use(&G.map, v3(c->f[0], c->f[1], c->f[2]), v3(c->f[3], c->f[4], c->f[5]));
+    case CMD_USE: {
+        // A gamemode's use comes first (Prop Hunt: becoming the prop they aim at); a sandbox script's after
+        // doors and buttons
+        vec3 eye = v3(c->f[0], c->f[1], c->f[2]), dir = v3(c->f[3], c->f[4], c->f[5]);
+        int body = b && v3_len(v3_sub(b->pos, eye)) < GM_USE_RANGE + 100.0f ? i : -1;
+        if (!gm_sandbox()) {
+            if (!script_use(slot, body)) ents_use(&G.map, eye, dir);
+        } else if (!ents_use(&G.map, eye, dir)) {
+            script_use(slot, body);
+        }
         break;
+    }
     case CMD_RESPAWN:
-        p->health = 100.0f;
+        if (g_gm.on) {
+            gm_respawn_request(slot); // when the gamemode lets them, at one of its spawn points
+        } else {
+            p->health = 100.0f;
+        }
         break;
     case CMD_DAMAGE:
-        if (p->health > 0.0f && !g_settings.god_mode) p->health = fmaxf(0.0f, p->health - c->f[0]);
+        g_gm.p[slot].attacker = -1; // a fall
+        if (p->health > 0.0f && !host_god()) p->health = fmaxf(0.0f, p->health - c->f[0]);
         break;
     case CMD_RAG_SPAWN: {
         int r = npc_ragdoll_spawn(i, v3(c->f[0], c->f[1], c->f[2]), c->f[3]);
@@ -5198,7 +5351,7 @@ static void exec_cmd(int slot, const NetCmd *c) {
         npc_ragdoll_inflate(i, c->i1, clampf(c->f[0], 0.5f, 2.0f));
         break;
     case CMD_QUICKCHAT:
-        if (i >= 0 && i < QC_SLICES) {
+        if (i >= 0 && i < QC_SLICES && !script_quick_chat(slot, k_quick_msgs[i])) {
             char text[48];
             snprintf(text, sizeof(text), "%s: %s", p->name, k_quick_msgs[i]);
             game_chat(text);
@@ -5304,6 +5457,7 @@ static void make_beacon(PkBeacon *bc) {
     bc->players = (uint8_t)num_players();
     bc->max = (uint8_t)(g_dedicated ? host_slots() - 1 : host_slots());
     bc->flags = (g_dedicated ? BEACON_DEDICATED : 0) | (g_dedicated && g_server_password[0] ? BEACON_PASSWORD : 0);
+    snprintf(bc->mode, sizeof(bc->mode), "%s", g_gm.mode);
 }
 
 static void host_receive(void) {
@@ -5371,6 +5525,7 @@ static void host_receive(void) {
             w.h = net_header(PK_WELCOME);
             w.h.slot = (uint8_t)s;
             map_base(w.map, sizeof(w.map));
+            snprintf(w.mode, sizeof(w.mode), "%s", g_gm.mode);
             net_send(from, &w, sizeof(w));
         } else if (pk.h.type == PK_CSTATE && s > 0 && len >= (int)offsetof(PkCState, cmds)) {
             Peer *p = &G.peers[s];
@@ -5417,7 +5572,7 @@ static void host_receive(void) {
 
 static void pack_player(NetPlayer *np, int s) {
     memset(np, 0, sizeof(*np));
-    uint8_t god = g_settings.god_mode ? PF_GOD : 0; // tells clients, so they stop reporting damage
+    uint8_t god = host_god() ? PF_GOD : 0; // tells clients, so they stop reporting damage
     if (s == 0 && g_dedicated) return; // nobody plays on a dedicated server
     if (s == 0) {
         np->active = 1;
@@ -5679,6 +5834,7 @@ static void host_update(float dt) {
         if (p->held_rag >= 0) npc_ragdoll_drag(p->held_rag, p->held_bone, p->hold_pos, dt);
         npc_puppet_set(s, p->health > 0.0f && !(p->flags & PF_VEHICLE), p->model, p->pos, p->yaw, dt);
         npc_puppet_tint(s, body_tint(p->colour));
+        gm_puppet(s);
     }
 }
 
@@ -5695,6 +5851,7 @@ static void host_send(float dt) {
         net_send(NULL, &bc, sizeof(bc));
     }
     if (num_players() < (g_dedicated ? 1 : 2)) return; // nobody to send to
+    gm_host_send(dt);
     G.snap_timer -= dt;
     if (G.snap_timer <= 0.0f) {
         G.snap_timer = SNAP_INTERVAL;
@@ -5797,7 +5954,8 @@ static void client_apply_players(const PkPlayers *pk) {
             G.acked = np->ack;
             G.server_god = (np->flags & PF_GOD) != 0;
             if (G.respawn_pending && !seq_newer(G.respawn_cmd, np->ack)) G.respawn_pending = 0;
-            if (!G.respawn_pending) {
+            if (g_gm.spawn_grace > 0.0f && np->health > 0.0f) g_gm.spawn_grace = 0.0f; // the host has our respawn
+            if (!G.respawn_pending && g_gm.spawn_grace <= 0.0f) {
                 if (np->health < G.health - 0.5f) {
                     G.hurt_flash = 0.4f;
                     play(G.snd.impact[0], 0.8f);
@@ -5968,6 +6126,12 @@ static int client_update(float dt) {
                 npc_ragdoll_net_set_pose(&pk.rpo.p);
             }
             break;
+        case PK_GMSTATE:
+            gm_client_state(pk.raw, len);
+            break;
+        case PK_GMEVENTS:
+            gm_client_events(pk.raw, len);
+            break;
         case PK_LEAVE:
             // h.slot says why (GAME_LEAVE_*): servers kick players and change maps. A map change joins
             // the same server again straight away (game_rejoin_address).
@@ -6042,6 +6206,7 @@ static int client_update(float dt) {
         npc_puppet_set(s, s != G.my_slot && p->active && p->health > 0.0f && !(p->flags & PF_VEHICLE), p->model, p->pos,
                        p->yaw, dt);
         npc_puppet_tint(s, body_tint(p->colour));
+        gm_puppet(s);
     }
     return 1;
 }
@@ -6125,7 +6290,7 @@ static void draw_name_tags(void) {
     float th = tanf(G.cam.fov_y * 0.5f * DEG2RAD), tw = th * 480.0f / 272.0f;
     for (int s = 0; s < NET_MAX_PLAYERS; s++) {
         const Peer *p = &G.peers[s];
-        if (s == G.my_slot || !p->active || p->health <= 0.0f || !p->name[0]) continue;
+        if (s == G.my_slot || !p->active || p->health <= 0.0f || !p->name[0] || !gm_tag_visible(s)) continue;
         vec3 head = v3_add(p->pos, v3(0, 0, (p->flags & PF_DUCKED) ? 56.0f : 82.0f));
         vec3 d = v3_sub(head, eye);
         float z = v3_dot(d, f), dist = v3_len(d);
@@ -6214,11 +6379,13 @@ void game_chat(const char *text) {
 
 static void npc_hits(int target, float amount) {
     if (target == 0) {
+        g_gm.p[0].attacker = -1;
         damage_player(amount);
         return;
     }
     Peer *p = &G.peers[target];
-    if (p->health > 0.0f && !g_settings.god_mode) p->health = fmaxf(0.0f, p->health - amount);
+    g_gm.p[target].attacker = -1;
+    if (p->health > 0.0f && !host_god()) p->health = fmaxf(0.0f, p->health - amount);
 }
 
 // --- Physics damage ------------------------------------------------------------------------------
@@ -6281,12 +6448,14 @@ static void prop_damage(float dt) {
         b->vel = v3_scale(b->vel, 0.5f); // it gave up some of its speed to the hit
         if (local) {
             G.prop_hurt = PROP_HURT_COOLDOWN;
+            g_gm.p[0].attacker = -1;
             damage_player(dmg);
             G.player.velocity = v3_mad(G.player.velocity, dir, fminf(dmg * 8.0f, 450.0f));
             if (dir.z > -0.5f) G.player.on_ground = 0;
         } else {
             p->prop_hurt = PROP_HURT_COOLDOWN;
-            if (!g_settings.god_mode) p->health = fmaxf(0.0f, p->health - dmg);
+            g_gm.p[s].attacker = -1;
+            if (!host_god()) p->health = fmaxf(0.0f, p->health - dmg);
         }
     }
 }
@@ -6449,6 +6618,7 @@ static int world_step(float dt) {
         return client_update(dt);
     }
     if (G.role == ROLE_HOST) host_update(dt);
+    gm_server_update(dt); // joins, deaths and leavings, for the gamemode
     script_think(dt);
     vehicles_drive();
     phys_step(&G.phys, &G.map, dt);
@@ -6458,13 +6628,14 @@ static int world_step(float dt) {
     NpcTarget t[NET_MAX_PLAYERS];
     memset(t, 0, sizeof(t));
     t[0].pos = G.player.origin;
-    t[0].valid = G.dead_time <= 0.0f && !G.player.noclip;
+    t[0].valid = G.dead_time <= 0.0f && !G.player.noclip && !(g_gm.on && (g_gm.p[0].flags & GPF_NOTARGET));
     for (int s = 1; s < NET_MAX_PLAYERS && G.role == ROLE_HOST; s++) {
         const Peer *p = &G.peers[s];
         t[s].pos = p->pos;
-        t[s].valid = p->active && p->health > 0.0f && !(p->flags & PF_NOCLIP);
+        t[s].valid = p->active && p->health > 0.0f && !(p->flags & PF_NOCLIP) && !(g_gm.on && (g_gm.p[s].flags & GPF_NOTARGET));
     }
-    npc_set_ai(!g_settings.npc_think, g_settings.npc_ignore_players); // Options (the host's, in multiplayer)
+    // Options (the host's, in multiplayer); a gamemode's game always has them thinking
+    npc_set_ai(gm_sandbox() && !g_settings.npc_think, gm_sandbox() && g_settings.npc_ignore_players);
     npc_set_blade_model(G.props_loaded ? prop_named("Sawblade") : -1);
     npcs_update(&G.map, dt, t, G.role == ROLE_HOST ? NET_MAX_PLAYERS : 1, &G.phys, npc_hits);
     npc_ragdolls_update(&G.map, dt, &G.phys);
@@ -6580,6 +6751,7 @@ void game_host_dedicated(void (*log)(const char *msg)) {
 }
 
 GameResult game_update(const InputState *in, float dt) {
+    if (g_gm.scripts_pending) gm_start_scripts();
     if (g_dedicated) return dedicated_update(dt);
     InputState test_in;
     if (g_test_hold || g_test_hold_prev) {
@@ -6591,7 +6763,9 @@ GameResult game_update(const InputState *in, float dt) {
         g_test_hold_prev = g_test_hold;
         in = &test_in;
     }
+    g_buttons = in->held;
     later_update(dt);
+    gm_local_update(dt); // what the gamemode decided: a respawn, weapons, a disguise...
     items_update(dt);
     phys_set_quality(g_settings.physics);
     achievements_tick(dt);
@@ -6604,7 +6778,11 @@ GameResult game_update(const InputState *in, float dt) {
         if (G.veh >= 0) vehicle_leave(1);
         voice_update(in, dt, 1); // the dead can still talk
         G.dead_time += dt;
-        if (G.dead_time > 1.0f && (in->pressed & (PSP_CTRL_CROSS | PSP_CTRL_RTRIGGER) || G.dead_time > 6.0f)) respawn();
+        if (g_gm.on) {
+            gm_dead_update(in); // watching the others; X respawns when the gamemode lets you
+        } else if (G.dead_time > 1.0f && (in->pressed & (PSP_CTRL_CROSS | PSP_CTRL_RTRIGGER) || G.dead_time > 6.0f)) {
+            respawn();
+        }
         if (in->pressed & PSP_CTRL_START) open_pause();
         MoveCmd still = {0};
         still.yaw = G.yaw;
@@ -6658,8 +6836,11 @@ GameResult game_update(const InputState *in, float dt) {
             open_pause();
             return GAME_CONTINUE;
         }
-        // Select: tap for the spawn menu, hold for noclip
-        if (in->held & PSP_CTRL_SELECT) {
+        // Select: tap for the spawn menu, hold for noclip (a gamemode's game: held, it shows the scoreboard)
+        if (!gm_sandbox()) {
+            G.select_time = 0.0f;
+            G.select_fired = 0;
+        } else if (in->held & PSP_CTRL_SELECT) {
             G.select_time += dt;
             if (G.select_time >= SELECT_HOLD_TIME && !G.select_fired) {
                 G.select_fired = 1;
@@ -6737,6 +6918,7 @@ GameResult game_update(const InputState *in, float dt) {
                 G.player.ducked = !G.player.ducked;
             }
             if (!G.player.noclip) cmd.duck = G.player.ducked;
+            gm_move(&cmd); // a gamemode's game: frozen, slower or faster, disguised (no crouching)
 
             // Reload (GMod's R): Circle on the DualShock, which the right stick frees up; on the PSP, hold
             // D-pad Left (a tap still switches weapons, when it's let go)
@@ -6758,7 +6940,7 @@ GameResult game_update(const InputState *in, float dt) {
             }
     #endif
             if (next_weapon) {
-                G.weapon = (G.weapon + 1) % WEAPON_COUNT;
+                G.weapon = gm_next_weapon(G.weapon); // what a gamemode lets you carry
                 G.reload_left = 0.0f; // switching away cancels a reload
                 G.switch_time = 0.25f;
                 G.wsel_time = 1.5f;
@@ -6781,6 +6963,15 @@ GameResult game_update(const InputState *in, float dt) {
                 use_aim.body = -1;
                 use_pressed = 0;
             }
+            // A gamemode's game: its own use first (Prop Hunt: becoming the prop you look at), then doors and
+            // buttons; light props are picked up only where it allows that
+            if (!vehicle && use_pressed && !gm_sandbox()) {
+                if (!((g_gm.flags & GMF_PICKUP) && use_pickup())) {
+                    gm_use(use_aim.body >= 0 && use_aim.dist < GM_USE_RANGE ? use_aim.body : -1);
+                }
+                use_pressed = 0;
+                use_aim.body = -1;
+            }
             int has_forces = !vehicle && use_aim.body >= 0 && !is_client() && toggle_forces(use_aim.body);
             // A client knows the lamps, buttons... (PK_DEVICES): those are used, not picked up
             int client_device = !vehicle && use_aim.body >= 0 && is_client() && body_has_device(use_aim.body);
@@ -6801,8 +6992,8 @@ GameResult game_update(const InputState *in, float dt) {
                 vec3 eye = player_eye(&G.player), f = view_forward();
                 if (is_client()) {
                     float v[6] = {eye.x, eye.y, eye.z, f.x, f.y, f.z};
-                    send_cmd(CMD_USE, 0, 0, 0, v, 6);
-                } else if (!ents_use(&G.map, eye, f) && !script_use()) {
+                    send_cmd(CMD_USE, -1, 0, 0, v, 6);
+                } else if (!ents_use(&G.map, eye, f) && !script_use(G.my_slot, use_aim.body)) {
                     play(G.snd.dryfire, 0.3f);
                 }
             }
@@ -6865,6 +7056,7 @@ GameResult game_update(const InputState *in, float dt) {
     // Your body, in third person or seen from a camera (not while driving: it would stand up through the roof)
     npc_self_set((third_person() || G.cam_view >= 0) && G.veh < 0, player_model(), G.player.origin, G.yaw, dt);
     npc_puppet_tint(-1, body_tint(g_settings.player_colour));
+    gm_puppet(-1);
 
     vec3 pmin, pmax;
     player_hull(&G.player, &pmin, &pmax);
@@ -6914,6 +7106,1002 @@ GameResult game_update(const InputState *in, float dt) {
     }
     vehicle_place_player(); // after the physics step, so the view rides along without lagging a frame
     return GAME_CONTINUE;
+}
+
+// --- Gamemodes -------------------------------------------------------------------------------------
+// A gamemode (script.c: Lua from data/lua/gamemodes, or one of the game's own in psp/lua) turns a map into
+// a game with rules: teams, rounds, loadouts and respawns. Its rules run where the world does (single
+// player, the host, a dedicated server); every PSP with a player runs its HUD. What the rules decide about
+// each player is kept in g_gm and goes to everyone in PK_GMSTATE, with the gamemode's networked variables;
+// things that happen once (a message across the middle of the screen, a sound, some ammo) go out as
+// PK_GMEVENTS. Each PSP then applies its own player's part: where to (re)spawn, what it may carry, how fast
+// it walks, whether it's frozen, blinded or disguised as a prop.
+
+#define GM_STATE_INTERVAL 0.25f
+#define GM_EVENT_RESENDS 3  // frames a new event goes out in (then once a second, with the others)
+#define GM_SPAWN_GRACE 2.0f // a client waits this long at most for the host's alive snapshot after a respawn
+
+typedef struct {
+    uint8_t team, flags, model, speed; // model: NET_NO_MODEL for their own; speed x 1/64
+    uint16_t disguise, weapons;
+    uint8_t spawn_seq, spawn_move, select_seq, select_weapon;
+    uint16_t max_health, pad;
+    float spawn_pos[3], spawn_yaw;
+} NetGmPlayer;
+
+typedef struct {
+    NetHeader h;
+    char mode[NET_MODE_LEN];
+    uint8_t flags, respawn_time, pad[2]; // respawn_time: seconds before X respawns (255: the gamemode decides)
+    NetGmPlayer p[NET_MAX_PLAYERS];
+    uint16_t nw_len, pad2;
+    char nw[GM_NW_MAX];
+} PkGmState;
+
+typedef struct {
+    NetHeader h;
+    uint8_t count, pad;
+    uint16_t latest; // the newest event so far (a client that's just joined starts from it)
+    GmEvent ev[GM_EVENTS];
+} PkGmEvents;
+_Static_assert(sizeof(PkGmState) <= 1400 && sizeof(PkGmEvents) <= 1400, "packets must fit one datagram");
+
+// Scripts name the weapons like this (ply:Give("smg"))
+static const char *const k_weapon_ids[WEAPON_COUNT] = {"hands",   "physgun", "gravgun", "toolgun",  "crowbar",
+                                                       "pistol",  "357",     "smg",     "shotgun",  "ar2",
+                                                       "crossbow", "rpg",    "grenade", "bugbait"};
+static int g_gm_spawning; // inside gm_spawn: a PlayerSpawn hook asking for another spawn is ignored
+
+void game_set_gamemode(const char *name) {
+    snprintf(g_next_mode, sizeof(g_next_mode), "%s", name && strcmp(name, "sandbox") != 0 ? name : "");
+}
+
+const char *game_gamemode(void) {
+    return g_gm.mode;
+}
+
+int game_is_server(void) {
+    return !is_client();
+}
+
+int game_is_dedicated(void) {
+    return g_dedicated;
+}
+
+static int gm_slot_ok(int s) {
+    return s >= 0 && s < NET_MAX_PLAYERS;
+}
+
+// Someone plays in slot s (this PSP's own player too, except on a dedicated server)
+static int pl_active(int s) {
+    if (!gm_slot_ok(s)) return 0;
+    if (s == G.my_slot) return !g_dedicated;
+    return G.role != ROLE_OFFLINE && G.peers[s].active;
+}
+
+static float pl_health(int s) {
+    return s == G.my_slot ? G.health : G.peers[s].health;
+}
+
+static vec3 pl_feet(int s) {
+    return s == G.my_slot ? G.player.origin : G.peers[s].pos;
+}
+
+static unsigned int gm_default_weapons(void) {
+    return gm_sandbox() ? ALL_WEAPONS : 1u << WEAPON_HANDS;
+}
+
+static void gm_reset_player(int s) {
+    GmPlayer *g = &g_gm.p[s];
+    int serial = g->serial;
+    memset(g, 0, sizeof(*g));
+    g->serial = serial + 1;
+    g->model = -1;
+    g->speed = 1.0f;
+    g->disguise = GM_NO_DISGUISE;
+    g->weapons = gm_default_weapons();
+    g->max_health = 100.0f;
+    g->attacker = -1;
+}
+
+static void gm_reset(void) {
+    memset(&g_gm, 0, sizeof(g_gm));
+    snprintf(g_gm.mode, sizeof(g_gm.mode), "%s", g_next_mode);
+    g_gm.on = g_gm.mode[0] != 0;
+    g_gm.respawn_time = -1.0f;
+    g_gm.spectate = -1;
+    for (int s = 0; s < NET_MAX_PLAYERS; s++) gm_reset_player(s);
+    g_gm.scripts_pending = 1;
+    g_npc_attacker = -1;
+}
+
+// The first frame: by now it's known whether this PSP hosts, joined someone or plays alone
+static void gm_start_scripts(void) {
+    g_gm.scripts_pending = 0;
+    if (!script_start(G.map_name, g_gm.mode, !is_client(), !g_dedicated) && g_gm.on && !is_client()) {
+        // No such gamemode here: the plain sandbox, then
+        char msg[48];
+        snprintf(msg, sizeof(msg), "No gamemode \"%.16s\": playing Sandbox", g_gm.mode);
+        notify(msg, NOTE_ERROR);
+        g_gm.on = 0;
+        g_gm.mode[0] = 0;
+        script_start(G.map_name, "", 1, !g_dedicated);
+    }
+}
+
+void game_gm_setup(int flags, float respawn_time) {
+    if (!g_gm.on) return;
+    g_gm.flags = flags;
+    g_gm.respawn_time = respawn_time;
+    for (int s = 0; s < NET_MAX_PLAYERS; s++) {
+        if (!g_gm.p[s].known) g_gm.p[s].weapons = gm_default_weapons();
+    }
+    g_gm.dirty = 1;
+}
+
+// The prop a disguise names (model | lib << 15), or NULL
+static const PpakModel *disguise_model(int code, const PropLib **lib_out, int *local) {
+    if (code == GM_NO_DISGUISE) return NULL;
+    int model = code & 0x7FFF;
+    const PropLib *lib;
+    if (code >> 15) {
+        if (!G.maplib_loaded || model >= G.maplib.num_models) return NULL;
+        lib = &G.maplib;
+        *local = model;
+    } else {
+        lib = G.props_loaded ? model_lib(model, local) : NULL;
+        if (!lib) return NULL;
+    }
+    if (lib_out) *lib_out = lib;
+    return &lib->models[*local];
+}
+
+static int gm_disguised(int s) {
+    int local;
+    return g_gm.on && gm_slot_ok(s) && disguise_model(g_gm.p[s].disguise, NULL, &local) != NULL;
+}
+
+// A disguised player's box: as wide and as tall as the prop, up to a person's size
+static int gm_disguise_box(int s, float *half, float *height) {
+    int local;
+    const PpakModel *md = g_gm.on && gm_slot_ok(s) ? disguise_model(g_gm.p[s].disguise, NULL, &local) : NULL;
+    if (!md) return 0;
+    float hx = (md->maxs[0] - md->mins[0]) * 0.5f, hy = (md->maxs[1] - md->mins[1]) * 0.5f;
+    *half = clampf(fmaxf(hx, hy), 4.0f, 16.0f);
+    *height = clampf(md->maxs[2] - md->mins[2], 8.0f, 72.0f);
+    return 1;
+}
+
+// What shots hit: a person's box, or a disguise's prop (all of it, turned as they face)
+static void player_box(int s, vec3 feet, int ducked, vec3 *lo, vec3 *hi) {
+    int local;
+    const PpakModel *md = g_gm.on && gm_slot_ok(s) ? disguise_model(g_gm.p[s].disguise, NULL, &local) : NULL;
+    if (!md) {
+        *lo = v3_add(feet, v3(-16, -16, 0));
+        *hi = v3_add(feet, v3(16, 16, ducked ? 36.0f : 72.0f));
+        return;
+    }
+    float yaw = (s == G.my_slot ? G.yaw : G.peers[s].yaw) * DEG2RAD;
+    float c = fabsf(cosf(yaw)), sn = fabsf(sinf(yaw));
+    float hx = (md->maxs[0] - md->mins[0]) * 0.5f, hy = (md->maxs[1] - md->mins[1]) * 0.5f;
+    float ex = c * hx + sn * hy, ey = sn * hx + c * hy;
+    *lo = v3_add(feet, v3(-ex, -ey, 0));
+    *hi = v3_add(feet, v3(ex, ey, md->maxs[2] - md->mins[2]));
+}
+
+// Other players' characters (slot -1: your own body): hidden and prop-sized while disguised
+static void gm_puppet(int s) {
+    float half = 0.0f, height = 0.0f;
+    int on = gm_disguise_box(s < 0 ? G.my_slot : s, &half, &height);
+    npc_puppet_disguise(s, on, half, height);
+}
+
+// Name tags in a team game show only team mates', and nobody sees a disguised enemy's
+static int gm_tag_visible(int s) {
+    if (!g_gm.on || g_dedicated) return 1;
+    int mine = g_gm.p[G.my_slot].team, theirs = g_gm.p[s].team;
+    int team_mate = mine != 0 && mine == theirs;
+    if (gm_disguised(s) || (g_gm.flags & GMF_TEAM_TAGS)) return team_mate;
+    return 1;
+}
+
+// Somewhere near p that's clear of the walls and of other players (maps often have just the one spawn)
+static vec3 gm_free_spot(vec3 p, int skip) {
+    for (int k = 0; k < 9; k++) {
+        vec3 q = p;
+        if (k) {
+            float a = (float)k * (PI / 4.0f);
+            q = v3_add(p, v3(cosf(a) * 56.0f, sinf(a) * 56.0f, 0.0f));
+            Trace tr;
+            vec3 up = v3_add(q, v3(0, 0, 4));
+            cm_trace(&G.map, up, up, v3(-16, -16, 0), v3(16, 16, 72), MASK_PLAYERSOLID, NULL, 0, &tr);
+            if (tr.startsolid) continue;
+            cm_trace_line(&G.map, v3_add(p, v3(0, 0, 36)), v3_add(q, v3(0, 0, 36)), MASK_PLAYERSOLID, NULL, 0, &tr);
+            if (tr.fraction < 1.0f) continue;
+        }
+        int taken = 0;
+        for (int o = 0; o < NET_MAX_PLAYERS && !taken; o++) {
+            if (o == skip || !pl_active(o) || pl_health(o) <= 0.0f) continue;
+            vec3 d = v3_sub(pl_feet(o), q);
+            taken = d.x * d.x + d.y * d.y < 40.0f * 40.0f && fabsf(d.z) < 72.0f;
+        }
+        if (!taken) return q;
+    }
+    return p;
+}
+
+// Where the rules run: (re)spawns player s at the gamemode's spawn point (or a random one of the map's),
+// with full health, and has the gamemode give them their loadout
+static void gm_spawn(int s) {
+    if (is_client() || !pl_active(s) || g_gm_spawning) return;
+    g_gm_spawning = 1;
+    GmPlayer *g = &g_gm.p[s];
+    vec3 pos;
+    float yaw;
+    if (!script_select_spawn(s, &pos, &yaw)) {
+        int n = G.map.num_spawns > 0 ? G.map.num_spawns : 1;
+        const PmapSpawn *sp = &G.map.spawns[rand() % n];
+        pos = v3(sp->x, sp->y, sp->z);
+        yaw = sp->yaw;
+    }
+    pos = gm_free_spot(pos, s);
+    g->spawn_pos = pos;
+    g->spawn_yaw = yaw;
+    g->spawn_move = 0;
+    g->spawn_seq = g->spawn_seq % 255 + 1;
+    g->alive = 1;
+    g->dead_for = 0.0f;
+    g->attacker = -1;
+    if (s == G.my_slot) {
+        G.health = g->max_health;
+    } else {
+        Peer *p = &G.peers[s];
+        p->health = g->max_health;
+        p->pos = pos;
+        p->flags &= ~PF_DEAD;
+    }
+    g_gm.dirty = 1;
+    script_player_spawn(s);
+    g_gm_spawning = 0;
+}
+
+static void gm_respawn_request(int s) {
+    if (!g_gm.on || g_gm.respawn_time < 0.0f || !pl_active(s) || pl_health(s) > 0.0f) return;
+    if (g_gm.p[s].dead_for + 0.1f < fmaxf(1.0f, g_gm.respawn_time)) return;
+    gm_spawn(s);
+}
+
+// Where the rules run, each frame: tells the gamemode who joined (and spawns them), died and left
+static void gm_server_update(float dt) {
+    if (!g_gm.on) return;
+    for (int s = 0; s < NET_MAX_PLAYERS; s++) {
+        GmPlayer *g = &g_gm.p[s];
+        int act = pl_active(s);
+        uint32_t nonce = s == G.my_slot ? 1u : G.peers[s].nonce;
+        if (g->known && (!act || g->nonce != nonce)) {
+            script_player_leave(s);
+            gm_reset_player(s);
+            g_gm.dirty = 1;
+        }
+        if (!act) continue;
+        if (!g->known) {
+            g->known = 1;
+            g->nonce = nonce;
+            g->alive = pl_health(s) > 0.0f;
+            script_player_join(s);
+            if (pl_health(s) > 0.0f) gm_spawn(s); // unless the gamemode has them watch for now (KillSilent)
+            continue;
+        }
+        int alive = pl_health(s) > 0.0f;
+        if (g->alive && !alive) {
+            g->dead_for = 0.0f;
+            script_player_death(s, g->attacker);
+        }
+        g->alive = alive;
+        if (!alive) g->dead_for += dt;
+    }
+}
+
+static void gm_npc_died(int npc, int type, vec3 pos) {
+    if (!is_client()) script_npc_killed(npc, type, g_npc_attacker);
+}
+
+// --- This PSP's player: what the gamemode decided for it
+
+static unsigned int gm_carried(void) {
+    return g_gm.on && !g_dedicated ? g_gm.p[G.my_slot].weapons | 1u << WEAPON_HANDS : ALL_WEAPONS;
+}
+
+static void gm_switch_weapon(int w) {
+    if (w == (int)G.weapon) return;
+    if (G.held >= 0 || G.held_rag >= 0) physgun_release(1);
+    G.weapon = (Weapon)w;
+    G.reload_left = 0.0f;
+    G.switch_time = 0.25f;
+    G.wsel_time = 1.5f;
+    G.stage = 0;
+}
+
+// What to hold when the weapon in hand is taken away: the best gun left
+static int gm_best_weapon(unsigned int mask) {
+    static const int order[] = {WEAPON_SMG,     WEAPON_AR2,      WEAPON_SHOTGUN, WEAPON_PISTOL,  WEAPON_357,
+                                WEAPON_CROSSBOW, WEAPON_RPG,     WEAPON_CROWBAR, WEAPON_GRENADE, WEAPON_GRAVGUN,
+                                WEAPON_PHYSGUN, WEAPON_TOOLGUN, WEAPON_BUGBAIT};
+    for (int k = 0; k < (int)(sizeof(order) / sizeof(order[0])); k++) {
+        if (mask & (1u << order[k])) return order[k];
+    }
+    return WEAPON_HANDS;
+}
+
+static int gm_next_weapon(int w) {
+    unsigned int mask = gm_carried();
+    for (int k = 1; k <= WEAPON_COUNT; k++) {
+        int n = (w + k) % WEAPON_COUNT;
+        if (mask & (1u << n)) return n;
+    }
+    return w;
+}
+
+static void gm_local_update(float dt) {
+    g_gm.center_time -= dt;
+    g_gm.respawn_asked -= dt;
+    if (!g_gm.on || g_dedicated) return;
+    GmPlayer *g = &g_gm.p[G.my_slot];
+    if (g_gm.spawn_grace > 0.0f) g_gm.spawn_grace -= dt;
+    if (g->spawn_seq && g->spawn_seq != g_gm.seen_spawn) {
+        g_gm.seen_spawn = g->spawn_seq;
+        if (G.veh >= 0) vehicle_leave(1);
+        if (g->spawn_move) {
+            G.player.origin = g->spawn_pos;
+            G.player.velocity = v3(0, 0, 0);
+            G.yaw = g->spawn_yaw;
+        } else {
+            physgun_release(1);
+            stop_charging(0);
+            player_spawn(&G.player, g->spawn_pos);
+            G.yaw = g->spawn_yaw;
+            G.pitch = 0.0f;
+            G.health = g->max_health;
+            G.suit = 100.0f;
+            G.dead_time = 0.0f;
+            G.hurt_flash = 0.0f;
+            G.qmenu = 0;
+            refill_ammo();
+            G.respawn_pending = 0;
+            if (is_client()) g_gm.spawn_grace = GM_SPAWN_GRACE;
+        }
+    }
+    // Weapons: a new one comes with its ammo; one taken away leaves the best one left in your hands
+    unsigned int mask = gm_carried(), added = mask & ~g_gm.had_weapons;
+    for (int w = 0; w < WEAPON_COUNT; w++) {
+        if (!(added & (1u << w))) continue;
+        G.clip[w] = k_ws[w].clip;
+        G.ammo[w] = k_ws[w].ammo;
+    }
+    g_gm.had_weapons = mask;
+    if (g->select_seq != g_gm.seen_select) {
+        g_gm.seen_select = g->select_seq;
+        if (mask & (1u << g->select_weapon)) gm_switch_weapon(g->select_weapon);
+    }
+    if (!(mask & (1u << G.weapon))) gm_switch_weapon(gm_best_weapon(mask));
+    if (!gm_sandbox()) {
+        G.player.noclip = 0;
+        G.qmenu = 0;
+    }
+    // Disguised: a box the size of the prop
+    float half = 0.0f, height = 0.0f;
+    gm_disguise_box(G.my_slot, &half, &height);
+    G.player.hull_half = half;
+    G.player.hull_height = height;
+}
+
+static void gm_move(MoveCmd *cmd) {
+    if (!g_gm.on || g_dedicated) return;
+    const GmPlayer *g = &g_gm.p[G.my_slot];
+    if (g->flags & GPF_FROZEN) {
+        cmd->forward = cmd->side = 0.0f;
+        cmd->jump = 0;
+    }
+    cmd->speed = g->speed;
+    if (G.player.hull_height > 0.0f) {
+        cmd->duck = 0;
+        G.player.ducked = 0;
+    }
+}
+
+static void gm_use(int body) {
+    vec3 eye = player_eye(&G.player), f = view_forward();
+    if (is_client()) {
+        float v[6] = {eye.x, eye.y, eye.z, f.x, f.y, f.z};
+        send_cmd(CMD_USE, body, 0, 0, v, 6);
+    } else if (!script_use(G.my_slot, body) && !ents_use(&G.map, eye, f)) {
+        play(G.snd.dryfire, 0.3f);
+    }
+}
+
+static int gm_spectate_ok(int s) {
+    return s >= 0 && s != G.my_slot && pl_active(s) && pl_health(s) > 0.0f;
+}
+
+// Dead in a gamemode's game: L / R pick whose view to watch; X respawns once the gamemode lets you
+static void gm_dead_update(const InputState *in) {
+    int dir = (in->pressed & PSP_CTRL_RTRIGGER) ? 1 : (in->pressed & PSP_CTRL_LTRIGGER) ? NET_MAX_PLAYERS - 1 : 0;
+    if (dir || !gm_spectate_ok(g_gm.spectate)) {
+        int from = g_gm.spectate < 0 ? 0 : g_gm.spectate, step = dir ? dir : 1;
+        int pick = -1;
+        for (int k = dir ? 1 : 0; k <= NET_MAX_PLAYERS && pick < 0; k++) {
+            int s = (from + step * k) % NET_MAX_PLAYERS;
+            if (gm_spectate_ok(s)) pick = s;
+        }
+        if (pick != g_gm.spectate && dir) play(G.snd.menu_move, 0.4f);
+        g_gm.spectate = pick;
+    }
+    if (g_gm.respawn_time >= 0.0f && G.dead_time > fmaxf(1.0f, g_gm.respawn_time) && (in->pressed & PSP_CTRL_CROSS)) {
+        if (!is_client()) {
+            gm_respawn_request(G.my_slot);
+        } else if (g_gm.respawn_asked <= 0.0f) {
+            send_cmd(CMD_RESPAWN, 0, 0, 0, NULL, 0);
+            g_gm.respawn_asked = 1.0f;
+        }
+    }
+}
+
+static void gm_spectate_camera(void) {
+    if (!g_gm.on || G.dead_time < 1.5f || !gm_spectate_ok(g_gm.spectate)) return;
+    int s = g_gm.spectate;
+    vec3 feet;
+    float yaw;
+    if (!npc_puppet_pos(s, &feet, &yaw)) {
+        feet = G.peers[s].pos;
+        yaw = G.peers[s].yaw;
+    }
+    vec3 head = v3_add(feet, v3(0, 0, 56));
+    float cy = cosf(yaw * DEG2RAD), sy = sinf(yaw * DEG2RAD);
+    vec3 want = v3_add(head, v3(-cy * 110.0f, -sy * 110.0f, 30.0f));
+    Trace tr;
+    cm_trace(&G.map, head, want, v3(-4, -4, -4), v3(4, 4, 4), MASK_PLAYERSOLID, NULL, 0, &tr);
+    G.cam.pos = tr.startsolid ? head : tr.endpos;
+    G.cam.yaw = yaw;
+    G.cam.pitch = -14.0f;
+}
+
+// --- Messages, sounds and ammo: events
+
+static void gm_apply_event(const GmEvent *e) {
+    if (e->target != 255 && (g_dedicated || e->target != G.my_slot)) return;
+    char text[sizeof(e->text) + 1];
+    snprintf(text, sizeof(text), "%.*s", (int)sizeof(e->text), e->text);
+    int acting = G.acting;
+    G.acting = 0; // notify() and play() leave out remote players' actions; these are for this screen
+    switch (e->kind) {
+    case GEV_CHAT:
+        notify(text, NOTE_CHAT);
+        break;
+    case GEV_CENTER:
+        if (g_dedicated) {
+            if (g_log) g_log(text);
+            break;
+        }
+        snprintf(g_gm.center, sizeof(g_gm.center), "%s", text);
+        g_gm.center_time = e->arg > 0 ? (float)e->arg : 4.0f;
+        break;
+    case GEV_SOUND: {
+        int id = g_dedicated ? -1 : snd_find(text);
+        if (id < 0) break;
+        if (e->arg2) {
+            play_at(id, v3(e->pos[0], e->pos[1], e->pos[2]), 1.0f);
+        } else {
+            play(id, 0.9f);
+        }
+        break;
+    }
+    case GEV_AMMO:
+        if (g_dedicated) break;
+        for (int w = 0; w < WEAPON_COUNT; w++) {
+            if (!k_ws[w].clip) continue; // melee and bug bait: nothing to give
+            if (e->arg == 255 && (gm_carried() & (1u << w))) {
+                G.clip[w] = k_ws[w].clip;
+                if (G.ammo[w] < k_ws[w].ammo) G.ammo[w] = k_ws[w].ammo;
+            } else if (e->arg == w) {
+                G.ammo[w] = G.ammo[w] + e->arg2 > 9999 ? 9999 : G.ammo[w] + e->arg2;
+            }
+        }
+        break;
+    default:
+        break;
+    }
+    G.acting = acting;
+}
+
+// Where the rules run: something for player target's PSP (255: everyone's), this one's own included
+static void gm_event(int target, int kind, int arg, int arg2, const vec3 *pos, const char *text) {
+    if (is_client()) return;
+    uint16_t seq = ++g_gm.ev_seq;
+    if (!seq) seq = ++g_gm.ev_seq; // 0 marks an empty slot
+    GmEvent *e = &g_gm.ev[seq % GM_EVENTS];
+    memset(e, 0, sizeof(*e));
+    e->seq = seq;
+    e->kind = (uint8_t)kind;
+    e->target = (uint8_t)target;
+    e->arg = (int16_t)arg;
+    e->arg2 = (int16_t)arg2;
+    if (pos) {
+        e->pos[0] = pos->x;
+        e->pos[1] = pos->y;
+        e->pos[2] = pos->z;
+    }
+    if (text) snprintf(e->text, sizeof(e->text), "%s", text);
+    g_gm.ev_sends = GM_EVENT_RESENDS;
+    gm_apply_event(e);
+}
+
+static void gm_send_state(void) {
+    static PkGmState pk;
+    memset(&pk, 0, sizeof(pk));
+    pk.h = net_header(PK_GMSTATE);
+    snprintf(pk.mode, sizeof(pk.mode), "%s", g_gm.mode);
+    pk.flags = (uint8_t)g_gm.flags;
+    pk.respawn_time = g_gm.respawn_time < 0.0f ? 255 : (uint8_t)fminf(254.0f, ceilf(g_gm.respawn_time));
+    for (int s = 0; s < NET_MAX_PLAYERS; s++) {
+        const GmPlayer *g = &g_gm.p[s];
+        NetGmPlayer *o = &pk.p[s];
+        o->team = (uint8_t)g->team;
+        o->flags = (uint8_t)g->flags;
+        o->model = model_byte(g->model);
+        o->speed = (uint8_t)clampf(g->speed * 64.0f + 0.5f, 1.0f, 255.0f);
+        o->disguise = (uint16_t)g->disguise;
+        o->weapons = (uint16_t)g->weapons;
+        o->spawn_seq = (uint8_t)g->spawn_seq;
+        o->spawn_move = (uint8_t)g->spawn_move;
+        o->select_seq = (uint8_t)g->select_seq;
+        o->select_weapon = (uint8_t)g->select_weapon;
+        o->max_health = (uint16_t)g->max_health;
+        o->spawn_pos[0] = g->spawn_pos.x;
+        o->spawn_pos[1] = g->spawn_pos.y;
+        o->spawn_pos[2] = g->spawn_pos.z;
+        o->spawn_yaw = g->spawn_yaw;
+    }
+    int n = script_nw_pack(pk.nw, sizeof(pk.nw));
+    pk.nw_len = (uint16_t)n;
+    net_send(NULL, &pk, (int)offsetof(PkGmState, nw) + n);
+}
+
+static void gm_host_send(float dt) {
+    g_gm.state_timer -= dt;
+    if (g_gm.state_timer <= 0.0f || g_gm.dirty) {
+        g_gm.state_timer = GM_STATE_INTERVAL;
+        g_gm.dirty = 0;
+        gm_send_state();
+    }
+    g_gm.ev_timer -= dt;
+    if (g_gm.ev_sends > 0 || g_gm.ev_timer <= 0.0f) {
+        g_gm.ev_timer = 1.0f;
+        if (g_gm.ev_sends > 0) g_gm.ev_sends--;
+        PkGmEvents pk;
+        memset(&pk, 0, sizeof(pk));
+        pk.h = net_header(PK_GMEVENTS);
+        pk.latest = g_gm.ev_seq;
+        for (int k = 0; k < GM_EVENTS; k++) {
+            if (g_gm.ev[k].seq) pk.ev[pk.count++] = g_gm.ev[k];
+        }
+        net_send(NULL, &pk, (int)offsetof(PkGmEvents, ev) + pk.count * (int)sizeof(GmEvent));
+    }
+}
+
+static void gm_client_state(const void *data, int len) {
+    const PkGmState *pk = data;
+    if (len < (int)offsetof(PkGmState, nw)) return;
+    if (g_gm.on) {
+        g_gm.flags = pk->flags;
+        g_gm.respawn_time = pk->respawn_time == 255 ? -1.0f : (float)pk->respawn_time;
+        for (int s = 0; s < NET_MAX_PLAYERS; s++) {
+            const NetGmPlayer *o = &pk->p[s];
+            GmPlayer *g = &g_gm.p[s];
+            g->team = o->team;
+            g->flags = o->flags;
+            g->model = o->model == NET_NO_MODEL ? -1 : o->model;
+            g->speed = o->speed / 64.0f;
+            g->disguise = o->disguise;
+            g->weapons = o->weapons;
+            g->spawn_seq = o->spawn_seq;
+            g->spawn_move = o->spawn_move;
+            g->spawn_pos = v3(o->spawn_pos[0], o->spawn_pos[1], o->spawn_pos[2]);
+            g->spawn_yaw = o->spawn_yaw;
+            g->select_seq = o->select_seq;
+            g->select_weapon = o->select_weapon < WEAPON_COUNT ? o->select_weapon : WEAPON_HANDS;
+            g->max_health = o->max_health ? o->max_health : 100.0f;
+        }
+    }
+    int n = pk->nw_len;
+    if (n > len - (int)offsetof(PkGmState, nw)) n = len - (int)offsetof(PkGmState, nw);
+    if (n > GM_NW_MAX) n = GM_NW_MAX;
+    script_nw_unpack(pk->nw, n);
+}
+
+static void gm_client_events(const void *data, int len) {
+    const PkGmEvents *pk = data;
+    if (len < (int)offsetof(PkGmEvents, ev)) return;
+    int n = pk->count, fits = (len - (int)offsetof(PkGmEvents, ev)) / (int)sizeof(GmEvent);
+    if (n > fits) n = fits;
+    if (n > GM_EVENTS) n = GM_EVENTS;
+    if (!g_gm.ev_synced) {
+        // Just joined: what happened before isn't news
+        g_gm.ev_synced = 1;
+        g_gm.ev_seen = pk->latest;
+        return;
+    }
+    for (;;) {
+        const GmEvent *next = NULL;
+        for (int k = 0; k < n; k++) {
+            const GmEvent *e = &pk->ev[k];
+            if (!e->seq || !seq_newer(e->seq, g_gm.ev_seen)) continue;
+            if (!next || seq_newer(next->seq, e->seq)) next = e;
+        }
+        if (!next) break;
+        gm_apply_event(next);
+        g_gm.ev_seen = next->seq;
+    }
+}
+
+// --- What scripts call (script.c's player, team and gamemode functions)
+
+int game_pl_valid(int s) {
+    return pl_active(s);
+}
+
+int game_pl_local(void) {
+    return g_dedicated ? -1 : G.my_slot;
+}
+
+int game_pl_serial(int s) {
+    return gm_slot_ok(s) ? g_gm.p[s].serial : 0;
+}
+
+const char *game_pl_name(int s) {
+    return pl_active(s) ? player_name(s) : "";
+}
+
+float game_pl_health(int s) {
+    return pl_active(s) ? fmaxf(0.0f, pl_health(s)) : 0.0f;
+}
+
+void game_pl_kill(int s, int silent) {
+    if (is_client() || !pl_active(s) || pl_health(s) <= 0.0f) return;
+    GmPlayer *g = &g_gm.p[s];
+    if (silent) g->alive = 0; // no PlayerDeath for this one
+    g->attacker = -1;
+    if (s == G.my_slot) {
+        G.health = 0.0f;
+        if (G.dead_time <= 0.0f) {
+            G.dead_time = 0.001f;
+            physgun_release(1);
+            G.qmenu = 0;
+        }
+    } else {
+        G.peers[s].health = 0.0f;
+    }
+}
+
+void game_pl_set_health(int s, float hp) {
+    if (is_client() || !pl_active(s) || pl_health(s) <= 0.0f) return; // the dead are spawned, not healed
+    if (hp <= 0.0f) {
+        game_pl_kill(s, 0);
+    } else if (s == G.my_slot) {
+        G.health = hp;
+    } else {
+        G.peers[s].health = hp;
+    }
+}
+
+float game_pl_max_health(int s) {
+    return gm_slot_ok(s) ? g_gm.p[s].max_health : 100.0f;
+}
+
+void game_pl_set_max_health(int s, float hp) {
+    if (is_client() || !gm_slot_ok(s)) return;
+    g_gm.p[s].max_health = clampf(hp, 1.0f, 1000.0f);
+    g_gm.dirty = 1;
+}
+
+vec3 game_pl_pos(int s) {
+    return pl_active(s) ? pl_feet(s) : v3(0, 0, 0);
+}
+
+void game_pl_view(int s, vec3 *eye, vec3 *dir, float *yaw, float *pitch) {
+    float y = 0.0f, p = 0.0f;
+    if (s == G.my_slot && !g_dedicated) {
+        *eye = player_eye(&G.player);
+        y = G.yaw;
+        p = G.pitch;
+    } else if (gm_slot_ok(s)) {
+        const Peer *pe = &G.peers[s];
+        *eye = v3_add(pe->pos, v3(0, 0, (pe->flags & PF_DUCKED) ? 28.0f : 64.0f));
+        y = pe->yaw;
+        p = pe->pitch;
+    } else {
+        *eye = v3(0, 0, 0);
+    }
+    float cp = cosf(p * DEG2RAD);
+    *dir = v3(cp * cosf(y * DEG2RAD), cp * sinf(y * DEG2RAD), sinf(p * DEG2RAD));
+    *yaw = y;
+    *pitch = p;
+}
+
+int game_pl_team(int s) {
+    return gm_slot_ok(s) ? g_gm.p[s].team : 0;
+}
+
+void game_pl_set_team(int s, int team) {
+    if (is_client() || !gm_slot_ok(s)) return;
+    g_gm.p[s].team = team & 255;
+    g_gm.dirty = 1;
+}
+
+void game_pl_spawn(int s) {
+    gm_spawn(s);
+}
+
+void game_pl_set_pos(int s, vec3 pos, float yaw) {
+    if (is_client() || !pl_active(s)) return;
+    GmPlayer *g = &g_gm.p[s];
+    g->spawn_pos = pos;
+    g->spawn_yaw = yaw;
+    g->spawn_move = 1;
+    g->spawn_seq = g->spawn_seq % 255 + 1;
+    if (s != G.my_slot) G.peers[s].pos = pos;
+    g_gm.dirty = 1;
+}
+
+int game_pl_flags(int s) {
+    return gm_slot_ok(s) ? g_gm.p[s].flags : 0;
+}
+
+void game_pl_set_flag(int s, int flag, int on) {
+    if (is_client() || !gm_slot_ok(s)) return;
+    if (on) {
+        g_gm.p[s].flags |= flag;
+    } else {
+        g_gm.p[s].flags &= ~flag;
+    }
+    g_gm.dirty = 1;
+}
+
+float game_pl_speed(int s) {
+    return gm_slot_ok(s) ? g_gm.p[s].speed : 1.0f;
+}
+
+void game_pl_set_speed(int s, float k) {
+    if (is_client() || !gm_slot_ok(s)) return;
+    g_gm.p[s].speed = clampf(k, 0.1f, 3.0f);
+    g_gm.dirty = 1;
+}
+
+int game_pl_model(int s) {
+    return gm_slot_ok(s) ? g_gm.p[s].model : -1;
+}
+
+void game_pl_set_model(int s, int type) {
+    if (is_client() || !gm_slot_ok(s)) return;
+    g_gm.p[s].model = type >= 0 && type < npc_type_count() && type < NET_NO_MODEL ? type : -1;
+    g_gm.dirty = 1;
+}
+
+int game_pl_disguise(int s, int body) {
+    if (is_client() || !gm_slot_ok(s) || !body_valid(body)) return 0;
+    const Body *b = &G.phys.bodies[body];
+    g_gm.p[s].disguise = (b->model & 0x7FFF) | ((b->lib & 1) << 15);
+    g_gm.dirty = 1;
+    return 1;
+}
+
+void game_pl_undisguise(int s) {
+    if (is_client() || !gm_slot_ok(s)) return;
+    g_gm.p[s].disguise = GM_NO_DISGUISE;
+    g_gm.dirty = 1;
+}
+
+const char *game_pl_disguise_name(int s) {
+    int local;
+    const PpakModel *md = gm_slot_ok(s) ? disguise_model(g_gm.p[s].disguise, NULL, &local) : NULL;
+    if (!md) return NULL;
+    return (g_gm.p[s].disguise >> 15) ? md->name : model_name(g_gm.p[s].disguise & 0x7FFF);
+}
+
+int game_pl_weapon(int s) {
+    return s == G.my_slot ? (int)G.weapon : gm_slot_ok(s) ? G.peers[s].weapon : WEAPON_HANDS;
+}
+
+unsigned int game_pl_weapons(int s) {
+    return gm_slot_ok(s) ? (g_gm.p[s].weapons | 1u << WEAPON_HANDS) : ALL_WEAPONS;
+}
+
+void game_pl_set_weapons(int s, unsigned int mask) {
+    if (is_client() || !gm_slot_ok(s)) return;
+    g_gm.p[s].weapons = (mask & ALL_WEAPONS) | 1u << WEAPON_HANDS;
+    g_gm.dirty = 1;
+}
+
+void game_pl_select(int s, int weapon) {
+    if (is_client() || !gm_slot_ok(s) || weapon < 0 || weapon >= WEAPON_COUNT) return;
+    g_gm.p[s].select_weapon = weapon;
+    g_gm.p[s].select_seq = (g_gm.p[s].select_seq + 1) & 255;
+    g_gm.dirty = 1;
+}
+
+void game_pl_give_ammo(int s, int weapon, int amount) {
+    if (!gm_slot_ok(s)) return;
+    gm_event(s, GEV_AMMO, weapon < 0 || weapon >= WEAPON_COUNT ? 255 : weapon, amount, NULL, NULL);
+}
+
+int game_weapon_count(void) {
+    return WEAPON_COUNT;
+}
+
+int game_weapon_find(const char *id) {
+    // GMod's names work too ("weapon_smg1", "weapon_physcannon")
+    static const struct {
+        const char *alias;
+        int w;
+    } k_alias[] = {{"smg1", WEAPON_SMG},     {"physcannon", WEAPON_GRAVGUN}, {"frag", WEAPON_GRENADE},
+                   {"stunstick", WEAPON_CROWBAR}, {"fists", WEAPON_HANDS}, {"magnum", WEAPON_357}};
+    if (strncasecmp(id, "weapon_", 7) == 0) id += 7;
+    for (int w = 0; w < WEAPON_COUNT; w++) {
+        if (strcasecmp(id, k_weapon_ids[w]) == 0) return w;
+    }
+    for (int k = 0; k < (int)(sizeof(k_alias) / sizeof(k_alias[0])); k++) {
+        if (strcasecmp(id, k_alias[k].alias) == 0) return k_alias[k].w;
+    }
+    return -1;
+}
+
+const char *game_weapon_id(int w) {
+    return w >= 0 && w < WEAPON_COUNT ? k_weapon_ids[w] : "";
+}
+
+void game_gm_message(int s, int kind, const char *text) {
+    if (is_client()) {
+        // A HUD script's own: this screen only
+        if (s >= 0 && s != G.my_slot) return;
+        if (kind == GM_MSG_CENTER) {
+            snprintf(g_gm.center, sizeof(g_gm.center), "%s", text);
+            g_gm.center_time = 4.0f;
+        } else {
+            notify(text, NOTE_CHAT);
+        }
+        return;
+    }
+    gm_event(s < 0 ? 255 : s, kind == GM_MSG_CENTER ? GEV_CENTER : GEV_CHAT, 0, 0, NULL, text);
+}
+
+void game_gm_sound(int s, const char *name, const vec3 *at) {
+    if (is_client()) {
+        int id = snd_find(name);
+        if (id >= 0 && (s < 0 || s == G.my_slot)) {
+            if (at) {
+                play_at(id, *at, 1.0f);
+            } else {
+                play(id, 0.9f);
+            }
+        }
+        return;
+    }
+    gm_event(s < 0 ? 255 : s, GEV_SOUND, 0, at != NULL, at, name);
+}
+
+int game_body_serial(int i) {
+    return game_body(i) ? G.phys.bodies[i].serial : 0;
+}
+
+const char *game_body_model_name(int i) {
+    const Body *b = game_body(i);
+    if (!b) return "";
+    if (b->lib == 1) return G.maplib_loaded && b->model < G.maplib.num_models ? G.maplib.models[b->model].name : "";
+    return model_name(b->model);
+}
+
+void game_body_bounds(int i, vec3 *mins, vec3 *maxs) {
+    const Body *b = game_body(i);
+    vec3 h = b ? b->half : v3(0, 0, 0);
+    *mins = v3_scale(h, -1.0f);
+    *maxs = h;
+}
+
+int game_npc_spawn(const char *type, vec3 pos, float yaw) {
+    if (is_client()) return -1;
+    int t = npc_type_find(type);
+    return t < 0 ? -1 : npc_spawn(t, pos, yaw);
+}
+
+void game_npc_damage(int i, float amount, int attacker) {
+    if (is_client()) return;
+    g_npc_attacker = attacker;
+    npc_damage(i, amount);
+    g_npc_attacker = -1;
+}
+
+int game_spawn_count(void) {
+    return G.map.num_spawns > 0 ? G.map.num_spawns : 1;
+}
+
+vec3 game_spawn_point(int i, float *yaw) {
+    if (i < 0 || i >= game_spawn_count()) i = 0;
+    const PmapSpawn *sp = &G.map.spawns[i];
+    *yaw = sp->yaw;
+    return v3(sp->x, sp->y, sp->z);
+}
+
+float game_trace(vec3 a, vec3 b, int skip, vec3 *hit, int *body, int *slot) {
+    *body = *slot = -1;
+    vec3 d = v3_sub(b, a);
+    float len = v3_len(d);
+    if (len < 1e-3f) {
+        *hit = a;
+        return 1.0f;
+    }
+    d = v3_scale(d, 1.0f / len);
+    Trace tr;
+    cm_trace_line(&G.map, a, b, MASK_PROPSOLID, NULL, 0, &tr);
+    float best = tr.fraction * len, t;
+    int bi = phys_raycast(&G.phys, a, d, best, &t);
+    if (bi >= 0) {
+        best = t;
+        *body = bi;
+    }
+    int pl = player_raycast(a, d, best, skip, &t);
+    if (pl >= 0) {
+        best = t;
+        *body = -1;
+        *slot = pl;
+    }
+    *hit = v3_mad(a, d, best);
+    return best / len;
+}
+
+void game_cleanup_map(void) {
+    if (is_client()) return;
+    physgun_release(1);
+    for (int i = 0; i < MAX_BODIES; i++) {
+        if (G.phys.bodies[i].active) remove_body(i);
+    }
+    for (int n = 0; n < MAX_NPCS; n++) npc_remove(n);
+    for (int r = 0; r < MAX_RAGDOLLS; r++) {
+        if (npc_ragdoll_active(r)) npc_ragdoll_remove(r);
+    }
+    for (int s = 0; s < NET_MAX_PLAYERS; s++) {
+        G.peers[s].held = G.peers[s].held_prev = G.peers[s].held_rag = -1;
+        G.peers[s].undo_count = 0;
+    }
+    projectiles_clear();
+    devices_clear();
+    items_clear();
+    blood_clear();
+    release_unused_extras();
+    G.undo_count = 0;
+    spawn_map_physics();
+}
+
+int game_button_down(const char *name) {
+    static const struct {
+        const char *name;
+        unsigned int bit;
+    } k_buttons[] = {{"select", PSP_CTRL_SELECT}, {"start", PSP_CTRL_START},   {"up", PSP_CTRL_UP},
+                     {"down", PSP_CTRL_DOWN},     {"left", PSP_CTRL_LEFT},     {"right", PSP_CTRL_RIGHT},
+                     {"l", PSP_CTRL_LTRIGGER},    {"r", PSP_CTRL_RTRIGGER},    {"cross", PSP_CTRL_CROSS},
+                     {"circle", PSP_CTRL_CIRCLE}, {"square", PSP_CTRL_SQUARE}, {"triangle", PSP_CTRL_TRIANGLE}};
+    for (int k = 0; k < (int)(sizeof(k_buttons) / sizeof(k_buttons[0])); k++) {
+        if (strcasecmp(name, k_buttons[k].name) == 0) return (g_buttons & k_buttons[k].bit) != 0;
+    }
+    return 0;
+}
+
+void game_achievement(const char *id) {
+    static const struct {
+        const char *id;
+        int ach;
+    } k_ids[] = {{"hide_in_plain_sight", ACH_PROP_HUNT}, {"survivor", ACH_SURVIVOR}, {"top_frag", ACH_TOP_FRAG}};
+    for (int k = 0; k < (int)(sizeof(k_ids) / sizeof(k_ids[0])); k++) {
+        if (strcmp(id, k_ids[k].id) == 0 && !g_dedicated) achieve_unlock(k_ids[k].ach);
+    }
 }
 
 // --- Script access ---------------------------------------------------------------------------------
@@ -7026,6 +8214,49 @@ static void make_light(PropLight *l, unsigned int ambient, int sunlit, unsigned 
     l->tint_abgr = tint;
 }
 
+// Players disguised as props (Prop Hunt): the prop, standing where they are and turning as they look
+static void draw_disguises(void) {
+    if (!g_gm.on) return;
+    for (int s = 0; s < NET_MAX_PLAYERS; s++) {
+        if (!pl_active(s) || pl_health(s) <= 0.0f) continue;
+        const PropLib *lib;
+        int local;
+        const PpakModel *md = disguise_model(g_gm.p[s].disguise, &lib, &local);
+        if (!md) continue;
+        vec3 feet;
+        float yaw;
+        if (s == G.my_slot) {
+            if (!third_person()) continue;
+            feet = G.player.origin;
+            yaw = G.yaw;
+        } else if (!npc_puppet_pos(s, &feet, &yaw)) {
+            continue; // in a vehicle, or not here yet
+        }
+        vec3 mn = v3(md->mins[0], md->mins[1], md->mins[2]), mx = v3(md->maxs[0], md->maxs[1], md->maxs[2]);
+        vec3 size = v3_sub(mx, mn), mid = v3_add(feet, v3(0, 0, size.z * 0.5f));
+        if (!in_view(mid, 0.5f * v3_len(size), view_distance())) continue;
+        // Its box centred on their feet, its bottom on the ground
+        float cy = cosf(yaw * DEG2RAD), sy = sinf(yaw * DEG2RAD);
+        vec3 ax = v3(cy, sy, 0.0f), ay = v3(-sy, cy, 0.0f);
+        vec3 c = v3_add(v3_scale(ax, (mn.x + mx.x) * 0.5f), v3_scale(ay, (mn.y + mx.y) * 0.5f));
+        vec3 o = v3_sub(feet, v3_add(c, v3(0, 0, mn.z)));
+        ScePspFMatrix4 m;
+        m.x = (ScePspFVector4){ax.x, ax.y, ax.z, 0.0f};
+        m.y = (ScePspFVector4){ay.x, ay.y, ay.z, 0.0f};
+        m.z = (ScePspFVector4){0.0f, 0.0f, 1.0f, 0.0f};
+        m.w = (ScePspFVector4){o.x, o.y, o.z, 1.0f};
+        int leaf = map_point_leaf(&G.map, &mid);
+        unsigned int amb = leaf >= 0 && leaf < G.map.num_leafs ? G.map.leafs[leaf].ambient_abgr : G.map.info->ambient_abgr;
+        const float *sd = G.map.info->sun_dir;
+        vec3 top = v3_add(feet, v3(0, 0, size.z + 2.0f));
+        Trace tr;
+        cm_trace_line(&G.map, top, v3_mad(top, v3(sd[0], sd[1], sd[2]), 3000.0f), MASK_PROPSOLID, NULL, 0, &tr);
+        PropLight l;
+        make_light(&l, amb, tr.fraction >= 1.0f, 0xFFFFFFFF);
+        proplib_draw(lib, local, &m, &l);
+    }
+}
+
 static void draw_props(void) {
     // Options > LOD distance stretches how far props are drawn (and the map's own fade distances), up to
     // the draw distance
@@ -7049,6 +8280,7 @@ static void draw_props(void) {
         proplib_draw(lib, local, &m, &l);
         G.bodies_drawn++;
     }
+    draw_disguises();
 
     // Static props: PVS row for the camera's cluster, then view cone and distance
     G.sprops_drawn = 0;
@@ -7830,9 +9062,42 @@ static void draw_notifications(void) {
     }
 }
 
+// A gamemode's game, dead: "You died", then whose view you're watching, and when X respawns you
+static void draw_gm_dead(void) {
+    int watching = G.dead_time >= 1.5f && gm_spectate_ok(g_gm.spectate);
+    float y = 150.0f;
+    if (watching) {
+        char line[48];
+        snprintf(line, sizeof(line), "Watching %s", player_name(g_gm.spectate));
+        ui_text_shadow(FONT_BOLD, 240, 222, 0xFFFFFFFF, ALIGN_CENTER, line);
+        ui_text_shadow(FONT_SMALL, 240, 238, 0xFFC0C0C0, ALIGN_CENTER, "L / R: someone else");
+        y = 204.0f;
+    } else {
+        ui_rect(0, 0, 480, 272, 0x700000A0);
+        ui_text_shadow(FONT_TITLE, 240, 110, 0xFFFFFFFF, ALIGN_CENTER, "You died");
+    }
+    if (g_gm.respawn_time < 0.0f) return; // the gamemode brings you back (its HUD says when)
+    float wait = fmaxf(1.0f, g_gm.respawn_time) - G.dead_time;
+    char msg[32];
+    snprintf(msg, sizeof(msg), wait > 0.0f ? "Respawn in %d" : "Press X to respawn", (int)ceilf(wait));
+    ui_text_shadow(FONT_SMALL, 240, y, 0xFFE0E0E0, ALIGN_CENTER, msg);
+}
+
+// A gamemode's message across the middle of the screen (PrintMessage(HUD_PRINTCENTER, ...))
+static void draw_gm_center(void) {
+    if (g_gm.center_time <= 0.0f || !g_gm.center[0]) return;
+    unsigned int a = g_gm.center_time < 0.5f ? (unsigned int)(255.0f * g_gm.center_time / 0.5f) : 255u;
+    float w = ui_text_width(FONT_LARGE, g_gm.center) + 24.0f;
+    ui_rrect(240.0f - w * 0.5f, 40, w, 28, 6, (a * 0xA0u / 255u) << 24);
+    ui_text(FONT_LARGE, 240, 44, (a << 24) | 0xFFFFFF, ALIGN_CENTER, g_gm.center);
+}
+
 // HL2 / GMod style HUD
 static void draw_hud(float fps) {
     if (G.player.water_level >= 3) ui_rect(0, 0, 480, 272, 0x60804010); // underwater tint
+    if (g_gm.on && !g_dedicated && (g_gm.p[G.my_slot].flags & GPF_BLIND) && G.dead_time <= 0.0f) {
+        ui_rect(0, 0, 480, 272, 0xFF000000); // blindfolded (Prop Hunt's hunters while the props hide)
+    }
 
     if (G.cam_view >= 0) {
         // Looking through a camera: a recording dot instead of the crosshair (it isn't where you aim)
@@ -7845,30 +9110,17 @@ static void draw_hud(float fps) {
         ui_rect(239, 136, 2, 2, 0xF0FFFFFF);
     }
 
-    // Other players' names over their heads
-    if (G.role != ROLE_OFFLINE) {
-        vec3 f = view_forward(), r = view_right(), u = v3_cross(r, f);
-        float focal = 136.0f / tanf(G.cam.fov_y * 0.5f * DEG2RAD);
-        for (int s = 0; s < NET_MAX_PLAYERS; s++) {
-            const Peer *p = &G.peers[s];
-            if (s == G.my_slot || !p->active || p->health <= 0.0f) continue;
-            vec3 d = v3_sub(v3_add(p->pos, v3(0, 0, 82)), G.cam.pos);
-            float z = v3_dot(d, f);
-            if (z < 16.0f || z > 1500.0f) continue;
-            float sx = 240.0f + v3_dot(d, r) / z * focal, sy = 136.0f - v3_dot(d, u) / z * focal;
-            if (sx < 0 || sx > 480 || sy < 0 || sy > 272) continue;
-            ui_text_shadow(FONT_SMALL, sx, sy - 6, 0xFFFFFFFF, ALIGN_CENTER, p->name);
-        }
-    }
-
     // Health box, bottom left
     // Label and number laid out from measured widths so they can't overlap
     if (G.hurt_flash > 0.0f) ui_rect(0, 0, 480, 272, ((unsigned int)(G.hurt_flash * 200.0f) << 24) | 0x0000C0);
-    if (G.dead_time > 0.0f) {
+    if (G.dead_time > 0.0f && g_gm.on) {
+        draw_gm_dead();
+    } else if (G.dead_time > 0.0f) {
         ui_rect(0, 0, 480, 272, 0x700000A0);
         ui_text_shadow(FONT_TITLE, 240, 110, 0xFFFFFFFF, ALIGN_CENTER, "You died");
         if (G.dead_time > 1.0f) ui_text_shadow(FONT_SMALL, 240, 150, 0xFFE0E0E0, ALIGN_CENTER, "Press X to respawn");
     }
+    draw_gm_center();
     // Options > Show HUD off hides the boxes, hints and notes (the crosshair has its own option)
     if (!g_settings.show_hud) goto stats;
 
@@ -7918,10 +9170,15 @@ static void draw_hud(float fps) {
     if (G.wsel_time > 0.0f) {
         unsigned int a = G.wsel_time < 0.3f ? (unsigned int)(255 * G.wsel_time / 0.3f) : 255u;
         // A slot per weapon, the selected one wide enough for its name; they shrink to fit the screen
+        // (in a gamemode's game, just the ones you carry)
+        unsigned int have = gm_carried();
+        int count = 0;
+        for (int i = 0; i < WEAPON_COUNT; i++) count += (have >> i) & 1;
         const float wide = 104.0f, gap = 3.0f;
-        const float slot = fminf(34.0f, (468.0f - wide - gap * (WEAPON_COUNT - 1)) / (WEAPON_COUNT - 1));
-        float x = 240.0f - (slot * (WEAPON_COUNT - 1) + wide + gap * (WEAPON_COUNT - 1)) * 0.5f;
+        const float slot = count > 1 ? fminf(34.0f, (468.0f - wide - gap * (count - 1)) / (count - 1)) : 0.0f;
+        float x = 240.0f - (slot * (count - 1) + wide + gap * (count - 1)) * 0.5f;
         for (int i = 0; i < WEAPON_COUNT; i++) {
+            if (!(have & (1u << i))) continue;
             int sel = i == (int)G.weapon;
             float bw = sel ? wide : slot, by = 70;
             ui_rrect(x, by, bw, sel ? 44 : 30, 5, ((sel ? 0xA0u : 0x60u) * a / 255) << 24);
@@ -8004,7 +9261,10 @@ static void draw_pause(void) {
         saves_draw(130, 60, 340, 186);
     } else {
         ui_text_shadow(FONT_BOLD, 24, 74, 0xFFA0A0A0, ALIGN_LEFT, "PAUSED");
-        menu_draw_buttons(k_pause_items, NUM_PAUSE_ITEMS, G.pause_sel, 88, 20);
+        int items[NUM_PAUSE_ITEMS], n = pause_items(items);
+        const char *labels[NUM_PAUSE_ITEMS];
+        for (int k = 0; k < n; k++) labels[k] = k_pause_items[items[k]];
+        menu_draw_buttons(labels, n, G.pause_sel, 88, 20);
         ui_text_shadow(FONT_SMALL, 24, 256, 0xC0FFFFFF, ALIGN_LEFT, "X Select    O / START Resume");
         ui_textf(FONT_SMALL, 474, 256, 0xA0FFFFFF, ALIGN_RIGHT, "%s  -  %d props", G.map_name, player_prop_count());
         if (G.role != ROLE_OFFLINE) {
@@ -8030,12 +9290,13 @@ static void draw_pause(void) {
 #define THIRD_PERSON_UP 12.0f
 
 static int third_person(void) {
-    return g_settings.third_person && G.dead_time <= 0.0f;
+    return (g_settings.third_person || gm_disguised(G.my_slot)) && G.dead_time <= 0.0f;
 }
 
 static vec3 third_person_camera(vec3 eye) {
     // Further back in a vehicle, so you see all of it
     float back = G.veh >= 0 && vehicle_kind(&G.phys.bodies[G.veh]) != VEH_SEAT ? THIRD_PERSON_BACK * 3.0f : THIRD_PERSON_BACK;
+    if (gm_disguised(G.my_slot)) back = THIRD_PERSON_BACK * 1.6f; // a prop: see it and what's round it
     vec3 want = v3_add(v3_mad(eye, view_forward(), -back), v3(0, 0, THIRD_PERSON_UP + (back - THIRD_PERSON_BACK) * 0.3f));
     Trace tr;
     cm_trace(&G.map, eye, want, v3(-4, -4, -4), v3(4, 4, 4), MASK_PLAYERSOLID, NULL, 0, &tr);
@@ -8050,6 +9311,7 @@ void game_render(float fps) {
     if (third_person()) G.cam.pos = third_person_camera(G.cam.pos);
     G.cam.yaw = G.yaw;
     G.cam.pitch = G.pitch;
+    gm_spectate_camera(); // dead in a gamemode's game: watching someone
     if (is_camera(G.cam_view)) {
         // Looking through a camera prop: from just in front of its lens, along its forward axis
         const Body *cb = &G.phys.bodies[G.cam_view];

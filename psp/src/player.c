@@ -37,8 +37,17 @@ static void trace(const MoveCtx *c, vec3 a, vec3 b, Trace *tr) {
 }
 
 void player_hull(const Player *p, vec3 *mins, vec3 *maxs) {
-    *mins = v3(-HULL_HALF, -HULL_HALF, 0.0f);
-    *maxs = v3(HULL_HALF, HULL_HALF, p->ducked ? DUCK_HEIGHT : STAND_HEIGHT);
+    float half = p->hull_half > 0.0f ? p->hull_half : HULL_HALF;
+    float h = p->ducked ? DUCK_HEIGHT : STAND_HEIGHT;
+    if (p->hull_height > 0.0f && p->hull_height < h) h = p->hull_height;
+    *mins = v3(-half, -half, 0.0f);
+    *maxs = v3(half, half, h);
+}
+
+// Where the eye settles: a person's height, or just under the top of a smaller hull
+static float eye_target(const Player *p, float eye) {
+    if (p->hull_height > 0.0f && eye > p->hull_height - 4.0f) eye = p->hull_height - 4.0f;
+    return eye < 4.0f ? 4.0f : eye;
 }
 
 void player_spawn(Player *p, vec3 feet) {
@@ -250,7 +259,7 @@ void player_move(Player *p, Map *m, const MoveCmd *cmd, const CmBox *props, int 
         float ws = v3_len(wish);
         vec3 wishdir = ws > 0.0f ? v3_scale(wish, 1.0f / ws) : wish;
         if (ws > 1.0f) ws = 1.0f;
-        float wishspeed = ws * MAX_SPEED * 0.8f;
+        float wishspeed = ws * MAX_SPEED * 0.8f * (cmd->speed > 0.0f ? cmd->speed : 1.0f);
         if (ws == 0.0f) { // drift down slowly
             wishdir = v3(0, 0, -1);
             wishspeed = 40.0f;
@@ -266,7 +275,7 @@ void player_move(Player *p, Map *m, const MoveCmd *cmd, const CmBox *props, int 
         if (cmd->jump && p->water_level == 2 && p->velocity.z < JUMP_SPEED * 0.6f) p->velocity.z = JUMP_SPEED * 0.6f;
         p->on_ground = 0;
         step_slide_move(p, &c, dt);
-        p->view_height += (STAND_EYE - p->view_height) * clampf(dt * 12.0f, 0.0f, 1.0f);
+        p->view_height += (eye_target(p, STAND_EYE) - p->view_height) * clampf(dt * 12.0f, 0.0f, 1.0f);
         return;
     }
 
@@ -291,7 +300,7 @@ void player_move(Player *p, Map *m, const MoveCmd *cmd, const CmBox *props, int 
     float wishspeed = v3_len(wish);
     vec3 wishdir = wishspeed > 0.0f ? v3_scale(wish, 1.0f / wishspeed) : wish;
     if (wishspeed > 1.0f) wishspeed = 1.0f;
-    wishspeed *= p->ducked ? DUCK_SPEED : MAX_SPEED;
+    wishspeed *= (p->ducked ? DUCK_SPEED : MAX_SPEED) * (cmd->speed > 0.0f ? cmd->speed : 1.0f);
 
     if (p->on_ground) {
         p->velocity.z = 0.0f;
@@ -317,6 +326,6 @@ void player_move(Player *p, Map *m, const MoveCmd *cmd, const CmBox *props, int 
     step_slide_move(p, &c, dt);
     categorize(p, &c);
 
-    float target = p->ducked ? DUCK_EYE : STAND_EYE;
+    float target = eye_target(p, p->ducked ? DUCK_EYE : STAND_EYE);
     p->view_height += (target - p->view_height) * clampf(dt * 12.0f, 0.0f, 1.0f);
 }

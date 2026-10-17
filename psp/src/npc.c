@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #include "audio.h"
 #include "gfx.h"
@@ -227,12 +228,21 @@ typedef struct {
     // Players' characters: the quick chat gesture playing (gesture index + 1, 0: none) and how far in
     int gesture;
     float gesture_t;
+    int serial; // new for each spawn (npc_serial), so scripts can tell a new NPC in a reused slot
 } Npc;
 
 #define MAX_PUPPETS NET_MAX_PLAYERS // every player slot a server has (8 from 1.10.0)
 static Npc g_puppets[MAX_PUPPETS];
 static int g_puppet_type = -1;
 static Npc g_self; // the local player in third person
+// Gamemodes: a player disguised as a prop (Prop Hunt) has no character drawn, and others bump into the
+// prop's box instead. Index MAX_PUPPETS is your own body.
+static struct {
+    int on;
+    float half, height;
+} g_disguise[MAX_PUPPETS + 1];
+static int g_npc_serial;
+static void (*g_death)(int npc, int type, vec3 pos);
 
 #define RAG_MAX_BONES MAX_PALETTE
 typedef struct {
@@ -468,6 +478,7 @@ int npc_spawn(int type, vec3 pos, float yaw) {
         n->last_pos = pos;
         n->light_age = 1000;
         n->goal_node = -1;
+        n->serial = ++g_npc_serial;
         return i;
     }
     return -1;
@@ -475,6 +486,42 @@ int npc_spawn(int type, vec3 pos, float yaw) {
 
 void npc_remove(int i) {
     if (i >= 0 && i < MAX_NPCS) g_npcs[i].active = 0;
+}
+
+int npc_type_find(const char *name) {
+    for (int t = 0; t < g_num_models; t++) {
+        if (strcasecmp(g_models[t].name, name) == 0) return t;
+    }
+    return -1;
+}
+
+int npc_serial(int i) {
+    return npc_active(i) ? g_npcs[i].serial : 0;
+}
+
+int npc_info(int i, int *type, vec3 *pos, float *yaw, float *health) {
+    if (!npc_active(i)) return 0;
+    const Npc *n = &g_npcs[i];
+    if (type) *type = n->type;
+    if (pos) *pos = n->mover.origin;
+    if (yaw) *yaw = n->yaw;
+    if (health) *health = n->state == ST_DEAD ? 0.0f : n->health;
+    return n->state == ST_DEAD ? 1 : 2;
+}
+
+void npc_set_health(int i, float health) {
+    if (npc_active(i) && g_npcs[i].state != ST_DEAD && health > 0.0f) g_npcs[i].health = health;
+}
+
+void npc_set_pos(int i, vec3 pos) {
+    if (!npc_active(i) || g_npcs[i].state == ST_DEAD) return;
+    g_npcs[i].mover.origin = pos;
+    g_npcs[i].mover.velocity = v3(0, 0, 0);
+    g_npcs[i].route_len = 0;
+}
+
+void npc_set_death_handler(void (*fn)(int npc, int type, vec3 pos)) {
+    g_death = fn;
 }
 
 void npc_bugbait_squeeze(int target) {
@@ -500,6 +547,7 @@ void npcs_clear(void) {
     memset(g_npcs, 0, sizeof(g_npcs));
     memset(g_puppets, 0, sizeof(g_puppets));
     memset(&g_self, 0, sizeof(g_self));
+    memset(g_disguise, 0, sizeof(g_disguise));
     ragdolls_clear();
 }
 
@@ -531,6 +579,12 @@ int npc_boxes(CmBox *out, int max) {
         if (!g_puppets[i].active) continue;
         vec3 lo, hi;
         hull(&g_puppets[i], &lo, &hi);
+        if (g_disguise[i].on) {
+            vec3 o = g_puppets[i].mover.origin;
+            float r = g_disguise[i].half;
+            lo = v3_add(o, v3(-r, -r, 0));
+            hi = v3_add(o, v3(r, r, g_disguise[i].height));
+        }
         cm_box_aabb(&out[c], lo, hi, PUPPET_ID_BASE + i);
         c++;
     }
@@ -636,6 +690,7 @@ static void npc_die(Npc *n, vec3 dv) {
     n->seq = SEQ_DEATH;
     n->anim_time = 0.0f;
     snd_play_at(g_snd_die, n->mover.origin, 1.0f);
+    if (g_death && n >= g_npcs && n < g_npcs + MAX_NPCS) g_death((int)(n - g_npcs), n->type, n->mover.origin);
 }
 
 void npc_damage_dir(int i, float amount, vec3 dv) {
@@ -1392,6 +1447,22 @@ void npc_puppet_set(int slot, int active, int type, vec3 pos, float yaw, float d
 void npc_puppet_tint(int slot, unsigned int abgr) {
     Npc *n = slot < 0 ? &g_self : slot < MAX_PUPPETS ? &g_puppets[slot] : NULL;
     if (n) n->tint = abgr;
+}
+
+void npc_puppet_disguise(int slot, int on, float half, float height) {
+    int k = slot < 0 ? MAX_PUPPETS : slot;
+    if (k > MAX_PUPPETS) return;
+    g_disguise[k].on = on;
+    g_disguise[k].half = half;
+    g_disguise[k].height = height;
+}
+
+int npc_puppet_pos(int slot, vec3 *pos, float *yaw) {
+    const Npc *n = slot < 0 ? &g_self : slot < MAX_PUPPETS ? &g_puppets[slot] : NULL;
+    if (!n || !n->active) return 0;
+    *pos = n->mover.origin;
+    *yaw = n->yaw;
+    return 1;
 }
 
 void npc_self_set(int active, int type, vec3 pos, float yaw, float dt) {
@@ -2392,6 +2463,7 @@ void npcs_draw(Map *m, const Camera *cam) {
     for (int i = 0; i < MAX_NPCS + MAX_PUPPETS + 1; i++) {
         Npc *n = i < MAX_NPCS ? &g_npcs[i] : i < MAX_NPCS + MAX_PUPPETS ? &g_puppets[i - MAX_NPCS] : &g_self;
         if (!n->active || n->ragdolled || !visible(cam, n->mover.origin, fwd_x, fwd_y)) continue;
+        if (i >= MAX_NPCS && g_disguise[i - MAX_NPCS].on) continue; // a prop now (game.c draws it)
         apply_light(m, v3_add(n->mover.origin, v3(0, 0, 40)), &n->ambient, &n->sunlit, &n->light_age);
 
         // World transform: position, facing, and a fall-over tilt when dead (packs without ragdolls)

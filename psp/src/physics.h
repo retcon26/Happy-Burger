@@ -57,6 +57,7 @@ typedef struct {
     unsigned int ambient_abgr;
     int sunlit;
     int light_age;
+    int serial; // new each time the slot gets a body (scripts' Entity objects)
 } Body;
 
 // Weld: fixed together. Rope: can't move further apart. Ball socket: share a point but turn freely.

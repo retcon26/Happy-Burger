@@ -13,6 +13,7 @@ typedef struct {
     int noclip;
     float view_height; // smoothed eye height above origin
     int water_level;   // 0 dry, 1 feet, 2 waist (swimming), 3 head under
+    float hull_half, hull_height; // 0: a person's (16 and 72 units); a gamemode can shrink them (Prop Hunt's props)
 } Player;
 
 typedef struct {
@@ -23,6 +24,7 @@ typedef struct {
     int fast;            // noclip speed boost
     float walk_speed;    // NPCs: on the ground, move at exactly this (units/s) along yaw, with no
                          // acceleration or friction (which hold anything under ~80 u/s to a crawl)
+    float speed;         // multiplies how fast the player walks and swims (0: as usual)
 } MoveCmd;
 
 void player_spawn(Player *p, vec3 feet);

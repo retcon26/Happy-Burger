@@ -1,4 +1,4 @@
-RETCON'S MOD (FORMERLY PSP SANDBOX) - CONTROLS  (v1.11.0)
+RETCON'S MOD (FORMERLY PSP SANDBOX) - CONTROLS  (v1.12.0)
 =========================================
 
 ON FOOT                      PSP
@@ -138,6 +138,18 @@ QUICK CHAT (hold D-pad Down)
   Dance). Push the circle pad towards one, L / R turns the page, let go of
   Down to send. Messages go in everyone's chat; everyone sees your gestures
   (and you do in the third-person view). Walking off stops a gesture.
+
+
+GAMEMODES (New Game: Triangle picks one)
+  Prop Hunt, Zombie Survival, Deathmatch, or your own (data/lua/gamemodes).
+  Scoreboard                Hold Select
+  Watching (when dead)      L / R: whose view
+  Respawn                   X, when the gamemode lets you (Deathmatch);
+                            otherwise the next round or wave brings you back
+  Prop Hunt, as a prop      Use (D-pad Right) on a prop: become it.
+                            Quick chat: taunt (a noise where you hide)
+  Zombie Survival           Use picks up light props: block the doors
+  No spawn menu, tool gun or noclip in a gamemode's game.
 
 
 PAUSE MENU (Start)

@@ -43,6 +43,15 @@ void npc_remove(int i);
 void npcs_clear(void);
 int npc_active(int i);
 int npc_alive_count(void);
+// For scripts: a type by its name ("Fast Zombie"; -1 if none), and NPC i: a number that's new for each spawn
+// (0 if the slot is empty), what it is and where (0 empty, 1 dead, 2 alive), changing its health or place,
+// and a call for each death (the host's NPCs: a client only mirrors them)
+int npc_type_find(const char *name);
+int npc_serial(int i);
+int npc_info(int i, int *type, vec3 *pos, float *yaw, float *health);
+void npc_set_health(int i, float health);
+void npc_set_pos(int i, vec3 pos);
+void npc_set_death_handler(void (*fn)(int npc, int type, vec3 pos));
 
 // Players the NPCs care about (the local player, plus everyone else in multiplayer)
 typedef struct {
@@ -85,6 +94,11 @@ void npc_puppet_set(int slot, int active, int type, vec3 pos, float yaw, float d
 void npc_self_set(int active, int type, vec3 pos, float yaw, float dt);
 // A player's character tinted (their Profile colour); slot -1 is the local player's own body
 void npc_puppet_tint(int slot, unsigned int abgr);
+// Gamemodes (Prop Hunt): a player disguised as a prop isn't drawn as their character (game.c draws the
+// prop), and others bump into a box of that size instead (slot -1: your own body)
+void npc_puppet_disguise(int slot, int on, float half, float height);
+// Where a player's character is drawn (smoothed between network updates); 0 if it isn't there
+int npc_puppet_pos(int slot, vec3 *pos, float *yaw);
 // Quick chat's gestures (Wave, Salute...), from the NPC pack: how many, their names, whether a character
 // can do them (HL2's people and the Combine; not TF2's mercenaries), and starting one on a player's
 // character (slot -1: your own, as the third-person view shows it; g -1 stops it). Walking off ends it.

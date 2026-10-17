@@ -13,7 +13,7 @@
 
 #define SETTINGS_PATH "data/settings.cfg"
 
-Settings g_settings = {1, 3, 0, 1, 0, 1, 1, 1, 4, 3, 2, 3, 0, 0, 0, 1, 0, 0, 1, 0, 0, ""};
+Settings g_settings = {1, 3, 0, 1, 0, 1, 1, 1, 4, 3, 2, 3, 0, 0, 0, 1, 0, 0, 1, 0, 0, "", ""};
 
 // Values with names show the name; other multi-step options show dots; 0/1 options a checkbox
 static const char *const k_dist_names[] = {"Near", "Medium", "Far", "Full"};
@@ -286,6 +286,11 @@ void settings_load(void) {
             g_settings.name[strcspn(g_settings.name, "\r\n")] = 0;
             continue;
         }
+        if (strcmp(key, "gamemode") == 0) {
+            snprintf(g_settings.gamemode, sizeof(g_settings.gamemode), "%s", line + n);
+            g_settings.gamemode[strcspn(g_settings.gamemode, "\r\n ")] = 0;
+            continue;
+        }
         if (sscanf(line + n, "%d", &v) != 1) continue;
         set_option(k_options, NUM_OPTIONS, key, v);
         set_option(k_profile, NUM_PROFILE, key, v);
@@ -305,6 +310,7 @@ void settings_save(void) {
         }
     }
     if (g_settings.name[0]) fprintf(f, "name %s\n", g_settings.name);
+    if (g_settings.gamemode[0]) fprintf(f, "gamemode %s\n", g_settings.gamemode);
     fclose(f);
 }
 

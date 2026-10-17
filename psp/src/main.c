@@ -176,6 +176,9 @@ static int run_autoload(char *status, int status_len) {
         if (strcmp(nm, "menu") == 0 && sscanf(line, "%*s %31s", page) == 1 && strcmp(page, "workshop") == 0) {
             menu_show_workshop();
         }
+        if (strcmp(nm, "menu") == 0 && sscanf(line, "%*s %31s", page) == 1 && strcmp(page, "newgame") == 0) {
+            menu_show_newgame();
+        }
         if (strcmp(nm, "menu") == 0 && sscanf(line, "%*s %31s", page) == 1 && strcmp(page, "achievements") == 0) {
             menu_show_achievements();
         }
@@ -183,6 +186,11 @@ static int run_autoload(char *status, int status_len) {
             menu_show_updates();
         }
 
+        // "gamemode NAME": the next line is the map, started with it
+        if (strcmp(nm, "gamemode") == 0 && sscanf(line, "%*s %31s", page) == 1) {
+            game_set_gamemode(page);
+            if (fgets(line, sizeof(line), f)) n = sscanf(line, "%31s %f %f %f %f %f", nm, &c[0], &c[1], &c[2], &c[3], &c[4]);
+        }
         if (n >= 1 && strcmp(nm, "menu") != 0 && strcmp(nm, "join") != 0 && start_game(nm, status, status_len)) {
 
             started = 1;
@@ -291,7 +299,10 @@ int main(int argc, char *argv[]) {
             if (r == MENU_START_GAME || r == MENU_HOST_GAME || r == MENU_JOIN_GAME) {
                 int slot = 0;
                 unsigned char host_mac[6];
-                if (r == MENU_JOIN_GAME) menu_join_info(&slot, host_mac);
+                if (r == MENU_JOIN_GAME) {
+                    menu_join_info(&slot, host_mac);
+                    game_set_gamemode(net_lobby_mode()); // the host's
+                }
                 if (start_game(map, status, sizeof(status))) {
                     in_game = 1;
                     if (r == MENU_HOST_GAME) game_host();

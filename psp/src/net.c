@@ -62,6 +62,7 @@ static struct {
     uint8_t listed[NET_LIST_MAX][6];
     float join_timer;
     char welcome_map[32];
+    char welcome_mode[NET_MODE_LEN];
     int welcome_slot;
 } N = {.pdp = -1, .sock = -1};
 
@@ -463,6 +464,10 @@ void net_lobby_result(char *map, int map_len, int *slot, uint8_t host_mac[6]) {
     memcpy(host_mac, N.join_target.mac, 6);
 }
 
+const char *net_lobby_mode(void) {
+    return N.welcome_mode;
+}
+
 int net_lobby_update(float dt, NetHost *hosts, int max_hosts, int *num_hosts) {
     if (net_poll() != NET_READY) return 0;
     int result = 0;
@@ -505,10 +510,12 @@ int net_lobby_update(float dt, NetHost *hosts, int max_hosts, int *num_hosts) {
             h->max = pk.beacon.max;
             h->dedicated = (pk.beacon.flags & BEACON_DEDICATED) != 0;
             h->password = (pk.beacon.flags & BEACON_PASSWORD) != 0;
+            snprintf(h->mode, sizeof(h->mode), "%.*s", NET_MODE_LEN - 1, pk.beacon.mode);
             h->age = 0.0f;
         } else if (N.joining && memcmp(from, N.join_target.mac, 6) == 0) {
             if (pk.h.type == PK_WELCOME && len >= (int)sizeof(PkWelcome)) {
                 snprintf(N.welcome_map, sizeof(N.welcome_map), "%.31s", pk.welcome.map);
+                snprintf(N.welcome_mode, sizeof(N.welcome_mode), "%.*s", NET_MODE_LEN - 1, pk.welcome.mode);
                 N.welcome_slot = pk.h.slot;
                 N.joining = 0;
                 result = 1;

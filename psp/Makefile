@@ -26,4 +26,10 @@ PSP_LARGE_MEMORY = 1
 PSPSDK = $(shell psp-config --pspsdk-path)
 include $(PSPSDK)/lib/build.mak
 
+# The game's own Lua (psp/lua: the library and the built-in gamemodes) goes inside the EBOOT
+LUA_FILES = $(wildcard lua/*.lua lua/*/*.lua)
+src/lua_builtin.h: $(LUA_FILES) ../tools/embed_lua.py
+	python3 ../tools/embed_lua.py lua $@
+src/script.o: src/lua_builtin.h
+
 -include $(OBJS:.o=.d)

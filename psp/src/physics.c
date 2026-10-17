@@ -118,8 +118,10 @@ int phys_spawn_at(PhysWorld *w, int slot, int model, int shape, vec3 mins, vec3 
     for (int i = first; i < last; i++) {
         Body *b = &w->bodies[i];
         if (b->active) continue;
+        static int serial;
         memset(b, 0, sizeof(*b));
         b->active = 1;
+        b->serial = ++serial;
         b->model = model;
         b->shape = shape;
         vec3 h = v3((maxs.x - mins.x) * 0.5f, (maxs.y - mins.y) * 0.5f, (maxs.z - mins.z) * 0.5f);

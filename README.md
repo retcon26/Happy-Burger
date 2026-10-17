@@ -1,6 +1,6 @@
 # Retcon's Mod
 
-A physics sandbox for the PSP, by Retcon. Current version: **1.11.0** (shown in the main menu's corner,
+A physics sandbox for the PSP, by Retcon. Current version: **1.12.0** (shown in the main menu's corner,
 set in `psp/src/version.h`).
 
 **Retcon's Mod is PSP Sandbox's new name.** From 1.10.0 everything uses it: the repositories are
@@ -43,6 +43,8 @@ contain it are for your own use. Don't share them.
 - **14 weapons and 26 tool gun tools**, health kits, suit batteries, ammo and chargers, blood and bullet holes, a
   flashlight, an HEV suit, Lua addons and 4-player multiplayer with voice chat: ad-hoc, over Wi-Fi, or on a
   dedicated server.
+- **Gamemodes:** Prop Hunt, Zombie Survival and Deathmatch, written in Lua, and room for your own (see
+  [Gamemodes](#gamemodes)).
 - **Saves:** your builds saved to the memory stick and loaded back on any map (see [Saves](#saves)).
 - **Drivable vehicles:** HL2's Jeep and Airboat, and seats to sit on your own contraptions (R switches all their
   thrusters and hoverballs). Spawn them from the Vehicles category; Use gets in and out.
@@ -248,7 +250,7 @@ What's off is saved to `data/workshop.cfg`.
 
 ## Achievements
 
-Main menu > Achievements lists 17, with progress bars for the counted ones. They're saved to
+Main menu > Achievements lists 20, with progress bars for the counted ones. They're saved to
 `data/achievements.cfg`, and a notification pops up in game when you unlock one.
 
 | Achievement | How |
@@ -266,6 +268,9 @@ Main menu > Achievements lists 17, with progress bars for the counted ones. They
 | Online | Join a dedicated server |
 | On the Air | Host a game over Wi-Fi that someone joins |
 | Yes, I'm the real Retcon | Play on a dedicated server with your name set to Retcon |
+| Hide in Plain Sight | Win a round of Prop Hunt as a prop, still hidden at the end |
+| Survivor | Live through wave 10 of Zombie Survival |
+| Top Frag | Win a game of Deathmatch (against at least one other player) |
 
 The PSP doesn't let a game read its model directly, so the page's "Playing on" line works it out:
 - **PPSSPP:** spotted by its settings files on the memory stick. The game only checks they exist and never reads them.
@@ -378,13 +383,35 @@ microphone, or a headset's on a PSP-2000. The mic is only switched on while you 
 Ad-hoc wifi between PSPs (or PPSSPP instances with ad-hoc networking set up), or Wi-Fi through an access point
 (PPSSPP: with networking enabled).
 
-## Lua addons
+## Gamemodes
 
-Every `.lua` file in `data/lua/autorun/` runs when a map loads, and `data/lua/maps/<map>.lua` runs on that map
-only. The API is a small GMod-flavoured subset: `hook.Add` (`Think`, `PlayerUse`, `HUDPaint`), `timer.Simple`,
-`ents.CreateProp/Remove/GetPos/SetPos/SetVelocity/SetColor/Freeze`, `player.GetPos/GetYaw/GetAimEntity`,
-`draw.Text`, `print`. See [psp/data/lua/autorun/example.lua](psp/data/lua/autorun/example.lua): Use on a prop
-launches it.
+The New Game screen's **Triangle** picks a gamemode (shown at the top right), for single player and for hosting.
+Joining someone plays theirs, and Online Servers shows each server's next to its map. In a gamemode's game
+there's no building: Select held shows the **scoreboard**, you carry what the gamemode gives you, and when you
+die L / R picks whose view to watch.
+
+- **Prop Hunt:** the props hide as things on the map while the hunters are blindfolded for 30 seconds; then the
+  hunters have three minutes to find them, and every shot at a real prop costs them 5 health. As a prop, Use on
+  a prop becomes it (you see yourself from behind; bigger props have more health) and quick chat taunts. Teams
+  swap every round. Needs two players or more: on your own you can try out the disguises.
+- **Zombie Survival:** waves of zombies, each bigger than the last (fast zombies from wave 3, poison zombies from
+  5, zombines from 7), and more weapons each wave. Beat a wave and everyone who died comes back, with ammo and
+  supplies dropped about. Use picks up light props to barricade the doors. Alone or together; best on maps with
+  a node graph (gm_construct, gm_flatgrass, the HL2 campaign).
+- **Deathmatch:** everyone against everyone, first to 15 kills (or the most after ten minutes). Alone, Combine
+  soldiers fill in.
+
+Dedicated servers run them too: `gamemode prophunt` in `server.cfg`, or `gamemode NAME` in its console.
+
+## Lua addons and your own gamemodes
+
+Every `.lua` file in `data/lua/autorun/` runs when a map loads, `data/lua/maps/<map>.lua` on that map only, and
+`data/lua/gamemodes/<name>.lua` is a gamemode of your own (New Game's Triangle lists it). The API is
+GMod-flavoured: `hook.Add`, `timer`, `player.GetAll` and `ply:Give/SetTeam/Spawn/Freeze`, `ents.Create`,
+`npc.Spawn`, `team.SetUp`, networked variables, `PrintMessage`, `draw.RoundedBox` and the rest, plus a few of our
+own (`ply:Disguise` for Prop Hunt). [docs/LUA.md](docs/LUA.md) is the full reference, with how to write a
+gamemode; the game's own are in [psp/lua/gamemodes](psp/lua/gamemodes). See also
+[psp/data/lua/autorun/example.lua](psp/data/lua/autorun/example.lua): Use on a prop launches it.
 
 ## Building
 
@@ -585,10 +612,9 @@ The latest three. Every version, with dates, what's in each and which ones can p
 
 | Version | Changes |
 |---|---|
+| 1.12.0 | Lua gamemodes: Prop Hunt, Zombie Survival and Deathmatch (New Game's Triangle, or a server's `gamemode`); a much bigger Lua API ([docs/LUA.md](docs/LUA.md)); scoreboard; spectating |
 | 1.11.0 | Quick chat (hold D-pad Down): messages and gestures; the 4th to 7th players on a big server show up again; hint and Options fixes |
 | 1.10.1 | Pause menu > Screenshot: saves the screen as a PNG the XMB's Photo app shows |
-| 1.10.0 | Ammo boxes in the Items spawnlist; dedicated servers for 7 players with a password, map rotation and autosaves; the rename's done (repos, `PSP/GAME/RetconsMod` with saves moved across, `retcons-mod-server`) |
-| 1.8.3 | Options > Target FPS: 25, 30, 60 or 120 frames a second; Select closes the spawn menu again (letting go of it opened the menu straight back up) |
 
 ## Roadmap
 
@@ -627,9 +653,9 @@ The latest three. Every version, with dates, what's in each and which ones can p
       server); bigger servers (7 players, a password, map rotation, the build autosaved)
 - [x] Screenshots: Pause > Screenshot saves a PNG for the XMB's Photo app
 - [x] Quick chat: a wheel of messages and GMod's gestures (hold D-pad Down)
+- [x] Lua gamemodes: a much bigger Lua API, and Prop Hunt, Zombie Survival and Deathmatch built on it
 
 - [ ] **Effects:** sparks on metal, smoke, fire after explosions, muzzle smoke and tracer impacts
-- [ ] **Lua gamemodes:** a bigger Lua API and small gamemodes built on it, like Prop Hunt and a zombie survival mode
 - [ ] **More player customization:** model skins and bodygroups, on top of the player model and the player and
       physics gun colours
 - [ ] **Share builds:** send a saved build to the other players in a game (ad-hoc, Wi-Fi or a server), and let

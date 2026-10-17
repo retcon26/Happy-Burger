@@ -25,6 +25,9 @@ enum {
     ACH_ON_THE_AIR,   // host a game over Wi-Fi that someone joins
     // 1.7.1
     ACH_REAL_RETCON,  // play on a dedicated server named Retcon
+    ACH_PROP_HUNT,    // Hide in Plain Sight: win a round of Prop Hunt as a prop
+    ACH_SURVIVOR,     // Survivor: live through wave 10 of Zombie Survival
+    ACH_TOP_FRAG,     // Top Frag: win a game of Deathmatch
     ACH_COUNT
 };
 

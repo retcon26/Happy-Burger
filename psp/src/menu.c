@@ -16,6 +16,7 @@
 #include "mem.h"
 #include "net.h"
 #include "osk.h"
+#include "script.h"
 #include "settings.h"
 #include "sky.h"
 #include "ui.h"
@@ -248,6 +249,11 @@ void menu_open(void) {
 void menu_close(void) {
     if (M.bg_loaded) map_free(&M.bg);
     M.bg_loaded = 0;
+}
+
+void menu_show_newgame(void) {
+    M.page = PAGE_NEWGAME;
+    M.host = 0;
 }
 
 void menu_show_achievements(void) {
@@ -567,10 +573,19 @@ MenuResult menu_update(const InputState *in, float dt, char *map_out, int map_ou
         if (in->pressed & PSP_CTRL_CROSS) {
             click(M.snd_select, 0.7f);
             snprintf(map_out, map_out_len, "%s", M.maps[idx[M.map_sel]]);
+            game_set_gamemode(g_settings.gamemode);
             M.error[0] = 0;
             if (M.host) net_set_mode(M.host == 2 ? NET_MODE_INET : NET_MODE_ADHOC, 1);
             return M.host ? MENU_HOST_GAME : MENU_START_GAME;
         }
+    }
+    if (in->pressed & PSP_CTRL_TRIANGLE) {
+        // The next gamemode: Sandbox, Prop Hunt, Zombie Survival... (and yours in data/lua/gamemodes)
+        int k = script_gamemode_find(g_settings.gamemode);
+        k = (k < 0 ? 0 : k + 1) % script_gamemode_count();
+        snprintf(g_settings.gamemode, sizeof(g_settings.gamemode), "%s", k ? script_gamemode_id(k) : "");
+        settings_save();
+        click(M.snd_move, 0.4f);
     }
     if (in->pressed & PSP_CTRL_CIRCLE) {
         M.page = M.host ? PAGE_MULTI : PAGE_MAIN;
@@ -652,10 +667,16 @@ static void draw_newgame(void) {
         ui_rect(x + w - 8, gy + M.scroll * (196.0f - bar_h) / (rows - 2), 3, bar_h, 0xFF808080);
     }
 
-    // Start button, GMod blue
+    // Start button, GMod blue, and the gamemode it starts with
     ui_rrect(x + w - 112, y + h - 26, 104, 20, 3, 0xFFE6A03D);
     ui_text(FONT_BOLD, x + w - 60, y + h - 22, 0xFFFFFFFF, ALIGN_CENTER, M.host ? "X  Host Game" : "X  Start Game");
-    ui_text(FONT_SMALL, x + 10, y + h - 21, 0xFF606060, ALIGN_LEFT, "L/R: category    O: back");
+    ui_text(FONT_SMALL, x + 10, y + h - 21, 0xFF606060, ALIGN_LEFT, "L/R: category    Triangle: gamemode    O: back");
+    int gm = script_gamemode_find(g_settings.gamemode);
+    char line[64];
+    snprintf(line, sizeof(line), "Gamemode: %s", script_gamemode_title(gm < 0 ? 0 : gm));
+    float gw = ui_text_width(FONT_BOLD, line) + 14;
+    ui_rrect(x + w - 6 - gw, y + 3, gw, 18, 3, gm > 0 ? 0xFF3D8CE6 : 0x40FFFFFF);
+    ui_text(FONT_BOLD, x + w - 6 - gw / 2, y + 6, 0xFFFFFFFF, ALIGN_CENTER, line);
 }
 
 // Join Game (ad-hoc): the games nearby, from their hosts' beacons. Online Servers (Wi-Fi): the games on
@@ -710,7 +731,14 @@ static void draw_join(void) {
         ui_rrect(x + 8, ry, w - 16, 26, 3, sel ? 0xFFE6A03D : 0xFFF8F8F8);
         ui_map_thumb(hs->map, x + 11, ry + 2, 22, 22);
         ui_text_clip(FONT_BOLD, x + 40, ry + 6, 132, tc, hs->host);
-        ui_text_clip(FONT_SMALL, x + 180, ry + 7, 130, tc, hs->map);
+        char where[56];
+        int gm = hs->mode[0] ? script_gamemode_find(hs->mode) : -1;
+        if (hs->mode[0]) {
+            snprintf(where, sizeof(where), "%s - %s", hs->map, gm > 0 ? script_gamemode_title(gm) : hs->mode);
+        } else {
+            snprintf(where, sizeof(where), "%s", hs->map);
+        }
+        ui_text_clip(FONT_SMALL, x + 180, ry + 7, 130, tc, where);
         ui_textf(FONT_SMALL, x + w - 16, ry + 7, tc, ALIGN_RIGHT, "%s%d / %d",
                  hs->password ? "locked  " : hs->dedicated ? "server  " : "", hs->players,
                  hs->max);

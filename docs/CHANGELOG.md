@@ -8,6 +8,7 @@ another protocol don't show up in Join Game or Online Servers.
 
 | Version | Date | Plays with | In short |
 |---|---|---|---|
+| [1.12.0](#1120) | 2026-10-17 | 1.12.0 | Lua gamemodes: Prop Hunt, Zombie Survival, Deathmatch; a bigger Lua API |
 | [1.11.0](#1110) | 2026-10-16 | 1.11.0 | Quick chat: messages and gestures |
 | [1.10.1](#1101) | 2026-10-16 | 1.10.0 – 1.10.1 | Pause menu > Screenshot |
 | [1.10.0](#1100) | 2026-10-16 | 1.10.0 – 1.10.1 | Ammo boxes; bigger servers with passwords, rotation, autosave; the rename's done |
@@ -32,6 +33,30 @@ another protocol don't show up in Join Game or Online Servers.
 | [1.1.0](#110) | before 2026-10-11 | not recorded | Camera tool |
 | [1.0.1](#101) | before 2026-10-11 | not recorded | Ragdoll crash fixes |
 | [1.0.0](#100) | before 2026-10-11 | not recorded | Version label, new options, more ragdolls |
+
+## 1.12.0
+
+- **Gamemodes**, written in Lua: **Prop Hunt** (props hide as things on the map, hunters find them; shooting the
+  wrong prop costs health; quick chat taunts; teams swap each round), **Zombie Survival** (ever bigger waves of
+  zombies, more weapons each wave, the dead back when a wave's beaten, barricades with Use) and **Deathmatch**
+  (first to 15 kills; Combine soldiers when you're alone). New Game's Triangle picks one (remembered in
+  settings.cfg); joining plays the host's; Online Servers shows each server's.
+- In a gamemode's game: Select held shows a **scoreboard** (kills, deaths, teams); dead players **watch** the
+  others (L / R picks who); no spawn menu, tool gun, noclip, God mode or unlimited ammo; name tags only for team
+  mates in team games; the pause menu has just Resume, Options, Screenshot and Disconnect.
+- **A much bigger Lua API**, GMod-flavoured: `Vector`, `Color`, players (`player.GetAll`, `ply:Give`,
+  `ply:SetTeam`, `ply:Spawn`, `ply:Freeze`, `ply:SetModel`, `ply:SetWalkSpeed`, frags and deaths...), props as
+  objects (`ents.Create`, `ents.FindInSphere`), NPCs (`npc.Spawn`), teams, networked variables
+  (`SetGlobalInt`, `ply:SetNWInt`), `timer.Create`, `PrintMessage`, `sound.Play`, `util.TraceLine`, `navmesh`,
+  `draw.RoundedBox`, and gamemode hooks (`GM:PlayerSpawn`, `PlayerDeath`, `PlayerShouldTakeDamage`,
+  `EntityTakeDamage`, `OnNPCKilled`, `PlayerUse`...). Your own gamemodes go in `data/lua/gamemodes`. All of it is
+  in [docs/LUA.md](LUA.md). The game's library and gamemodes are built into the EBOOT (`psp/lua`), so Options >
+  Updates brings them; Lua errors also go in `data/lua_errors.txt`. Old addons keep working (`PlayerUse` now
+  gets the player and the prop).
+- **Achievements:** Hide in Plain Sight, Survivor, Top Frag.
+- **Fixed:** other players' names were drawn twice, the second time in white over the name tag (hiding its
+  Profile colour) and through walls; `print` from Lua added a stray "userdata".
+- Network protocol 15: 1.12.0 only plays with 1.12.0, and dedicated servers need 1.3.0.
 
 ## 1.11.0
 
@@ -272,6 +297,7 @@ another protocol don't show up in Join Game or Online Servers.
 
 | Server | For the game | Changes |
 |---|---|---|
+| 1.3.0 | 1.12.0 | Gamemodes: `gamemode` in `server.cfg` (or `--gamemode`), console `gamemode NAME`; built with Lua whenever the PC has Lua 5.4's headers; no build autosaves in a gamemode's game |
 | 1.2.1 | 1.11.0 | The game 1.11.0's engine (quick chat; the 4th to 7th players show up and can be hit) |
 | 1.2.0 | 1.10.0 | Renamed `retcons-mod-server`; up to 7 players (`max_players`), `password`, map rotation (`maps`, `map_minutes`, console `next`), autosaves (`autosave_minutes`, `autosave_resume`) |
 | 1.1.1 | 1.8.2 | The game 1.8.2's engine (NPC navigation: the server's NPCs follow the maps' node graphs, `data/maps/<map>.pnav`) |
