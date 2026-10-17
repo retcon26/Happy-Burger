@@ -16,13 +16,14 @@
 #define NET_PORT 18256
 #define NET_LIST_PORT 18257 // server lists (retcons-mod-server in list mode)
 #define NET_LIST_MAX 64     // servers in one list answer
-#define NET_VERSION 13 // 2: rope packets name the joint type (sliders); 3: player models;
+#define NET_VERSION 14 // 2: rope packets name the joint type (sliders); 3: player models;
                        // 4: the host's ragdolls sent to clients, and their physics gun holds; 5: vehicles;
                        // 6: Profile colours, mingebags; 7: TF2 teams (NPC numbers moved); 8: devices, hydraulics;
                        // 9: Wi-Fi and dedicated servers (PK_INFO, beacon flags); 10: AR2, crossbow, RPG, grenades,
                        // bug bait (PK_PROJ, CMD_LAUNCH, CMD_SQUEEZE); 11: medkits and chargers (CMD_PICKUP, CMD_HEAL);
                        // 12: Face and Finger Poser (CMD_RAG_POSE, RagInfo face and hands);
-                       // 13: 8 player slots, server passwords (PkJoin.password, PK_FULL reasons, BEACON_PASSWORD)
+                       // 13: 8 player slots, server passwords (PkJoin.password, PK_FULL reasons, BEACON_PASSWORD);
+                       // 14: quick chat (CMD_QUICKCHAT, CMD_GESTURE, NetPlayer.gesture)
 
 enum { NET_MODE_ADHOC, NET_MODE_INET };
 

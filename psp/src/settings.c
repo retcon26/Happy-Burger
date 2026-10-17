@@ -486,17 +486,17 @@ void options_draw(float x, float y, float w, float h) {
         } else if (o->names == k_model_names) {
             // "< Dr. Kleiner >"
             const char *name = model_name(*o->value);
-            ui_text(FONT_SMALL, x + w - 22, ry + 2, tc, ALIGN_RIGHT, name);
+            ui_text(FONT_SMALL, x + w - 28, ry + 2, tc, ALIGN_RIGHT, name);
             if (selected) {
-                ui_text(FONT_SMALL, x + w - 32 - ui_text_width(FONT_SMALL, name), ry + 2, tc, ALIGN_LEFT, "<");
-                ui_text(FONT_SMALL, x + w - 16, ry + 2, tc, ALIGN_LEFT, ">");
+                ui_text(FONT_SMALL, x + w - 38 - ui_text_width(FONT_SMALL, name), ry + 2, tc, ALIGN_LEFT, "<");
+                ui_text(FONT_SMALL, x + w - 22, ry + 2, tc, ALIGN_LEFT, ">");
             }
         } else if (o->names) {
             // Named values: "< Medium >"
-            ui_text(FONT_SMALL, x + w - 22, ry + 2, tc, ALIGN_RIGHT, o->names[*o->value - o->min]);
+            ui_text(FONT_SMALL, x + w - 28, ry + 2, tc, ALIGN_RIGHT, o->names[*o->value - o->min]);
             if (selected) {
-                ui_text(FONT_SMALL, x + w - 98, ry + 2, tc, ALIGN_LEFT, "<");
-                ui_text(FONT_SMALL, x + w - 16, ry + 2, tc, ALIGN_LEFT, ">");
+                ui_text(FONT_SMALL, x + w - 104, ry + 2, tc, ALIGN_LEFT, "<");
+                ui_text(FONT_SMALL, x + w - 22, ry + 2, tc, ALIGN_LEFT, ">");
             }
         } else if (o->max == 1) {
             // Checkbox

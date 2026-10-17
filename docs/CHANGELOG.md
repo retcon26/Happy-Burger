@@ -8,6 +8,7 @@ another protocol don't show up in Join Game or Online Servers.
 
 | Version | Date | Plays with | In short |
 |---|---|---|---|
+| [1.11.0](#1110) | 2026-10-16 | 1.11.0 | Quick chat: messages and gestures |
 | [1.10.1](#1101) | 2026-10-16 | 1.10.0 – 1.10.1 | Pause menu > Screenshot |
 | [1.10.0](#1100) | 2026-10-16 | 1.10.0 – 1.10.1 | Ammo boxes; bigger servers with passwords, rotation, autosave; the rename's done |
 | [1.9.1](#191) | 2026-10-16 | 1.8.2 – 1.9.1 | Updates work with a wrong PSP clock |
@@ -31,6 +32,21 @@ another protocol don't show up in Join Game or Online Servers.
 | [1.1.0](#110) | before 2026-10-11 | not recorded | Camera tool |
 | [1.0.1](#101) | before 2026-10-11 | not recorded | Ragdoll crash fixes |
 | [1.0.0](#100) | before 2026-10-11 | not recorded | Version label, new options, more ragdolls |
+
+## 1.11.0
+
+- **Quick chat:** hold D-pad Down for a wheel of short messages and gestures (a tap still crouches). The
+  circle pad picks one, L / R turns the page, letting go of Down sends it. Messages (Hello!, Thanks!, Yes,
+  No, Follow me!, Wait here, Help!, Look at this!) go in everyone's chat with your name. Gestures (Wave,
+  Salute, Yes, No, Come here, Cheer, Laugh, Dance) are GMod's own player animations: everyone sees your
+  character do it, you too in the third-person view, and walking off stops it. HL2's people and the Combine
+  can do them, TF2's mercenaries can't. The NPC pack carries them once (about 100 KB) with each player
+  character's skeleton, so it needs rebuilding (`tools/bspconv.sh npcs`).
+- **Fixed:** on a dedicated server with more than 3 players (1.10.0), the 4th to 7th were invisible and
+  couldn't be hit.
+- **Fixed:** the physics gun's hint sat on top of the health and suit boxes; Options' arrows ran past the
+  highlight.
+- Network protocol 14: 1.11.0 only plays with 1.11.0, and dedicated servers need 1.2.1.
 
 ## 1.10.1
 
@@ -256,6 +272,7 @@ another protocol don't show up in Join Game or Online Servers.
 
 | Server | For the game | Changes |
 |---|---|---|
+| 1.2.1 | 1.11.0 | The game 1.11.0's engine (quick chat; the 4th to 7th players show up and can be hit) |
 | 1.2.0 | 1.10.0 | Renamed `retcons-mod-server`; up to 7 players (`max_players`), `password`, map rotation (`maps`, `map_minutes`, console `next`), autosaves (`autosave_minutes`, `autosave_resume`) |
 | 1.1.1 | 1.8.2 | The game 1.8.2's engine (NPC navigation: the server's NPCs follow the maps' node graphs, `data/maps/<map>.pnav`) |
 | 1.1.0 | 1.7.1 | Server lists (`--mode list`); game servers sign up to one (`list`, `public_address`); the Retcon's Mod name |

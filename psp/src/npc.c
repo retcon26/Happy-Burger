@@ -13,6 +13,7 @@
 #include "gfx.h"
 #include "mem.h"
 #include "nav.h"
+#include "net.h"
 #include "pak.h"
 #include "pmap_format.h"
 
@@ -100,6 +101,33 @@ typedef struct {
 typedef struct {
     NpcHand h[2]; // left, right
 } NpcHands;
+
+// "GSTH" / "GSTF" / "SKLI" / "SKLB": quick chat's gestures (tools/bspconv/gestures.py). GMod's player
+// gestures are stored once, as the main ValveBiped bones' rotations, and each player character on that
+// skeleton has its skeleton: a gesture is posed from those rotations on it, bone by bone, as Source plays an
+// animation from an included model
+#define NUM_CANON 23 // gestures.CANON; 0 is the pelvis
+#define MAX_SKEL_BONES 128
+#define GESTURE_BLEND 0.25f // seconds to turn into the gesture and back out of it
+typedef struct {
+    char name[16];
+    uint32_t frames;
+    float fps;
+    uint32_t first; // into GSTF
+} GestHead;
+typedef struct {
+    int16_t q[NUM_CANON][4]; // local rotations (x, y, z, w) x 32767
+    float pelvis[3];         // the pelvis's offset from its bind pose
+} GestFrame;
+typedef struct {
+    uint32_t first, count; // into SKLB; no bones: this character can't gesture
+} SkelIndex;
+typedef struct {
+    int16_t parent; // in the character's skeleton (parents come first), -1 for the root
+    int8_t canon;   // the GestFrame rotation it takes, or -1 (it keeps its bind pose)
+    uint8_t palette; // its palette slot, 255 if no vertices follow it
+    float pos[3], quat[4]; // bind pose, from its parent
+} SkelBone;
 
 // Face Poser expressions (faces.py's EXPRESSIONS) and Finger Poser hand poses: how far each finger
 // (thumb first) curls, 1 a fist, and how far it spreads (degrees, + towards the thumb)
@@ -196,9 +224,12 @@ typedef struct {
     int direct;    // nothing in the way: it heads straight there
     int goal_node; // wandering or running away: the node it's making for (-1: none)
     vec3 flee_from;
+    // Players' characters: the quick chat gesture playing (gesture index + 1, 0: none) and how far in
+    int gesture;
+    float gesture_t;
 } Npc;
 
-#define MAX_PUPPETS 4
+#define MAX_PUPPETS NET_MAX_PLAYERS // every player slot a server has (8 from 1.10.0)
 static Npc g_puppets[MAX_PUPPETS];
 static int g_puppet_type = -1;
 static Npc g_self; // the local player in third person
@@ -265,6 +296,11 @@ static const uint64_t *g_leg_bones;  // NPCL: per type, the palette bones below 
 static const FaceExpr *g_faces;       // FXEX: per type, NUM_FACES - 1 expressions (NULL in older packs)
 static const FaceDelta *g_face_deltas;
 static const NpcHands *g_hands;       // NPCK: per type (NULL in older packs)
+static const GestHead *g_gest_head;   // GSTH (NULL in older packs)
+static const GestFrame *g_gest_frames;
+static const SkelIndex *g_skel_index; // SKLI: per type
+static const SkelBone *g_skel_bones;
+static int g_num_gestures;
 static int g_crab_type = -1;          // the Headcrab NPC a zombie's crab becomes
 static int g_torso_type = -1;         // the Zombie Torso a sawblade leaves crawling on
 static int g_blade_model = -1;        // the spawnable prop (lib 0) that cuts zombies in half
@@ -328,6 +364,27 @@ int npcs_load(void) {
     g_hands = ks && ks->count == (uint32_t)g_num_models && ks->size == ks->count * sizeof(NpcHands)
                   ? (const NpcHands *)(base + ks->offset)
                   : NULL;
+    // Quick chat's gestures, if the pack has them (and they're all there)
+    const PmapSection *gh = pak_find(g_file, PMAP_SECTION_ID('G', 'S', 'T', 'H'));
+    const PmapSection *gf = pak_find(g_file, PMAP_SECTION_ID('G', 'S', 'T', 'F'));
+    const PmapSection *si = pak_find(g_file, PMAP_SECTION_ID('S', 'K', 'L', 'I'));
+    const PmapSection *sb = pak_find(g_file, PMAP_SECTION_ID('S', 'K', 'L', 'B'));
+    g_num_gestures = 0;
+    if (gh && gf && si && sb && gh->size == gh->count * sizeof(GestHead) && gf->size == gf->count * sizeof(GestFrame) &&
+        si->count == (uint32_t)g_num_models && si->size == si->count * sizeof(SkelIndex) &&
+        sb->size == sb->count * sizeof(SkelBone)) {
+        g_gest_head = (const GestHead *)(base + gh->offset);
+        g_gest_frames = (const GestFrame *)(base + gf->offset);
+        g_skel_index = (const SkelIndex *)(base + si->offset);
+        g_skel_bones = (const SkelBone *)(base + sb->offset);
+        g_num_gestures = (int)gh->count;
+        for (int g = 0; g < g_num_gestures; g++) {
+            if (g_gest_head[g].first + g_gest_head[g].frames > gf->count) g_num_gestures = 0;
+        }
+        for (int t = 0; t < g_num_models && g_num_gestures; t++) {
+            if (g_skel_index[t].first + g_skel_index[t].count > sb->count) g_num_gestures = 0;
+        }
+    }
     g_snd_hit = snd_find("impact_flesh");
     g_snd_die = snd_find("impact_flesh");
     g_snd_rag = snd_find("ragdoll_hit");
@@ -1285,9 +1342,41 @@ static int player_body(Npc *n, int active, int type, vec3 pos, float yaw) {
     return 1;
 }
 
+static float gesture_length(int g) {
+    const GestHead *h = &g_gest_head[g];
+    return h->frames > 1 ? (float)(h->frames - 1) / h->fps : 0.0f;
+}
+
 static void player_body_animate(Npc *n, float dt) {
     int want = n->speed > 140.0f ? SEQ_RUN : n->speed > 20.0f ? SEQ_WALK : SEQ_IDLE;
     advance_animation(n, want, dt);
+    if (n->gesture) {
+        // Walking off ends it: straight into its blend back out
+        float len = gesture_length(n->gesture - 1);
+        if (n->speed > 40.0f && n->gesture_t < len - GESTURE_BLEND) n->gesture_t = len - GESTURE_BLEND;
+        n->gesture_t += dt;
+        if (n->gesture_t >= len) n->gesture = 0;
+    }
+}
+
+int npc_gesture_count(void) {
+    return g_num_gestures;
+}
+
+const char *npc_gesture_name(int g) {
+    return g >= 0 && g < g_num_gestures ? g_gest_head[g].name : "";
+}
+
+int npc_type_can_gesture(int type) {
+    return g_num_gestures && type >= 0 && type < g_num_models && g_skel_index[type].count > 0 &&
+           g_skel_index[type].count <= MAX_SKEL_BONES;
+}
+
+void npc_player_gesture(int slot, int g) {
+    Npc *n = slot < 0 ? &g_self : slot < MAX_PUPPETS ? &g_puppets[slot] : NULL;
+    if (!n) return;
+    n->gesture = g >= 0 && g < g_num_gestures && g_gest_head[g].frames > 1 ? g + 1 : 0;
+    n->gesture_t = 0.0f;
 }
 
 void npc_puppet_set(int slot, int active, int type, vec3 pos, float yaw, float dt) {
@@ -2202,6 +2291,80 @@ static int visible(const Camera *cam, vec3 p, float fwd_x, float fwd_y) {
     return dist < 120.0f || (d.x * fwd_x + d.y * fwd_y) >= -60.0f; // not behind the camera
 }
 
+// A rotation (x, y, z, w) and position as a 3x4 matrix (rows), like the converter's quat_matrix
+static void quat_m(const float q[4], const float p[3], float m[12]) {
+    float x = q[0], y = q[1], z = q[2], w = q[3];
+    m[0] = 1 - 2 * y * y - 2 * z * z, m[1] = 2 * x * y - 2 * w * z, m[2] = 2 * x * z + 2 * w * y, m[3] = p[0];
+    m[4] = 2 * x * y + 2 * w * z, m[5] = 1 - 2 * x * x - 2 * z * z, m[6] = 2 * y * z - 2 * w * x, m[7] = p[1];
+    m[8] = 2 * x * z - 2 * w * y, m[9] = 2 * y * z + 2 * w * x, m[10] = 1 - 2 * x * x - 2 * y * y, m[11] = p[2];
+}
+
+// The gesture's pose on this character's skeleton, as palette matrices (bind pose -> posed): each bone from
+// its parent, turned by the gesture where it's one of the bones gestures move, else as in the bind pose
+static int gesture_palette(const Npc *n, float out[][12]) {
+    if (!npc_type_can_gesture(n->type) || n->gesture < 1 || n->gesture > g_num_gestures) return 0;
+    const SkelIndex *si = &g_skel_index[n->type];
+    const SkelBone *sk = &g_skel_bones[si->first];
+    const GestHead *h = &g_gest_head[n->gesture - 1];
+    float f = clampf(n->gesture_t * h->fps, 0.0f, (float)(h->frames - 1));
+    int f0 = (int)f;
+    if (f0 > (int)h->frames - 2) f0 = (int)h->frames - 2;
+    float t = clampf(f - (float)f0, 0.0f, 1.0f);
+    const GestFrame *a = &g_gest_frames[h->first + f0], *b = a + 1;
+    int nb = (int)g_models[n->type].num_bones > MAX_PALETTE ? MAX_PALETTE : (int)g_models[n->type].num_bones;
+    static float world[MAX_SKEL_BONES][12], bind[MAX_SKEL_BONES][12];
+    for (int i = 0; i < (int)si->count; i++) {
+        const SkelBone *bn = &sk[i];
+        float q[4], p[3] = {bn->pos[0], bn->pos[1], bn->pos[2]}, local[12];
+        if (bn->canon >= 0 && bn->canon < NUM_CANON) {
+            const int16_t *qa = a->q[bn->canon], *qb = b->q[bn->canon];
+            float sgn = qa[0] * qb[0] + qa[1] * qb[1] + qa[2] * qb[2] + qa[3] * qb[3] < 0 ? -1.0f : 1.0f, len = 0.0f;
+            for (int k = 0; k < 4; k++) {
+                q[k] = ((float)qa[k] + ((float)qb[k] * sgn - (float)qa[k]) * t) / 32767.0f;
+                len += q[k] * q[k];
+            }
+            len = len > 1e-8f ? 1.0f / sqrtf(len) : 0.0f;
+            for (int k = 0; k < 4; k++) q[k] *= len;
+            if (bn->canon == 0) {
+                for (int k = 0; k < 3; k++) p[k] += a->pelvis[k] + (b->pelvis[k] - a->pelvis[k]) * t;
+            }
+        } else {
+            memcpy(q, bn->quat, sizeof(q));
+        }
+        quat_m(q, p, world[i]);
+        quat_m(bn->quat, bn->pos, bind[i]);
+        if (bn->parent >= 0 && bn->parent < i) {
+            memcpy(local, world[i], sizeof(local));
+            memcpy(world[i], world[bn->parent], sizeof(local));
+            mul34(world[i], local);
+            memcpy(local, bind[i], sizeof(local));
+            memcpy(bind[i], bind[bn->parent], sizeof(local));
+            mul34(bind[i], local);
+        }
+        if (bn->palette < nb) {
+            // The posed bone after the inverse of its bind pose (a rotation and an offset: transpose and undo)
+            const float *w = bind[i];
+            float inv[12] = {w[0], w[4], w[8], 0, w[1], w[5], w[9], 0, w[2], w[6], w[10], 0};
+            for (int r = 0; r < 3; r++) inv[r * 4 + 3] = -(inv[r * 4] * w[3] + inv[r * 4 + 1] * w[7] + inv[r * 4 + 2] * w[11]);
+            memcpy(out[bn->palette], world[i], sizeof(float) * 12);
+            mul34(out[bn->palette], inv);
+        }
+    }
+    return 1;
+}
+
+// A player's character mid-gesture: its walk-or-stand pose turned into the gesture, fading in and out
+static void gesture_blend(const Npc *n, float out[][12]) {
+    static float g[MAX_PALETTE][12];
+    if (!gesture_palette(n, g)) return;
+    float len = gesture_length(n->gesture - 1);
+    float w = clampf(fminf(n->gesture_t, len - n->gesture_t) / GESTURE_BLEND, 0.0f, 1.0f);
+    int nb = (int)g_models[n->type].num_bones > MAX_PALETTE ? MAX_PALETTE : (int)g_models[n->type].num_bones;
+    for (int b = 0; b < nb; b++) {
+        for (int k = 0; k < 12; k++) out[b][k] += (g[b][k] - out[b][k]) * w;
+    }
+}
+
 void npcs_draw(Map *m, const Camera *cam) {
     if (!g_file) return;
     g_skin_verts = 0;
@@ -2244,6 +2407,7 @@ void npcs_draw(Map *m, const Camera *cam) {
         sceGumMatrixMode(GU_MODEL);
         sceGumLoadMatrix(&w);
         blended_palette(n, palette);
+        if (n->gesture) gesture_blend(n, palette);
         finger_palette(n->type, palette, NULL);
         if (n->tint) sceGuColor(n->tint);
         draw_skinned(&g_models[n->type], palette, draw_bones(n->type), NULL, NULL);

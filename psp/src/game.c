@@ -252,6 +252,22 @@ static const char *k_pause_items[] = {"Resume Game", "Options", "Saves", "Screen
 // Pause > Screenshot (game_set_screenshot): the next frame is drawn without the pause menu, then saved
 static int (*g_shot)(const char *name, char *out, int out_len);
 static int g_shot_pending;
+// Quick chat (see Quick chat)
+#define QC_SLICES 8
+#define QC_HOLD 0.3f     // seconds on Down before the wheel opens (shorter is a tap: crouch)
+#define QC_COOLDOWN 1.0f // between messages, so nobody floods the chat
+#define QC_RADIUS 74.0f
+static const char *const k_quick_msgs[QC_SLICES] = {"Hello!", "Thanks!", "Yes", "No",
+                                                    "Follow me!", "Wait here", "Help!", "Look at this!"};
+static struct {
+    float hold, cooldown;
+    int open, page, sel; // page 0 messages, 1 gestures; sel -1: nothing picked
+    int tap;             // this frame Down was tapped (crouch)
+    int test;            // opened by "qcwheel": stays up without Down held
+    int gesture, gesture_seq; // this player's, for the others (NetPlayer)
+} g_qc;
+
+static void quick_chat_send(int page, int sel);
 
 void game_set_screenshot(int (*save)(const char *name, char *out, int out_len)) {
     g_shot = save;
@@ -342,6 +358,8 @@ enum {
     CMD_PICKUP,      // i0 body: a health kit, vial, battery or ammo box this player walked over
     CMD_HEAL,        // f0 health from a charger
     CMD_RAG_POSE,    // i0 ragdoll, i1 0 its face / 1 left hand / 2 right hand, u the expression or hand pose
+    CMD_QUICKCHAT,   // i0 quick chat message: the host puts "name: message" in everyone's chat
+    CMD_GESTURE,     // i0 quick chat gesture (npc_gesture_name): everyone sees this player's character do it
 };
 #define MAX_OUTQ 8
 
@@ -367,6 +385,8 @@ typedef struct {
     float health;
     int model;       // NPC type of their player model, or -1
     int colour, pgun; // Profile colours (profile_colour indices): player and physics gun
+    int gesture, gesture_seq; // quick chat: the last gesture (index + 1) and how many so far (a new one restarts it)
+    int gesture_known;        // a client has seen this player's gesture_seq (a gesture from before isn't replayed)
     float prop_hurt; // host: until a flying prop can hurt them again
     int veh;         // the vehicle or seat (body) they're in, or -1
     float veh_throttle, veh_steer;
@@ -1075,6 +1095,7 @@ int game_start(const char *map_name, char *err, int err_len) {
     G.undo_count = 0;
     G.qmenu = 0;
     G.paused = 0;
+    memset(&g_qc, 0, sizeof(g_qc)); // no quick chat wheel left open from the last game
     G.dupe_model = -1;
     G.stage = 0;
     memset(G.notes, 0, sizeof(G.notes));
@@ -1153,7 +1174,7 @@ static void later_update(float dt) {
 }
 
 void game_command(const char *line) {
-    int i;
+    int i, j;
     float x, y, z, yaw;
     if (sscanf(line, "after %f %n", &x, &i) == 1 && i > 0) {
         for (int k = 0; k < MAX_LATER; k++) {
@@ -1179,6 +1200,13 @@ void game_command(const char *line) {
     } else if (sscanf(line, "menu %d", &i) == 1) {
         G.qmenu = 1;
         G.focus = i % 3;
+    } else if (sscanf(line, "quickchat %d %d", &i, &j) == 2) { // quickchat PAGE SLICE: as if picked on the wheel
+        quick_chat_send(i, j);
+    } else if (sscanf(line, "qcwheel %d %d", &i, &j) == 2) { // the wheel open on PAGE with SLICE picked
+        g_qc.open = 1;
+        g_qc.page = i;
+        g_qc.sel = j;
+        g_qc.test = 1;
     } else if (strncmp(line, "screenshot", 10) == 0) { // Pause > Screenshot
         if (g_shot) {
             G.paused = 1;
@@ -3640,6 +3668,105 @@ static void bugbait_update(const InputState *in, float dt) {
     launch(WEAPON_BUGBAIT, player_eye(&G.player), view_forward());
 }
 
+// --- Quick chat ------------------------------------------------------------------------------------
+// Hold D-pad Down: a wheel of short messages and gestures (the consoles have no keyboard). The circle pad
+// picks a slice, L / R turn the page, and letting go of Down sends it. Messages go in everyone's chat
+// ("name: Hello!"; a client asks the host, CMD_QUICKCHAT); gestures play on your character for everyone
+// (NetPlayer.gesture, CMD_GESTURE), and on your own in the third-person view.
+
+static void quick_chat_send(int page, int sel) {
+    if (sel < 0 || sel >= QC_SLICES) return;
+    if (page == 0) {
+        if (g_qc.cooldown > 0.0f) return;
+        g_qc.cooldown = QC_COOLDOWN;
+        char text[48];
+        snprintf(text, sizeof(text), "%s: %s", net_nickname(), k_quick_msgs[sel]);
+        if (is_client()) {
+            send_cmd(CMD_QUICKCHAT, sel, 0, 0, NULL, 0); // it comes back in the host's chat
+        } else {
+            game_chat(text);
+        }
+        return;
+    }
+    if (sel >= npc_gesture_count()) return;
+    if (!npc_type_can_gesture(player_model())) {
+        notify("Your player model can't do gestures (Options > Player model)", NOTE_ERROR);
+        return;
+    }
+    npc_player_gesture(-1, sel);
+    g_qc.gesture = sel + 1;
+    g_qc.gesture_seq = (g_qc.gesture_seq + 1) & 255;
+    if (is_client()) send_cmd(CMD_GESTURE, sel, 0, 0, NULL, 0);
+    if (!third_person()) {
+        char msg[48];
+        snprintf(msg, sizeof(msg), "%s (the others see it)", npc_gesture_name(sel));
+        notify(msg, NOTE_HINT);
+    }
+}
+
+// Each frame: 1 while the wheel has the controls
+static int quick_chat_update(const InputState *in, float dt) {
+    g_qc.tap = 0;
+    g_qc.cooldown -= dt;
+    if (g_qc.test) return 1;
+    int allowed = !G.player.noclip && G.held < 0 && G.held_rag < 0 && G.veh < 0 && G.dead_time <= 0.0f;
+    if (!(in->held & PSP_CTRL_DOWN) || !allowed) {
+        int was_open = g_qc.open;
+        if (was_open && allowed) {
+            quick_chat_send(g_qc.page, g_qc.sel);
+        } else if ((in->released & PSP_CTRL_DOWN) && g_qc.hold < QC_HOLD) {
+            g_qc.tap = 1;
+        }
+        g_qc.open = 0;
+        g_qc.hold = 0.0f;
+        return was_open;
+    }
+    g_qc.hold += dt;
+    if (!g_qc.open) {
+        if (g_qc.hold < QC_HOLD) return 0;
+        g_qc.open = 1;
+        g_qc.sel = -1;
+        play(G.snd.menu_select, 0.5f);
+    }
+    if (in->pressed & (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER)) {
+        g_qc.page ^= 1;
+        g_qc.sel = -1;
+        play(G.snd.menu_move, 0.4f);
+    }
+    // The stick's direction picks a slice: 0 at the top, then round clockwise (it stays picked when the
+    // stick springs back)
+    if (in->ax * in->ax + in->ay * in->ay > 0.25f) {
+        float a = atan2f(in->ax, -in->ay);
+        int s = ((int)floorf(a / (2.0f * PI) * QC_SLICES + 0.5f) + QC_SLICES) % QC_SLICES;
+        if (s != g_qc.sel) play(G.snd.menu_move, 0.3f);
+        g_qc.sel = s;
+    }
+    return 1;
+}
+
+static void draw_quick_chat(void) {
+    if (!g_qc.open) return;
+    const float cx = 240.0f, cy = 132.0f;
+    ui_rrect(cx - QC_RADIUS - 46, cy - QC_RADIUS - 18, (QC_RADIUS + 46) * 2, (QC_RADIUS + 18) * 2, 40, 0xA0000000);
+    int gestures = g_qc.page == 1;
+    for (int s = 0; s < QC_SLICES; s++) {
+        float a = (float)s * (2.0f * PI / QC_SLICES);
+        float x = cx + sinf(a) * QC_RADIUS, y = cy - cosf(a) * QC_RADIUS;
+        const char *label = gestures ? (s < npc_gesture_count() ? npc_gesture_name(s) : "-") : k_quick_msgs[s];
+        float w = ui_text_width(FONT_SMALL, label) + 12.0f;
+        if (s == g_qc.sel) ui_rrect(x - w * 0.5f, y - 9, w, 18, 4, 0xFFE6A03D);
+        ui_text(FONT_SMALL, x, y - 6, s == g_qc.sel ? 0xFFFFFFFF : 0xFFE0E0E0, ALIGN_CENTER, label);
+    }
+    ui_text(FONT_BOLD, cx, cy - 16, 0xFFFFFFFF, ALIGN_CENTER, gestures ? "Gestures" : "Messages");
+    ui_text(FONT_SMALL, cx, cy + 2, 0xFFA0A0A0, ALIGN_CENTER, "L / R: page");
+    if (gestures && !npc_gesture_count()) {
+        ui_text_shadow(FONT_SMALL, cx, cy + QC_RADIUS + 22, 0xFFE0E0E0, ALIGN_CENTER, "Gestures need the NPC pack rebuilt");
+    } else {
+        ui_text_shadow(FONT_SMALL, cx, cy + QC_RADIUS + 22, 0xFFE0E0E0, ALIGN_CENTER,
+                       "Circle pad: pick    Let go of Down: send");
+    }
+}
+
 // --- Items: medkits, batteries, ammo and chargers ----------------------------------------------------
 // Health kits, vials, suit batteries and ammo boxes are props you take by walking over them (when they'd help);
 // health and suit chargers stay where they're put and charge you after a tap of Use, while they've charge
@@ -4747,6 +4874,7 @@ typedef struct {
     uint16_t ack; // last command of this player's the host has run
     int16_t veh;  // the vehicle or seat they're in, or -1
     uint8_t colour, pgun; // Profile colours: player and physics gun (profile_colour indices)
+    uint8_t gesture, gesture_seq; // quick chat: the last gesture (index + 1), counting up for each new one
     char name[16];
 } NetPlayer;
 
@@ -5068,6 +5196,20 @@ static void exec_cmd(int slot, const NetCmd *c) {
     case CMD_RAG_INFLATE:
         npc_ragdoll_inflate(i, c->i1, clampf(c->f[0], 0.5f, 2.0f));
         break;
+    case CMD_QUICKCHAT:
+        if (i >= 0 && i < QC_SLICES) {
+            char text[48];
+            snprintf(text, sizeof(text), "%s: %s", p->name, k_quick_msgs[i]);
+            game_chat(text);
+        }
+        break;
+    case CMD_GESTURE:
+        if (i >= 0 && i < npc_gesture_count()) {
+            p->gesture = i + 1;
+            p->gesture_seq++;
+            npc_player_gesture(slot, i);
+        }
+        break;
     case CMD_RAG_POSE:
         if (c->i1 == 0) {
             npc_ragdoll_set_face(i, (int)c->u);
@@ -5291,6 +5433,8 @@ static void pack_player(NetPlayer *np, int s) {
         np->health = G.health;
         np->held = (int16_t)G.held;
         np->veh = (int16_t)G.veh;
+        np->gesture = (uint8_t)g_qc.gesture;
+        np->gesture_seq = (uint8_t)g_qc.gesture_seq;
         snprintf(np->name, sizeof(np->name), "%s", net_nickname());
         return;
     }
@@ -5310,6 +5454,8 @@ static void pack_player(NetPlayer *np, int s) {
     np->health = p->health;
     np->held = (int16_t)p->held;
     np->veh = (int16_t)p->veh;
+    np->gesture = (uint8_t)p->gesture;
+    np->gesture_seq = (uint8_t)p->gesture_seq;
     np->ack = p->last_cmd;
     snprintf(np->name, sizeof(np->name), "%s", p->name);
 }
@@ -5674,6 +5820,14 @@ static void client_apply_players(const PkPlayers *pk) {
         p->model = np->model == NET_NO_MODEL ? -1 : np->model;
         p->colour = np->colour;
         p->pgun = np->pgun;
+        // A new gesture (not one from before this PSP joined, or before they came back)
+        if (!np->active) {
+            p->gesture_known = 0;
+        } else if (!p->gesture_known || np->gesture_seq != (uint8_t)p->gesture_seq) {
+            if (p->gesture_known && np->gesture) npc_player_gesture(s, np->gesture - 1);
+            p->gesture_seq = np->gesture_seq;
+            p->gesture_known = 1;
+        }
         p->health = np->health;
         p->veh = np->veh;
         snprintf(p->name, sizeof(p->name), "%.15s", np->name);
@@ -6484,6 +6638,20 @@ GameResult game_update(const InputState *in, float dt) {
     } else {
         voice_update(in, dt, 1);
 
+        // Quick chat: hold D-pad Down for the wheel. While it's up the stick picks and L / R turn the page,
+        // so nothing else gets them this frame (a tap of Down still crouches: g_qc.tap)
+        InputState qc_in;
+        if (quick_chat_update(in, dt)) {
+            const unsigned int mine = PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER | PSP_CTRL_UP | PSP_CTRL_DOWN |
+                                      PSP_CTRL_LEFT | PSP_CTRL_RIGHT | PSP_CTRL_CROSS;
+            qc_in = *in;
+            qc_in.ax = qc_in.ay = 0.0f;
+            qc_in.held &= ~mine;
+            qc_in.pressed &= ~mine;
+            qc_in.released &= ~mine;
+            in = &qc_in;
+        }
+
         if (in->pressed & PSP_CTRL_START) {
             physgun_release(1);
             open_pause();
@@ -6563,8 +6731,9 @@ GameResult game_update(const InputState *in, float dt) {
             if (!camera_tool_out() || !is_camera(G.cam_view)) G.cam_view = -1; // putting the tool away ends the camera view
             if (G.player.noclip) {
                 cmd.duck = (in->held & PSP_CTRL_DOWN) && !holding;
-            } else if ((in->pressed & PSP_CTRL_DOWN) && !holding) {
-                G.player.ducked = !G.player.ducked; // crouch is a toggle: the thumb can't hold it and steer
+            } else if (g_qc.tap && !holding) {
+                // Crouch is a toggle (the thumb can't hold it and steer), on a tap: holding opens quick chat
+                G.player.ducked = !G.player.ducked;
             }
             if (!G.player.noclip) cmd.duck = G.player.ducked;
 
@@ -7778,13 +7947,14 @@ static void draw_hud(float fps) {
         if (G.reload_left > 0.0f) ui_text_shadow(FONT_SMALL, 470 - bw / 2, 214, 0xFFE0E0E0, ALIGN_CENTER, "Reloading...");
     }
 
-    // Context hint while holding something with the physics gun
+    // Context hint while holding something with the physics gun: above the health and suit boxes
+    float hint_y = g_settings.show_hud ? 214.0f : 250.0f;
     if (G.use_carry) {
-        ui_text_shadow(FONT_SMALL, 240, 250, 0xFFE0E0E0, ALIGN_CENTER, "Let go of Use to drop    R: Throw");
+        ui_text_shadow(FONT_SMALL, 240, hint_y, 0xFFE0E0E0, ALIGN_CENTER, "Let go of Use to drop    R: Throw");
     } else if (G.held_rag >= 0) {
-        ui_text_shadow(FONT_SMALL, 240, 250, 0xFFE0E0E0, ALIGN_CENTER, "L: Freeze    Up/Down: Distance");
+        ui_text_shadow(FONT_SMALL, 240, hint_y, 0xFFE0E0E0, ALIGN_CENTER, "L: Freeze    Up/Down: Distance");
     } else if (G.held >= 0 && G.weapon == WEAPON_PHYSGUN) {
-        ui_text_shadow(FONT_SMALL, 240, 250, 0xFFE0E0E0, ALIGN_CENTER,
+        ui_text_shadow(FONT_SMALL, 240, hint_y, 0xFFE0E0E0, ALIGN_CENTER,
                        "L: Freeze   Up/Down: Distance   Left/Right: Rotate   X + pad: Turn");
     }
 
@@ -7941,6 +8111,7 @@ void game_render(float fps) {
     if (!G.paused || g_shot_pending) {
         draw_name_tags();
         draw_hud(fps);
+        draw_quick_chat();
         draw_voice_hud();
         script_hud();
 

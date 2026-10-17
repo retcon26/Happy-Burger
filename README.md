@@ -1,6 +1,6 @@
 # Retcon's Mod
 
-A physics sandbox for the PSP, by Retcon. Current version: **1.10.1** (shown in the main menu's corner,
+A physics sandbox for the PSP, by Retcon. Current version: **1.11.0** (shown in the main menu's corner,
 set in `psp/src/version.h`).
 
 **Retcon's Mod is PSP Sandbox's new name.** From 1.10.0 everything uses it: the repositories are
@@ -89,7 +89,8 @@ The full list is in [psp/CONTROLS.txt](psp/CONTROLS.txt).
 | Carry a light prop | D-pad Right (hold, on the prop) |
 | Flashlight | D-pad Right (hold) |
 | Undo the last spawn | D-pad Up |
-| Crouch on/off (noclip: fly down) | D-pad Down |
+| Crouch on/off (noclip: fly down) | D-pad Down (tap) |
+| Quick chat: messages and gestures | D-pad Down (hold) |
 | Spawn menu (L/R switch panel, X selects, O closes) | Select (tap) |
 | Noclip on/off | Select (hold) |
 | Pause menu | Start |
@@ -362,6 +363,14 @@ Everyone needs the same version (the menu's corner shows it). Guns and the crowb
 mode on), and everyone sees the same ragdolls: the host simulates them and sends their poses. Vehicles work for
 everyone: the host drives them for whoever is inside.
 
+**Quick chat:** hold D-pad Down for a wheel of short messages and gestures, since the consoles have no keyboard.
+Push the circle pad towards one, L or R turns the page, and let go of Down to send it. **Messages** (Hello!,
+Thanks!, Yes, No, Follow me!, Wait here, Help!, Look at this!) appear in everyone's chat with your name.
+**Gestures** (Wave, Salute, Yes, No, Come here, Cheer, Laugh, Dance) are GMod's own: everyone sees your character
+do it, and so do you in the third-person view. Walking off stops one. HL2's people and the Combine can do them;
+TF2's mercenaries can't (they're built differently). Gestures need the NPC pack rebuilt (`tools/bspconv.sh
+npcs`).
+
 **Voice chat (PSP):** hold D-pad Up to talk (a quick tap still undoes). It uses the PSP-3000's built-in
 microphone, or a headset's on a PSP-2000. The mic is only switched on while you hold Up. Speech is sent as
 4-bit ADPCM at 11 kHz (about 5.5 KB/s), and the host passes it on to everyone else.
@@ -569,6 +578,7 @@ The latest three. Every version, with dates, what's in each and which ones can p
 
 | Version | Changes |
 |---|---|
+| 1.11.0 | Quick chat (hold D-pad Down): messages and gestures; the 4th to 7th players on a big server show up again; hint and Options fixes |
 | 1.10.1 | Pause menu > Screenshot: saves the screen as a PNG the XMB's Photo app shows |
 | 1.10.0 | Ammo boxes in the Items spawnlist; dedicated servers for 7 players with a password, map rotation and autosaves; the rename's done (repos, `PSP/GAME/RetconsMod` with saves moved across, `retcons-mod-server`) |
 | 1.8.3 | Options > Target FPS: 25, 30, 60 or 120 frames a second; Select closes the spawn menu again (letting go of it opened the menu straight back up) |
@@ -609,13 +619,12 @@ The latest three. Every version, with dates, what's in each and which ones can p
 - [x] Ammo boxes; the rest of the rename (repositories, the `RetconsMod` game folder with saves moved across, the
       server); bigger servers (7 players, a password, map rotation, the build autosaved)
 - [x] Screenshots: Pause > Screenshot saves a PNG for the XMB's Photo app
+- [x] Quick chat: a wheel of messages and GMod's gestures (hold D-pad Down)
 
 - [ ] **Effects:** sparks on metal, smoke, fire after explosions, muzzle smoke and tracer impacts
 - [ ] **Lua gamemodes:** a bigger Lua API and small gamemodes built on it, like Prop Hunt and a zombie survival mode
 - [ ] **More player customization:** model skins and bodygroups, on top of the player model and the player and
       physics gun colours
-- [ ] **Quick chat:** a radial menu of short messages and gestures for multiplayer, since the consoles have no
-      keyboard
 - [ ] **Share builds:** send a saved build to the other players in a game (ad-hoc, Wi-Fi or a server), and let
       players who joined save and load builds too (only the host can now)
 - [ ] **Server on Windows:** retcons-mod-server built for Windows too (it runs on Linux and WSL now)

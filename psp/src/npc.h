@@ -85,6 +85,13 @@ void npc_puppet_set(int slot, int active, int type, vec3 pos, float yaw, float d
 void npc_self_set(int active, int type, vec3 pos, float yaw, float dt);
 // A player's character tinted (their Profile colour); slot -1 is the local player's own body
 void npc_puppet_tint(int slot, unsigned int abgr);
+// Quick chat's gestures (Wave, Salute...), from the NPC pack: how many, their names, whether a character
+// can do them (HL2's people and the Combine; not TF2's mercenaries), and starting one on a player's
+// character (slot -1: your own, as the third-person view shows it; g -1 stops it). Walking off ends it.
+int npc_gesture_count(void);
+const char *npc_gesture_name(int g);
+int npc_type_can_gesture(int type);
+void npc_player_gesture(int slot, int g);
 
 int npc_raycast(vec3 origin, vec3 dir, float max_t, float *t_out);
 // Tests: where NPC i is and how it's finding its way (autoload.txt "npcpos")

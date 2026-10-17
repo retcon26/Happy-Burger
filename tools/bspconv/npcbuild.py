@@ -22,12 +22,14 @@ Sections (same container as .pmap):
   "FXEX": per NPC, per Face Poser expression (faces.EXPRESSIONS after Neutral): {u32 first, count} into "FXDL"
   "FXDL": {u32 vertex (into VERT); i16 dx, dy, dz (1/256 units, bind pose); i16 pad}, sorted by vertex
   "NPCK": per NPC, its hands for the Finger Poser (faces.pack_hands)
+  "SKLI" / "SKLB": per NPC, the skeleton quick chat's gestures pose (player characters on the ValveBiped
+          skeleton), and "GSTH" / "GSTF": the gestures themselves (gestures.py)
   "TEXS" / "TXDT": as in .pmap
 """
 
 import struct
 
-from . import faces, pspimage
+from . import faces, gestures, pspimage
 from .animation import Skeleton
 from .materials import MaterialLoader
 from .models import load_model
@@ -146,6 +148,7 @@ def weapon_grip(fs, sk, palette, weapon):
 KINDS = ["idle", "walk", "run", "attack", "death"]
 BAKE_FPS = 15.0
 MAX_FRAMES = 48  # longer animations are baked at a lower rate to fit
+GESTURE_FPS = {"high": 15.0, "low": 12.0, "ps2": 12.0}  # quick chat's gestures, shared by every character
 MAX_PALETTE = 64  # skinned bones the game keeps per character (npc.c)
 # npcs.txt voice=NAME: the sounds it makes (vo_NAME_pain/_die/_alert in sounds.txt), in the order npc.c knows them
 VOICES = ["", "male", "female", "combine", "metro", "zombie", "fastzombie", "poison", "antlion", "headcrab", "guard",
@@ -205,7 +208,8 @@ def build_npcs(npc_list, gmod_root, out_path, tier_name, log=print):
     npc_data, mesh_data, vert_data, idx_data, seq_data, mat_data, rag_data, wpn_data, flag_data, crab_data, leg_data = (
         bytearray() for _ in range(11))
     fxex_data, fxdl_data, hand_data = bytearray(), bytearray(), bytearray()
-    counts = {"npc": 0, "mesh": 0, "vert": 0, "idx": 0, "seq": 0, "mat": 0, "rag": 0, "fxdl": 0}
+    skli_data, sklb_data = bytearray(), bytearray()
+    counts = {"npc": 0, "mesh": 0, "vert": 0, "idx": 0, "seq": 0, "mat": 0, "rag": 0, "fxdl": 0, "sklb": 0}
     reuse = {}  # (model, weapon, ...) -> what its first entry made, for the same character in another skin
 
 
@@ -275,6 +279,7 @@ def build_npcs(npc_list, gmod_root, out_path, tier_name, log=print):
             leg_data += prev["leg"]
             fxex_data.extend(prev["face"])
             hand_data.extend(prev["hand"])
+            skli_data.extend(prev["skel"])
             voice = VOICES.index(opts["voice"]) if opts.get("voice") in VOICES else 0
             flag_data += struct.pack("<I", (2 if "player" in opts else 0) | (4 if "releasecrab" in opts else 0)
                                      | (8 if game == "workshop" else 0) | (16 if "halves" in opts else 0) | (voice << 8))
@@ -399,6 +404,12 @@ def build_npcs(npc_list, gmod_root, out_path, tier_name, log=print):
                 if any(k in sk.bones[b].name for k in ("pelvis", "thigh", "calf", "foot", "toe")):
                     leg_mask |= 1 << palette[b]
         leg_data += struct.pack("<Q", leg_mask)
+        # Quick chat's gestures: player characters on the skeleton they were made for
+        bones = gestures.skeleton(sk, palette) if "player" in opts and not ragdoll_only else b""
+        skel_rec = struct.pack("<2I", counts["sklb"] if bones else 0, len(bones) // 32)
+        skli_data += skel_rec
+        sklb_data += bones
+        counts["sklb"] += len(bones) // 32
         voice = VOICES.index(opts["voice"]) if opts.get("voice") in VOICES else 0
         flag_data += struct.pack("<I", (1 if ragdoll_only else 0) | (2 if "player" in opts else 0) | (4 if "releasecrab" in opts else 0)
                                  | (8 if game == "workshop" else 0) | (16 if "halves" in opts else 0) | (voice << 8))
@@ -407,7 +418,7 @@ def build_npcs(npc_list, gmod_root, out_path, tier_name, log=print):
             reuse.setdefault(key, {"label": label, "mesh_sizes": [len(mesh.verts) for mesh in m.meshes], "ranges": ranges,
                                    "bones": len(used), "seq_ids": seq_ids, "first_rag": first_rag,
                                    "wpn": bytes(wpn_data[-68:]), "crab": crab_data[-8:], "leg": leg_data[-8:],
-                                   "face": bytes(face_rec), "hand": hand_rec})
+                                   "face": bytes(face_rec), "hand": hand_rec, "skel": skel_rec})
         log(f"  {label:14s} {m.tris:4d} tris, {len(used):2d} bones: {', '.join(baked) or 'ragdoll only'}")
 
     w = PmapWriter(PNPC_MAGIC, PNPC_VERSION)
@@ -423,6 +434,12 @@ def build_npcs(npc_list, gmod_root, out_path, tier_name, log=print):
     w.add("NPCF", flag_data, counts["npc"])
     w.add("NPCH", crab_data, counts["npc"])
     w.add("NPCL", leg_data, counts["npc"])
+    w.add("SKLI", skli_data, counts["npc"])
+    w.add("SKLB", sklb_data, counts["sklb"])
+    baked = gestures.bake(fss[""], GESTURE_FPS[tier_name], log)
+    if baked:
+        w.add("GSTH", baked[0], baked[2])
+        w.add("GSTF", baked[1], baked[3])
     w.add("FXEX", fxex_data, counts["npc"] * (len(faces.EXPRESSIONS) - 1))
     w.add("FXDL", fxdl_data, counts["fxdl"])
     w.add("NPCK", hand_data, counts["npc"])

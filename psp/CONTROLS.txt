@@ -1,4 +1,4 @@
-RETCON'S MOD (FORMERLY PSP SANDBOX) - CONTROLS  (v1.10.1)
+RETCON'S MOD (FORMERLY PSP SANDBOX) - CONTROLS  (v1.11.0)
 =========================================
 
 ON FOOT                      PSP
@@ -8,7 +8,9 @@ Look                         Square / Circle (left /
                              right), Triangle / Cross
                              (up / down)
 Jump                         L
-Crouch (toggle)              D-pad Down
+Crouch (toggle)              Tap D-pad Down
+Quick chat (messages and     Hold D-pad Down
+  gestures; see below)
 Fire / use weapon            R
 Reload                       Hold D-pad Left
 Next weapon                  Tap D-pad Left
@@ -128,6 +130,14 @@ SPAWN MENU (tap Select)
   Left closes it again.
   A wheel badge marks props you can drive or sit in.
 
+
+
+QUICK CHAT (hold D-pad Down)
+  A wheel of messages (Hello!, Thanks!, Yes, No, Follow me!, Wait here, Help!,
+  Look at this!) and gestures (Wave, Salute, Yes, No, Come here, Cheer, Laugh,
+  Dance). Push the circle pad towards one, L / R turns the page, let go of
+  Down to send. Messages go in everyone's chat; everyone sees your gestures
+  (and you do in the third-person view). Walking off stops a gesture.
 
 
 PAUSE MENU (Start)
