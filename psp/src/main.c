@@ -19,6 +19,7 @@
 #include "net.h"
 #include "physics.h"
 #include "settings.h"
+#include "shot.h"
 #include "ui.h"
 #include "update.h"
 
@@ -217,6 +218,7 @@ int main(int argc, char *argv[]) {
     settings_load();
     update_init(argc > 0 ? argv[0] : NULL);
     settings_set_updates_page(update_page_open, update_page_update, update_page_draw);
+    game_set_screenshot(shot_save);
     achieve_init();
     workshop_load();
     ui_load();

@@ -1,6 +1,6 @@
 # Retcon's Mod
 
-A physics sandbox for the PSP, by Retcon. Current version: **1.10.0** (shown in the main menu's corner,
+A physics sandbox for the PSP, by Retcon. Current version: **1.10.1** (shown in the main menu's corner,
 set in `psp/src/version.h`).
 
 **Retcon's Mod is PSP Sandbox's new name.** From 1.10.0 everything uses it: the repositories are
@@ -167,6 +167,13 @@ nearest lamps or lights that are on light the world, on top of your flashlight.
 - **Ragdolls:** every NPC, plus 50 ragdoll-only characters: more HL2 people and creatures, CS:S's counter-terrorists,
   terrorists and hostages, Half-Life: Source's scientist, Barney, grunts and aliens, Gordon Freeman, DoD:S
   soldiers and Chell. (The PSP-1000 has room for the NPCs' ragdolls only.)
+
+## Screenshots
+
+**Pause menu > Screenshot** saves the screen as you see it (with the HUD, without the pause menu) as a PNG in
+`PSP/PHOTO/RetconsMod/` on the memory stick, or the PSP Go's internal storage. The XMB's **Photo** app shows
+them, and on a PC they're ordinary PNG files, named after the map: `gm_construct_0001.png`, `_0002` and so on.
+In PPSSPP they're in its `memstick` folder (`Documents/PPSSPP` on Windows) under `PSP/PHOTO`.
 
 ## Saves
 
@@ -562,8 +569,8 @@ The latest three. Every version, with dates, what's in each and which ones can p
 
 | Version | Changes |
 |---|---|
+| 1.10.1 | Pause menu > Screenshot: saves the screen as a PNG the XMB's Photo app shows |
 | 1.10.0 | Ammo boxes in the Items spawnlist; dedicated servers for 7 players with a password, map rotation and autosaves; the rename's done (repos, `PSP/GAME/RetconsMod` with saves moved across, `retcons-mod-server`) |
-| 1.9.1 | Options > Updates works when the PSP's clock is wrong (1.9.0 said to check the date and time) |
 | 1.8.3 | Options > Target FPS: 25, 30, 60 or 120 frames a second; Select closes the spawn menu again (letting go of it opened the menu straight back up) |
 
 ## Roadmap
@@ -601,6 +608,7 @@ The latest three. Every version, with dates, what's in each and which ones can p
 - [x] Updates over Wi-Fi: Options > Updates installs new versions from GitHub
 - [x] Ammo boxes; the rest of the rename (repositories, the `RetconsMod` game folder with saves moved across, the
       server); bigger servers (7 players, a password, map rotation, the build autosaved)
+- [x] Screenshots: Pause > Screenshot saves a PNG for the XMB's Photo app
 
 - [ ] **Effects:** sparks on metal, smoke, fire after explosions, muzzle smoke and tracer impacts
 - [ ] **Lua gamemodes:** a bigger Lua API and small gamemodes built on it, like Prop Hunt and a zombie survival mode
@@ -612,6 +620,5 @@ The latest three. Every version, with dates, what's in each and which ones can p
       players who joined save and load builds too (only the host can now)
 - [ ] **Server on Windows:** retcons-mod-server built for Windows too (it runs on Linux and WSL now)
 - [ ] **Day, night and weather:** a time-of-day option with fog and rain, built on gm_construct_13's fog
-- [ ] **Screenshots:** a pause menu button that saves the screen to the memory stick
 - [ ] **Workshop maps:** convert maps from your GMod Workshop downloads too (the converter already reads their
       .gma files for characters), listed under Workshop

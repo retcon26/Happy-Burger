@@ -1,4 +1,4 @@
-RETCON'S MOD (FORMERLY PSP SANDBOX) - CONTROLS  (v1.10.0)
+RETCON'S MOD (FORMERLY PSP SANDBOX) - CONTROLS  (v1.10.1)
 =========================================
 
 ON FOOT                      PSP
@@ -131,8 +131,10 @@ SPAWN MENU (tap Select)
 
 
 PAUSE MENU (Start)
-  Resume Game, Options, Saves, Toggle Noclip, Freeze All Props, Clean Up
-  Props (also clears blood), Disconnect
+  Resume Game, Options, Saves, Screenshot, Toggle Noclip, Freeze All Props,
+  Clean Up Props (also clears blood), Disconnect
+  Screenshot saves the screen (without this menu) as a PNG in PSP/PHOTO/
+  RetconsMod, where the XMB's Photo app finds it.
   D-pad Up / Down to choose, X to select, Circle or Start to resume.
 
 

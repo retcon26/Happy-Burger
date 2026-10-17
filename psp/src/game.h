@@ -33,6 +33,8 @@ const char *game_exit_message(void); // why a multiplayer game ended, or ""
 // again, once. 0 if it ended any other way.
 int game_rejoin_address(char *out, int len);
 void game_set_view(float x, float y, float z, float yaw, float pitch);
+// Pause > Screenshot saves the screen with this (the PSP's shot_save; without one the item just resumes)
+void game_set_screenshot(int (*save)(const char *name, char *out, int out_len));
 // Dev/test script command, e.g. "prop 3 100 200 0 45", "debug", "menu 0", "tool 2", "noclip".
 void game_command(const char *line);
 

@@ -247,8 +247,15 @@ static const struct {
 #define NUM_TOOL_GROUPS (int)(sizeof(k_tool_groups) / sizeof(k_tool_groups[0]))
 // The Face Poser's expression and the Finger Poser's hand pose (npc_face_name / npc_hand_name; L changes them)
 static int g_face_sel = 1, g_hand_sel = 1;
-static const char *k_pause_items[] = {"Resume Game", "Options", "Saves", "Toggle Noclip", "Freeze All Props",
-                                      "Clean Up Props", "Disconnect"};
+static const char *k_pause_items[] = {"Resume Game", "Options", "Saves", "Screenshot", "Toggle Noclip",
+                                      "Freeze All Props", "Clean Up Props", "Disconnect"};
+// Pause > Screenshot (game_set_screenshot): the next frame is drawn without the pause menu, then saved
+static int (*g_shot)(const char *name, char *out, int out_len);
+static int g_shot_pending;
+
+void game_set_screenshot(int (*save)(const char *name, char *out, int out_len)) {
+    g_shot = save;
+}
 #define SELECT_HOLD_TIME 0.4f // holding Select this long toggles noclip instead of opening the spawn menu
 #define NUM_PAUSE_ITEMS (int)(sizeof(k_pause_items) / sizeof(k_pause_items[0]))
 enum { NOTE_GENERIC, NOTE_UNDO, NOTE_HINT, NOTE_ERROR, NOTE_CLEANUP, NOTE_CHAT, NOTE_ACHIEVEMENT };
@@ -498,7 +505,7 @@ static struct {
         int jeep_engine, airboat_engine, vehicle_enter, vehicle_exit;
         int bolt_hit, bolt_flesh, gren_tick, bait_squeeze, bait_splat;
         int medkit, medvial, battery, charge_health, charge_suit, charge_no_health, charge_no_suit, charge_done_suit;
-        int ammo;
+        int ammo, shutter;
     } snd;
 
     // Multiplayer (see the Multiplayer section). Slot 0 is the host.
@@ -810,6 +817,7 @@ static void load_shared(void) {
     G.snd.medvial = snd_find("medvial");
     G.snd.battery = snd_find("battery");
     G.snd.ammo = snd_find("ammo_pickup");
+    G.snd.shutter = snd_find("screenshot");
     G.snd.charge_health = snd_find("charge_health");
     G.snd.charge_suit = snd_find("charge_suit");
     G.snd.charge_no_health = snd_find("charge_no_health");
@@ -1171,6 +1179,11 @@ void game_command(const char *line) {
     } else if (sscanf(line, "menu %d", &i) == 1) {
         G.qmenu = 1;
         G.focus = i % 3;
+    } else if (strncmp(line, "screenshot", 10) == 0) { // Pause > Screenshot
+        if (g_shot) {
+            G.paused = 1;
+            g_shot_pending = 1;
+        }
     } else if (strncmp(line, "pause saves", 11) == 0) { // Pause > Saves
         G.paused = 1;
         G.pause_saves = 1;
@@ -4537,6 +4550,7 @@ static void saves_page(const InputState *in) {
 
 // GMod's escape menu: Resume, Options, cleanup, Disconnect
 static GameResult pause_update(const InputState *in) {
+    if (g_shot_pending) return GAME_CONTINUE; // the screenshot's frame is on its way
     if (G.pause_options) {
         if (options_update(in)) G.pause_options = 0;
         if (!g_settings.sound && G.hold_sound >= 0) {
@@ -4573,23 +4587,31 @@ static GameResult pause_update(const InputState *in) {
         }
         break;
     case 3:
+        // Stays paused (the world holds still) while the next frame is drawn without this menu
+        if (g_shot) {
+            g_shot_pending = 1;
+        } else {
+            G.paused = 0;
+        }
+        break;
+    case 4:
         G.player.noclip = !G.player.noclip;
         G.player.velocity = v3(0, 0, 0);
         G.paused = 0;
         notify(G.player.noclip ? "Noclip enabled" : "Noclip disabled", NOTE_HINT);
         break;
-    case 4:
     case 5:
+    case 6:
         if (is_client()) {
             notify("Only the host can do that", NOTE_ERROR);
-        } else if (G.pause_sel == 4) {
+        } else if (G.pause_sel == 5) {
             freeze_all();
         } else {
             cleanup_props();
         }
         G.paused = 0;
         break;
-    case 6:
+    case 7:
         G.paused = 0;
         G.qmenu = 0;
         net_leave();
@@ -7811,7 +7833,7 @@ static void draw_pause(void) {
         saves_draw(130, 60, 340, 186);
     } else {
         ui_text_shadow(FONT_BOLD, 24, 74, 0xFFA0A0A0, ALIGN_LEFT, "PAUSED");
-        menu_draw_buttons(k_pause_items, NUM_PAUSE_ITEMS, G.pause_sel, 92, 22);
+        menu_draw_buttons(k_pause_items, NUM_PAUSE_ITEMS, G.pause_sel, 88, 20);
         ui_text_shadow(FONT_SMALL, 24, 256, 0xC0FFFFFF, ALIGN_LEFT, "X Select    O / START Resume");
         ui_textf(FONT_SMALL, 474, 256, 0xA0FFFFFF, ALIGN_RIGHT, "%s  -  %d props", G.map_name, player_prop_count());
         if (G.role != ROLE_OFFLINE) {
@@ -7916,7 +7938,7 @@ void game_render(float fps) {
     map_set_view_limit(1e9f);     // nor the draw distance
 
     ui_begin();
-    if (!G.paused) {
+    if (!G.paused || g_shot_pending) {
         draw_name_tags();
         draw_hud(fps);
         draw_voice_hud();
@@ -7924,9 +7946,23 @@ void game_render(float fps) {
 
     }
     if (G.qmenu && !G.paused) draw_qmenu(player_prop_count());
-    if (G.paused) draw_pause();
+    if (G.paused && !g_shot_pending) draw_pause();
     ui_end();
     gfx_end_frame();
     if (G.paused && G.pause_saves) saves_frame(); // the keyboard for a save's name
     gfx_present(1);
+    if (g_shot_pending) {
+        // That frame is on the screen now: save it, then back to the game
+        char path[160], msg[64];
+        if (g_shot(G.map_name, path, sizeof(path)) == 0) {
+            const char *file = strrchr(path, '/');
+            snprintf(msg, sizeof(msg), "Screenshot saved: %.40s", file ? file + 1 : path);
+            notify(msg, NOTE_HINT);
+            play(G.snd.shutter, 0.7f);
+        } else {
+            notify(path, NOTE_ERROR);
+        }
+        g_shot_pending = 0;
+        G.paused = 0;
+    }
 }

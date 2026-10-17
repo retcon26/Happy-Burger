@@ -8,7 +8,8 @@ another protocol don't show up in Join Game or Online Servers.
 
 | Version | Date | Plays with | In short |
 |---|---|---|---|
-| [1.10.0](#1100) | 2026-10-16 | 1.10.0 | Ammo boxes; bigger servers with passwords, rotation, autosave; the rename's done |
+| [1.10.1](#1101) | 2026-10-16 | 1.10.0 – 1.10.1 | Pause menu > Screenshot |
+| [1.10.0](#1100) | 2026-10-16 | 1.10.0 – 1.10.1 | Ammo boxes; bigger servers with passwords, rotation, autosave; the rename's done |
 | [1.9.1](#191) | 2026-10-16 | 1.8.2 – 1.9.1 | Updates work with a wrong PSP clock |
 | [1.9.0](#190) | 2026-10-16 | 1.8.2 – 1.9.1 | Options > Updates: new versions from GitHub over Wi-Fi; LOD distance slider |
 | [1.8.3](#183) | 2026-10-16 | 1.8.2 – 1.9.1 | Target FPS option; Select closes the spawn menu again |
@@ -30,6 +31,14 @@ another protocol don't show up in Join Game or Online Servers.
 | [1.1.0](#110) | before 2026-10-11 | not recorded | Camera tool |
 | [1.0.1](#101) | before 2026-10-11 | not recorded | Ragdoll crash fixes |
 | [1.0.0](#100) | before 2026-10-11 | not recorded | Version label, new options, more ragdolls |
+
+## 1.10.1
+
+- **Pause menu > Screenshot:** saves the screen as you see it, with the HUD and without the pause menu, as a
+  PNG in `PSP/PHOTO/RetconsMod/` (the PSP Go's internal storage when the game runs from there). The XMB's Photo
+  app shows them; they're named after the map, `gm_construct_0001.png` and on. A camera click (the city
+  scanner's) when it's saved, with the sounds rebuilt (`tools/bspconv.sh sounds`).
+- Network protocol 13, as 1.10.0: they play together, and dedicated servers 1.2.0 still work.
 
 ## 1.10.0
 
