@@ -5,6 +5,8 @@ psp/data/*
 psp/data_backup/
 psp/release/
 psp/release_dev/
+psp/update/
+psp/release.stamp
 audio_check/
 screenshots/
 

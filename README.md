@@ -474,6 +474,12 @@ This makes `psp\release\PSP\GAME\RetconsMod\`. Copy `psp\release\PSP` onto the m
 (`psp\release_dev\`, under 500 MB) with only the maps in [psp/dev_maps.txt](psp/dev_maps.txt), which is
 quicker to copy and test with.
 
+**Updating a PSP you've already copied the game to:** `powershell -File psp/make_release.ps1 -Update` makes
+`psp\update\` with the game and only the data that changed since you last made a release or update folder (the
+first time, say from when: `-Update -Since 2026-10-16`). Copy `psp\update\PSP` over the memory stick's `PSP` folder
+in the same way; it replaces just those files. If your install is still in `PSP/GAME/PSPSandbox` (from before
+1.10.0), add `-Folder PSPSandbox` so the update lands on top of it.
+
 ### Changing just one part
 
 After the first full build you can redo one step on its own. Run these in Ubuntu, from the `retcons-mod`
@@ -492,7 +498,8 @@ folder:
 | Sounds | `tools/bspconv.sh sounds` | `tools/sounds.txt` |
 | Fonts, spawn icons, map thumbnails | `tools/bspconv.sh ui` | the lists above |
 
-Then run `make_release.ps1` again to update the release folder.
+Then run `make_release.ps1` again to update the release folder, or `make_release.ps1 -Update` for just what
+changed.
 
 What each one makes:
 
