@@ -1,6 +1,6 @@
 # Retcon's Mod
 
-A physics sandbox for the PSP, by Retcon. Current version: **1.12.0** (shown in the main menu's corner,
+A physics sandbox for the PSP, by Retcon. Current version: **1.13.1** (shown in the main menu's corner,
 set in `psp/src/version.h`).
 
 **Retcon's Mod is PSP Sandbox's new name.** From 1.10.0 everything uses it: the repositories are
@@ -33,7 +33,8 @@ contain it are for your own use. Don't share them.
 
 - **250 maps:** gm_construct and gm_flatgrass, the Half-Life 2 campaign, the original Half-Life campaign
   (converted from GoldSrc), HL2 Deathmatch, Half-Life Deathmatch: Source, Counter-Strike: Source, Day of Defeat:
-  Source and Team Fortress 2 maps, plus **gm_construct_13** (see [Maps](#maps)).
+  Source and Team Fortress 2 maps, plus **gm_construct_13**, and the maps in your own **GMod Workshop downloads**
+  (see [Maps](#maps)).
 - **About 3,200 props:** 191 hand-picked ones in 11 spawnlists, plus about 3,000 more pulled automatically from
   HL2 and its episodes, CS:S, DoD:S, Portal, Portal 2, Left 4 Dead 1 and 2, Fistful of Frags, Black Mesa and TF2,
   in about 160 spawnlists. The extra ones load from the memory stick only when spawned.
@@ -240,9 +241,12 @@ Main menu > Workshop turns things on and off, like GMod's addon list. It has thr
 them, X switches the highlighted entry, and Triangle switches the whole tab (on Maps, the whole game):
 
 - **Maps:** listed by game (Sandbox, Counter-Strike, Half-Life 2, HL2 Deathmatch, HL Deathmatch, Half-Life, Day of
-  Defeat, Team Fortress 2), each with how many of its maps are on. X opens a game to show its maps, and Triangle
+  Defeat, Team Fortress 2, and Workshop for the maps from your GMod Workshop downloads), each with how many of its
+  maps are on. X opens a game to show its maps, and Triangle
   switches the whole game. Maps that are off aren't offered in Start New Game or Host Game.
-- **Addons:** the Lua addons in `data/lua/autorun`. Ones that are off don't run.
+- **Addons:** the gamemodes (by name, marked Gamemode) and the Lua addons in `data/lua/autorun`. A gamemode
+  that's off isn't offered by Start New Game's Triangle (joining a game that runs it still works); an addon
+  that's off doesn't run.
 - **Custom:** characters from your GMod Workshop downloads (`game=workshop` in `tools/npcs.txt`). Ones that are
   off leave the spawn menu's Workshop list and the player models.
 
@@ -324,6 +328,18 @@ start the game again to play it.
 | Counter-Strike: Source | `cs_` and `de_` maps |
 | Day of Defeat: Source | `dod_` maps |
 | Team Fortress 2 | 22 official maps, one or more of each mode: 2Fort, Turbine, Dustbowl, Granary, Badwater, Gold Rush, Viaduct, Hydro, Hightower, Doomsday, Mannworks and more |
+
+**Workshop maps:** `tools/bspconv.sh workshop` converts the maps in your GMod Workshop downloads too (Steam keeps
+them in `steamapps/workshop/content/4000`, in the library GMod is in). Each addon with maps in it is unpacked once
+into `tools/workshop_cache`, and its maps find their textures and models as they would in GMod: in the map
+itself, in the addon, in your other Workshop addons (content packs), in GMod's own files, then in Counter-Strike:
+Source, the HL2 episodes, Team Fortress 2 and Half-Life: Source if you have them. They're listed under
+**Workshop** in Start New Game and in Main menu > Workshop (`data/maps/workshop.txt` says which maps they are),
+with their thumbnails when the addon has one. `--list` just shows what it found, `--all` converts them all again,
+and `--jobs N` does several at once (big Workshop maps take a lot of memory, so it does one at a time unless you
+say). A Workshop map named like one in `maps.txt` is left out. Very big ones may only fit a PSP in low detail, and
+the game holds 224 props at a time, so a map with more physics props than that (Prop Hunt maps often have
+hundreds) gets the first 224. To play one together, everyone needs it converted.
 
 The list also has **gm_construct_13**: gm_construct at night, in thick dark fog. A black figure turns up in the
 distance now and then, at the edge of your view. Look straight at it, or walk towards it, and it's gone. It reuses
@@ -480,7 +496,8 @@ Close PPSSPP first: it locks the EBOOT while it runs. In Ubuntu, in the `retcons
 bash tools/rebuild_all.sh
 ```
 
-It converts every map in [tools/maps.txt](tools/maps.txt) (about 250, so expect a few hours), builds the
+It converts every map in [tools/maps.txt](tools/maps.txt) (about 250, so expect a few hours) and the maps in your
+GMod Workshop downloads, builds the
 packs in `psp/data/` (props, characters, first-person weapons, sounds, fonts and icons), then compiles
 `psp/EBOOT.PBP`. The extra props from the other games are a separate, longer step:
 
@@ -517,6 +534,7 @@ folder:
 | The game code only | `bash psp/build.sh` | `psp/src/` |
 | One map | `tools/bspconv.sh convert <path to map.bsp>` | a `.bsp` (Source or GoldSrc) |
 | Maps you've added to the list | `tools/convert_new.sh [jobs] [all]` | `tools/maps.txt` |
+| Maps from your GMod Workshop downloads | `tools/bspconv.sh workshop [--list] [--all]` | Steam's Workshop folder |
 | NPC navigation, for maps already converted | `tools/bspconv.sh nav` | each map's `info_node`s |
 | Props and weapon models | `tools/bspconv.sh props` | `tools/props.txt` |
 | Extra props from the other games | `tools/bspconv.sh extras` | the installed games |
@@ -612,9 +630,9 @@ The latest three. Every version, with dates, what's in each and which ones can p
 
 | Version | Changes |
 |---|---|
+| 1.13.1 | Gamemodes on the Workshop's Addons tab (off ones aren't offered in Start New Game); Lua addons with short file names run on a PSP again |
+| 1.13.0 | Workshop maps: `tools/bspconv.sh workshop` converts the maps in your GMod Workshop downloads, listed under Workshop in Start New Game and the Workshop menu |
 | 1.12.0 | Lua gamemodes: Prop Hunt, Zombie Survival and Deathmatch (New Game's Triangle, or a server's `gamemode`); a much bigger Lua API ([docs/LUA.md](docs/LUA.md)); scoreboard; spectating |
-| 1.11.0 | Quick chat (hold D-pad Down): messages and gestures; the 4th to 7th players on a big server show up again; hint and Options fixes |
-| 1.10.1 | Pause menu > Screenshot: saves the screen as a PNG the XMB's Photo app shows |
 
 ## Roadmap
 
@@ -654,6 +672,7 @@ The latest three. Every version, with dates, what's in each and which ones can p
 - [x] Screenshots: Pause > Screenshot saves a PNG for the XMB's Photo app
 - [x] Quick chat: a wheel of messages and GMod's gestures (hold D-pad Down)
 - [x] Lua gamemodes: a much bigger Lua API, and Prop Hunt, Zombie Survival and Deathmatch built on it
+- [x] Workshop maps: the maps in your GMod Workshop downloads converted too, listed under Workshop
 
 - [ ] **Effects:** sparks on metal, smoke, fire after explosions, muzzle smoke and tracer impacts
 - [ ] **More player customization:** model skins and bodygroups, on top of the player model and the player and
@@ -662,5 +681,3 @@ The latest three. Every version, with dates, what's in each and which ones can p
       players who joined save and load builds too (only the host can now)
 - [ ] **Server on Windows:** retcons-mod-server built for Windows too (it runs on Linux and WSL now)
 - [ ] **Day, night and weather:** a time-of-day option with fog and rain, built on gm_construct_13's fog
-- [ ] **Workshop maps:** convert maps from your GMod Workshop downloads too (the converter already reads their
-      .gma files for characters), listed under Workshop

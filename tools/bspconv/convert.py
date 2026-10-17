@@ -118,7 +118,9 @@ def open_bsp(path):
     return GoldSrcBsp(path) if is_goldsrc(path) else Bsp(path)
 
 
-def convert_map(bsp_path, gmod_root, out_path, tier_name, log=print):
+def convert_map(bsp_path, gmod_root, out_path, tier_name, log=print, content_dirs=None, fallback_dirs=()):
+    """content_dirs: folders searched before GMod's own files (default: the map's game, content_dirs_for);
+    fallback_dirs: after them (a Workshop map's mounted games, workshop.py)."""
     tier = dict(TIERS[tier_name])
     prop_tex = None
     if game_folder(bsp_path) in FULL_RES_GAMES:
@@ -127,7 +129,7 @@ def convert_map(bsp_path, gmod_root, out_path, tier_name, log=print):
         log(f"  full-resolution textures (up to {tier['tex']})")
     t0 = time.time()
     bsp = open_bsp(bsp_path)
-    fs = GameFS(gmod_root, content_dirs_for(bsp_path))
+    fs = GameFS(gmod_root, content_dirs_for(bsp_path) if content_dirs is None else content_dirs, fallback_dirs)
     fs.set_pak(bsp.pakfile())
     # Half-Life maps bring their own textures (.wad); Source maps use .vmt/.vtf
     mats = bsp.material_loader() if hasattr(bsp, "material_loader") else MaterialLoader(fs)

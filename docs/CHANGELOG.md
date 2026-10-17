@@ -8,7 +8,9 @@ another protocol don't show up in Join Game or Online Servers.
 
 | Version | Date | Plays with | In short |
 |---|---|---|---|
-| [1.12.0](#1120) | 2026-10-17 | 1.12.0 | Lua gamemodes: Prop Hunt, Zombie Survival, Deathmatch; a bigger Lua API |
+| [1.13.1](#1131) | 2026-10-17 | 1.12.0 – 1.13.1 | Gamemodes on the Workshop's Addons tab; short-named Lua files found again |
+| [1.13.0](#1130) | 2026-10-17 | 1.12.0 – 1.13.1 | Workshop maps |
+| [1.12.0](#1120) | 2026-10-17 | 1.12.0 – 1.13.1 | Lua gamemodes: Prop Hunt, Zombie Survival, Deathmatch; a bigger Lua API |
 | [1.11.0](#1110) | 2026-10-16 | 1.11.0 | Quick chat: messages and gestures |
 | [1.10.1](#1101) | 2026-10-16 | 1.10.0 – 1.10.1 | Pause menu > Screenshot |
 | [1.10.0](#1100) | 2026-10-16 | 1.10.0 – 1.10.1 | Ammo boxes; bigger servers with passwords, rotation, autosave; the rename's done |
@@ -33,6 +35,27 @@ another protocol don't show up in Join Game or Online Servers.
 | [1.1.0](#110) | before 2026-10-11 | not recorded | Camera tool |
 | [1.0.1](#101) | before 2026-10-11 | not recorded | Ragdoll crash fixes |
 | [1.0.0](#100) | before 2026-10-11 | not recorded | Version label, new options, more ragdolls |
+
+## 1.13.1
+
+- **Gamemodes as addons:** Main menu > Workshop > Addons lists the gamemodes (by name, marked Gamemode) above the
+  Lua addons. One that's off isn't offered by Start New Game's Triangle; joining a game that runs it still works.
+- **Fixed:** Lua files whose names fit the old 8.3 form (`example.lua`, `prophunt.lua`) come back from the memory
+  stick in capitals (`EXAMPLE.LUA`), on a PSP and in PPSSPP alike, so those addons didn't run or show in the
+  Workshop, and such gamemodes in `data/lua/gamemodes` weren't found. Names are read case-blind now.
+- Network protocol 15, as 1.12.0 and 1.13.0: they all play together, and with dedicated servers 1.3.0.
+
+## 1.13.0
+
+- **Workshop maps:** `tools/bspconv.sh workshop` converts the maps in your GMod Workshop downloads. Each addon
+  with maps is unpacked once into `tools/workshop_cache`; its maps find their textures and models as in GMod (the
+  map, its addon, your other Workshop addons, GMod, then Counter-Strike: Source, the HL2 episodes, TF2 and
+  Half-Life: Source), get their NPC node graphs, and their thumbnails when the addon has one. `--list`, `--all`,
+  `--jobs N`; `tools/rebuild_all.sh` does it too. The converter writes `data/maps/workshop.txt`, and the game lists
+  those maps under a new **Workshop** category in Start New Game and Main menu > Workshop > Maps (room for 400
+  maps now, up from 320).
+- Network protocol 15, as 1.12.0: they play together, and dedicated servers 1.3.0 host Workshop maps too (give the
+  server the converted files).
 
 ## 1.12.0
 

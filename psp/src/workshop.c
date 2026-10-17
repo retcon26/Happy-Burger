@@ -6,12 +6,13 @@
 
 #include "audio.h"
 #include "npc.h"
+#include "script.h"
 #include "settings.h"
 #include "ui.h"
 
 #define WS_PATH "data/workshop.cfg"
 #define MAX_OFF 512
-#define MAX_ITEMS 320
+#define MAX_ITEMS 400
 #define ROW_H 15
 
 static const char *const k_kind_keys[WS_KINDS] = {"map", "addon", "custom"};
@@ -33,6 +34,22 @@ static int find_off(int kind, const char *name) {
 
 int workshop_enabled(int kind, const char *name) {
     return find_off(kind, name) < 0;
+}
+
+// The memory stick hands back names that fit 8.3 in capitals ("EXAMPLE.LUA"), as PPSSPP does: in lower
+// case they match what's written in scripts and data/workshop.cfg
+static void lower_name(char *s) {
+    for (; *s; s++) {
+        if (*s >= 'A' && *s <= 'Z') *s = (char)(*s - 'A' + 'a');
+    }
+}
+
+// Gamemodes are on the Addons tab as "gamemodes/<id>.lua"
+int workshop_gamemode_on(const char *id) {
+    if (!id || !id[0] || strcmp(id, "sandbox") == 0) return 1;
+    char name[48];
+    snprintf(name, sizeof(name), "gamemodes/%s.lua", id);
+    return workshop_enabled(WS_ADDON, name);
 }
 
 static void set_enabled(int kind, const char *name, int on) {
@@ -130,13 +147,18 @@ void workshop_open(char (*maps)[32], int num_maps, int (*cat_of)(const char *map
         g_map_cat[g_count[WS_MAP]] = (unsigned char)(c >= 0 && c < g_num_cats ? c : g_num_cats - 1);
         snprintf(g_items[WS_MAP][g_count[WS_MAP]++], 32, "%s", maps[i]);
     }
-    // Lua addons: the autorun scripts
+    // Addons: the gamemodes first (by name on the page), then the autorun scripts
     g_count[WS_ADDON] = 0;
+    script_gamemodes_scan();
+    for (int i = 1; i < script_gamemode_count() && g_count[WS_ADDON] < MAX_ITEMS; i++) {
+        snprintf(g_items[WS_ADDON][g_count[WS_ADDON]++], 32, "gamemodes/%s.lua", script_gamemode_id(i));
+    }
     SceUID d = sceIoDopen("data/lua/autorun");
     if (d >= 0) {
         SceIoDirent ent;
         memset(&ent, 0, sizeof(ent));
         while (sceIoDread(d, &ent) > 0 && g_count[WS_ADDON] < MAX_ITEMS) {
+            lower_name(ent.d_name);
             size_t n = strlen(ent.d_name);
             if (n > 4 && n < 32 && strcmp(ent.d_name + n - 4, ".lua") == 0) {
                 snprintf(g_items[WS_ADDON][g_count[WS_ADDON]++], 32, "%s", ent.d_name);
@@ -152,6 +174,12 @@ void workshop_open(char (*maps)[32], int num_maps, int (*cat_of)(const char *map
     }
     g_sel = g_scroll = 0;
     g_open = -1;
+    build_rows();
+}
+
+void workshop_show_tab(int tab) {
+    g_tab = tab >= 0 && tab < WS_KINDS ? tab : 0;
+    g_sel = g_scroll = 0;
     build_rows();
 }
 
@@ -231,6 +259,16 @@ static const char *map_label(const char *name) {
     return strncmp(name, "hl1_", 4) == 0 ? name + 4 : name;
 }
 
+// An addon's label: a gamemode by its name (GM.Name), a script by its file name
+static const char *addon_label(const char *name, int *gamemode) {
+    *gamemode = strncmp(name, "gamemodes/", 10) == 0;
+    if (!*gamemode) return name;
+    char id[32];
+    snprintf(id, sizeof(id), "%.*s", (int)strlen(name) - 14, name + 10);
+    int k = script_gamemode_find(id);
+    return k > 0 ? script_gamemode_title(k) : id;
+}
+
 void workshop_draw(float x, float y, float w, float h) {
     ui_rrect(x, y, w, h, 4, 0xF0E8E8E8);
     ui_gradient(x, y, w, 22, 0xFF8C6A3D, 0xFF6E5230);
@@ -275,11 +313,15 @@ void workshop_draw(float x, float y, float w, float h) {
             ui_textf(FONT_SMALL, x + w - 40, ry + 1, sel ? 0xFFFFFFFF : 0xFF707070, ALIGN_RIGHT, "%d / %d", con, total);
             checkbox(x + w - 32, ry + 1, con == total, con > 0 && con < total, sel);
         } else {
-            int enabled = workshop_enabled(g_tab, g_items[g_tab][row]);
+            int enabled = workshop_enabled(g_tab, g_items[g_tab][row]), gamemode = 0;
             float ix = x + (g_tab == WS_MAP ? 30 : 12); // a game's maps sit under its heading
+            const char *label = g_tab == WS_MAP ? map_label(g_items[g_tab][row])
+                                : g_tab == WS_ADDON ? addon_label(g_items[g_tab][row], &gamemode)
+                                                    : g_items[g_tab][row];
             checkbox(ix, ry + 1, enabled, 0, sel);
-            ui_text_clip(FONT_SMALL, ix + 18, ry, w - (ix - x) - 40, sel ? 0xFFFFFFFF : enabled ? 0xFF303030 : 0xFF909090,
-                         g_tab == WS_MAP ? map_label(g_items[g_tab][row]) : g_items[g_tab][row]);
+            ui_text_clip(FONT_SMALL, ix + 18, ry, w - (ix - x) - (gamemode ? 110 : 40),
+                         sel ? 0xFFFFFFFF : enabled ? 0xFF303030 : 0xFF909090, label);
+            if (gamemode) ui_text(FONT_SMALL, x + w - 18, ry, sel ? 0xFFFFFFFF : 0xFF3D8CE6, ALIGN_RIGHT, "Gamemode");
         }
     }
     if (g_num_rows > rows) {

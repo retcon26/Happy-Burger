@@ -175,6 +175,8 @@ static int run_autoload(char *status, int status_len) {
         }
         if (strcmp(nm, "menu") == 0 && sscanf(line, "%*s %31s", page) == 1 && strcmp(page, "workshop") == 0) {
             menu_show_workshop();
+            char tab[16];
+            if (sscanf(line, "%*s %*s %15s", tab) == 1) workshop_show_tab(strcmp(tab, "addons") == 0 ? 1 : 2); // "menu workshop addons"
         }
         if (strcmp(nm, "menu") == 0 && sscanf(line, "%*s %31s", page) == 1 && strcmp(page, "newgame") == 0) {
             menu_show_newgame();

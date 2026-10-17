@@ -99,6 +99,14 @@ static void run_file(const char *path) {
     if (luaL_dofile(L, path) != LUA_OK) report_top();
 }
 
+// The memory stick hands back names that fit 8.3 in capitals ("EXAMPLE.LUA"), as PPSSPP does: in lower
+// case they match what's written in scripts and data/workshop.cfg
+static void lower_name(char *s) {
+    for (; *s; s++) {
+        if (*s >= 'A' && *s <= 'Z') *s = (char)(*s - 'A' + 'a');
+    }
+}
+
 // --- Basics: print, time, include --------------------------------------------------------------------
 
 static int l_print(lua_State *s) {
@@ -798,6 +806,7 @@ int script_start(const char *map_name, const char *mode, int server, int client)
         SceIoDirent ent;
         memset(&ent, 0, sizeof(ent));
         while (sceIoDread(d, &ent) > 0) {
+            lower_name(ent.d_name);
             size_t n = strlen(ent.d_name);
             if (n > 4 && strcmp(ent.d_name + n - 4, ".lua") == 0 && workshop_enabled(WS_ADDON, ent.d_name)) {
                 char path[128];
@@ -984,6 +993,7 @@ void script_gamemodes_scan(void) {
         SceIoDirent ent;
         memset(&ent, 0, sizeof(ent));
         while (sceIoDread(d, &ent) > 0) {
+            lower_name(ent.d_name);
             size_t n = strlen(ent.d_name);
             if (n > 4 && n - 4 < NET_MODE_LEN && strcmp(ent.d_name + n - 4, ".lua") == 0) {
                 char id[NET_MODE_LEN], path[128];

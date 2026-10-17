@@ -20,11 +20,12 @@ hook.Add("PlayerUse", "launcher", function(ply, ent)
     end
 end)
 
--- A short welcome message a moment after the map loads (GAMEMODE is set when one's running).
+-- A short welcome message a moment after the map loads (GAMEMODE is set when one's running). Messages
+-- on screen fit about 45 characters.
 timer.Simple(1.5, function()
     if GAMEMODE then
-        print("Welcome to " .. GAMEMODE.Name .. " on " .. MAP .. "! Hold Select for the scores.")
+        print(GAMEMODE.Name .. " on " .. MAP .. "!")
     else
-        print("Welcome to " .. MAP .. "! Select opens the spawn menu.")
+        print("Welcome to " .. MAP .. "!")
     end
 end)

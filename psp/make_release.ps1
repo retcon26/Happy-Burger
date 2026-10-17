@@ -37,6 +37,7 @@ if ($Dev) {
 function Wanted($file) {
     if ($Update) { return $file.LastWriteTime -gt $Since }
     if (-not $Dev -or $file.DirectoryName -notlike "*\data\maps") { return $true }
+    if ($file.Name -notmatch "\.(pmap|ppak|pnav)$") { return $true } # workshop.txt, the Workshop maps' list
     $base = $file.Name -replace "(\.low)?\.(pmap|ppak|pnav)$", ""
     return $maps -contains $base
 }

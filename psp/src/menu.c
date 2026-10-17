@@ -22,7 +22,9 @@
 #include "ui.h"
 #include "version.h"
 
-#define MAX_MAPS 320
+#define MAX_MAPS 400
+#define MAX_WORKSHOP_MAPS 64
+#define WORKSHOP_LIST "data/maps/workshop.txt" // tools/bspconv.sh workshop writes it
 #define BG_ABGR 0xFF201810
 
 typedef enum { PAGE_MAIN, PAGE_NEWGAME, PAGE_OPTIONS, PAGE_MULTI, PAGE_JOIN, PAGE_PROFILE, PAGE_ACHIEVEMENTS, PAGE_WORKSHOP } Page;
@@ -44,8 +46,10 @@ static const struct {
     {"Half-Life", {"hl1_", NULL}},
     {"Day of Defeat", {"dod_", NULL}},
     {"Team Fortress 2", {"ctf_", "cp_", "pl_", "plr_", "koth_", "arena_", "pd_", "sd_", "tc_", "mvm_", "pass_", NULL}},
+    {"Workshop", {NULL}}, // maps from your GMod Workshop downloads (WORKSHOP_LIST), whatever their prefix
     {"Other", {NULL}},
 };
+#define CAT_WORKSHOP (NUM_CATS - 2)
 #define NUM_CATS (int)(sizeof(k_cats) / sizeof(k_cats[0]))
 #define GRID_COLS 3
 
@@ -102,9 +106,34 @@ static struct {
     int list_ok; // as saved_ok
     float list_timer;
     char autojoin[48]; // autoload.txt "join ADDRESS": join this server as soon as Wi-Fi is up
+    char workshop[MAX_WORKSHOP_MAPS][32]; // the maps converted from the Workshop
+    int num_workshop;
 } M;
 
+// The Workshop maps the converter listed ("name|addon title|item" lines)
+static void load_workshop_maps(void) {
+    M.num_workshop = 0;
+    FILE *f = fopen(WORKSHOP_LIST, "r");
+    if (!f) return;
+    char line[160];
+    while (M.num_workshop < MAX_WORKSHOP_MAPS && fgets(line, sizeof(line), f)) {
+        if (line[0] == '#') continue;
+        line[strcspn(line, "|\r\n")] = 0;
+        if (line[0] && strlen(line) < sizeof(M.workshop[0])) snprintf(M.workshop[M.num_workshop++], sizeof(M.workshop[0]), "%s", line);
+    }
+    fclose(f);
+}
+
+// New Game's gamemode: the one picked, unless it's gone or switched off in the Workshop (then Sandbox)
+static int newgame_mode(void) {
+    int k = script_gamemode_find(g_settings.gamemode);
+    return k > 0 && workshop_gamemode_on(script_gamemode_id(k)) ? k : 0;
+}
+
 static int map_category(const char *name) {
+    for (int i = 0; i < M.num_workshop; i++) {
+        if (strcmp(M.workshop[i], name) == 0) return CAT_WORKSHOP;
+    }
     for (int c = 0; c < NUM_CATS - 1; c++) {
         for (int p = 0; p < 12 && k_cats[c].prefixes[p]; p++) {
             if (strncmp(name, k_cats[c].prefixes[p], strlen(k_cats[c].prefixes[p])) == 0) return c;
@@ -224,6 +253,7 @@ void menu_open(void) {
     M.page = PAGE_MAIN;
     M.sel = 0;
     M.num_maps = map_list(M.maps, MAX_MAPS);
+    load_workshop_maps();
     M.snd_move = snd_find("menu_move");
     M.snd_select = snd_find("menu_select");
     // Open the browser on the first category that has maps
@@ -573,7 +603,7 @@ MenuResult menu_update(const InputState *in, float dt, char *map_out, int map_ou
         if (in->pressed & PSP_CTRL_CROSS) {
             click(M.snd_select, 0.7f);
             snprintf(map_out, map_out_len, "%s", M.maps[idx[M.map_sel]]);
-            game_set_gamemode(g_settings.gamemode);
+            game_set_gamemode(script_gamemode_id(newgame_mode()));
             M.error[0] = 0;
             if (M.host) net_set_mode(M.host == 2 ? NET_MODE_INET : NET_MODE_ADHOC, 1);
             return M.host ? MENU_HOST_GAME : MENU_START_GAME;
@@ -581,8 +611,12 @@ MenuResult menu_update(const InputState *in, float dt, char *map_out, int map_ou
     }
     if (in->pressed & PSP_CTRL_TRIANGLE) {
         // The next gamemode: Sandbox, Prop Hunt, Zombie Survival... (and yours in data/lua/gamemodes)
-        int k = script_gamemode_find(g_settings.gamemode);
-        k = (k < 0 ? 0 : k + 1) % script_gamemode_count();
+        // (skipping the ones switched off in the Workshop's Addons)
+        int count = script_gamemode_count(), k = newgame_mode();
+        for (int step = 0; step < count; step++) {
+            k = (k + 1) % count;
+            if (k == 0 || workshop_gamemode_on(script_gamemode_id(k))) break;
+        }
         snprintf(g_settings.gamemode, sizeof(g_settings.gamemode), "%s", k ? script_gamemode_id(k) : "");
         settings_save();
         click(M.snd_move, 0.4f);
@@ -671,9 +705,9 @@ static void draw_newgame(void) {
     ui_rrect(x + w - 112, y + h - 26, 104, 20, 3, 0xFFE6A03D);
     ui_text(FONT_BOLD, x + w - 60, y + h - 22, 0xFFFFFFFF, ALIGN_CENTER, M.host ? "X  Host Game" : "X  Start Game");
     ui_text(FONT_SMALL, x + 10, y + h - 21, 0xFF606060, ALIGN_LEFT, "L/R: category    Triangle: gamemode    O: back");
-    int gm = script_gamemode_find(g_settings.gamemode);
+    int gm = newgame_mode();
     char line[64];
-    snprintf(line, sizeof(line), "Gamemode: %s", script_gamemode_title(gm < 0 ? 0 : gm));
+    snprintf(line, sizeof(line), "Gamemode: %s", script_gamemode_title(gm));
     float gw = ui_text_width(FONT_BOLD, line) + 14;
     ui_rrect(x + w - 6 - gw, y + 3, gw, 18, 3, gm > 0 ? 0xFF3D8CE6 : 0x40FFFFFF);
     ui_text(FONT_BOLD, x + w - 6 - gw / 2, y + 6, 0xFFFFFFFF, ALIGN_CENTER, line);

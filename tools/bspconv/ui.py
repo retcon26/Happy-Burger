@@ -114,8 +114,9 @@ def _fit_pow2(img, max_w, max_h):
     return canvas, w, h
 
 
-def build_ui(gmod_root, props, maps, out_path, log=print):
-    """props: (model path, label) for the spawn menu; maps: map names that may need thumbnails."""
+def build_ui(gmod_root, props, maps, out_path, log=print, thumb_files=None):
+    """props: (model path, label) for the spawn menu; maps: map names that may need thumbnails;
+    thumb_files: {map name: a .png} for maps whose picture isn't in GMod's files (Workshop maps')."""
     fs = GameFS(gmod_root)
     data = bytearray()
 
@@ -170,6 +171,8 @@ def build_ui(gmod_root, props, maps, out_path, log=print):
         # Half-Life's maps (hl1_<name>) look like Half-Life: Source's of the same name
         src = name[4:] if name.startswith("hl1_") else name
         img = _load_image(fs, f"maps/thumb/{name}.png") or _load_image(fs, f"maps/thumb/{src}.png")
+        if img is None and thumb_files and name in thumb_files:
+            img = Image.open(thumb_files[name]).convert("RGBA")
         if img is None:
             # Team Fortress 2's maps: the picture from its own map menu
             if tf_fs is None:

@@ -100,6 +100,20 @@ def cmd_nav(args):
             print(msg, flush=True)
 
 
+def cmd_workshop(args):
+    """Maps from the GMod Workshop downloads (workshop.py), then the UI pack for their thumbnails."""
+    import os
+
+    from .workshop import run
+
+    run(args.gmod, args.out, args.maps, list_only=args.list, all_maps=args.all, jobs=args.jobs)
+    if not args.list and not args.no_ui:
+        import types
+
+        cmd_ui(types.SimpleNamespace(props="props.txt", npcs="npcs.txt", maps=args.maps,
+                                     out=os.path.dirname(os.path.abspath(args.out)), gmod=args.gmod))
+
+
 def cmd_props(args):
     import os
 
@@ -183,8 +197,10 @@ def cmd_ui(args):
         stem = name.split(".")[0]
         if name.endswith(".pmap") and stem not in maps:
             maps.append(stem)
+    from .workshop import thumbnails
+
     print("ui")
-    build_ui(args.gmod, props, maps, os.path.join(args.out, "ui.pak"))
+    build_ui(args.gmod, props, maps, os.path.join(args.out, "ui.pak"), thumb_files=thumbnails())
 
 
 def main(argv=None):
@@ -208,6 +224,16 @@ def main(argv=None):
     pg.add_argument("-o", "--out", default="../psp/data/maps")
     pg.add_argument("--jobs", type=int, default=None, help="maps at once (default: every CPU core)")
     pg.set_defaults(func=cmd_nav)
+
+    pw = sub.add_parser("workshop", help="convert the maps in your GMod Workshop downloads (listed under Workshop)")
+    pw.add_argument("--list", action="store_true", help="only list them")
+    pw.add_argument("--all", action="store_true", help="convert them all again")
+    pw.add_argument("--no-ui", action="store_true", help="leave the UI pack (map thumbnails) for later")
+    pw.add_argument("--jobs", type=int, default=1, help="maps at once (big Workshop maps take a lot of memory)")
+    pw.add_argument("--maps", default="maps.txt", help="the stock map list (a Workshop map named like one is skipped)")
+    pw.add_argument("-o", "--out", default="../psp/data/maps")
+    pw.add_argument("--gmod", default=DEFAULT_GMOD)
+    pw.set_defaults(func=cmd_workshop)
 
     pp = sub.add_parser("props", help="build the spawnable prop pack from a list of models")
     pp.add_argument("--list", default="props.txt")
