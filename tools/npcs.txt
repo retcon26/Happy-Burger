@@ -67,10 +67,10 @@ models/player/medic.mdl                  | Medic (BLU)    | ai=tf_blue health=15
 models/player/sniper.mdl                 | Sniper (BLU)   | ai=tf_blue health=125 weapon=tf_sniper voice=sniper player game=tf decimate skin=1
 models/player/spy.mdl                    | Spy (BLU)      | ai=tf_blue health=125 weapon=tf_revolver voice=spy player game=tf decimate skin=1
 models/humans/group02/male_02.mdl        | Mingebag     | ai=minge health=60 weapon=crowbar voice=male
-# From your GMod Workshop downloads (game=workshop: unpacked into tools/workshop_cache); they're listed
-# under Workshop in the spawn menu, and can be player models
-models/player/dewobedil/jeff_mmd_p.mdl   | Jeff the Killer | ai=citizen health=100 player game=workshop decimate
-models/dorkports/fortnite/characters/raventl_extra_expressive_pm.mdl | Raven Team Leader | ai=rebel health=150 weapon=smg1 player game=workshop decimate
+# Characters from your GMod Workshop downloads (game=workshop: unpacked into tools/workshop_cache) go in
+# tools/npcs.local.txt, in this format; it isn't in the repo, and its entries are added here. They're listed
+# under Workshop in the spawn menu, and can be player models. For example:
+#   models/player/<addon>/<name>.mdl | Name | ai=citizen health=100 player game=workshop decimate
 
 # Ragdolls only
 models/humans/group01/male_04.mdl        | Citizen 2    | ai=ragdoll

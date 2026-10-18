@@ -27,6 +27,7 @@ Sections (same container as .pmap):
   "TEXS" / "TXDT": as in .pmap
 """
 
+import os
 import struct
 
 from . import faces, gestures, pspimage
@@ -178,7 +179,7 @@ def game_dirs(game):
     return [game_dir(d) for d in GAME_DIRS.get(game, [])]
 
 
-def read_npc_list(path):
+def _read_list(path):
     out = []
     with open(path) as f:
         for line in f:
@@ -191,6 +192,18 @@ def read_npc_list(path):
                 k, _, v = o.partition("=")
                 opts[k] = v
             out.append((cols[0].lower(), cols[1] if len(cols) > 1 else cols[0], opts))
+    return out
+
+
+def read_npc_list(path):
+    """npcs.txt, plus your own characters from npcs.local.txt beside it (not in the repo: your Workshop
+    downloads), which go in before the ragdoll-only entries: the 32MB pack leaves those out, and every
+    character before them keeps the same number in both packs (multiplayer sends them by number)."""
+    out = _read_list(path)
+    local = os.path.join(os.path.dirname(os.path.abspath(path)), "npcs.local.txt")
+    if os.path.exists(local):
+        at = next((i for i, (_m, _l, o) in enumerate(out) if o.get("ai") == "ragdoll"), len(out))
+        out[at:at] = _read_list(local)
     return out
 
 

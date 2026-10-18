@@ -44,8 +44,7 @@ another protocol don't show up in Join Game or Online Servers.
 - **Fixed:** Options > Player model had room for 32 models, and there are 35 before any Workshop ones (with
   TF2's mercenaries), so Workshop player models never showed up. It holds 64 now.
 - **Workshop characters** marked `decimate` in `tools/npcs.txt` are simplified by edge collapse instead of
-  vertex clustering, which tore detailed models apart at their texture seams (Jeff the Killer had holes in his
-  legs). Their spawn icons too.
+  vertex clustering, which tore detailed models apart at their texture seams. Their spawn icons too.
 - The converter drops a mesh a model draws twice (some ports have the whole body in two bodyparts), and a
   character with more than 64 skinned bones has its smallest ones follow their parents instead of being left
   out.
