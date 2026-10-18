@@ -173,11 +173,11 @@ def _set_mass(blob, mass):
     return bytes(out)
 
 
-def render_icon(fs, mats, mdl, size=64, skin=0):
+def render_icon(fs, mats, mdl, size=64, skin=0, decimate=True):
     """The model drawn from GMod's spawn icon angle on white, as an RGB image (None if it won't load)."""
     from .models import load_model
 
-    m = load_model(fs, mdl, 1500, skin=skin)
+    m = load_model(fs, mdl, 1500, skin=skin, decimate=decimate)
     if m is None or not m.meshes:
         return None
     ss = size * 2

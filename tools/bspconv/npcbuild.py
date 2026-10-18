@@ -245,8 +245,8 @@ def build_npcs(npc_list, gmod_root, out_path, tier_name, log=print):
         skin = int(opts.get("skin", "0") or 0)
         try:
             sk = Skeleton(fs, mdl)
-            # npcs.txt decimate: a model with no low LODs of its own gets simplified to the budget
-            m = load_model(fs, mdl, tier["max_tris"], skin=skin, decimate="decimate" in opts,
+            # npcs.txt decimate: a model with no low LODs of its own gets simplified to the budget (edge collapse)
+            m = load_model(fs, mdl, tier["max_tris"], skin=skin, decimate="qem" if "decimate" in opts else False,
                            bodygroups={"headcrab": 1} if "headcrabs" in opts else None)
         except (ValueError, struct.error, IndexError, KeyError) as e:
             log(f"  skip {mdl}: {e}")
@@ -291,6 +291,27 @@ def build_npcs(npc_list, gmod_root, out_path, tier_name, log=print):
         # animated: they get the slots after these (faces.EXTRA_SLOTS), and follow their hand.
         used = sorted({b for mesh in m.meshes for b in mesh.bones} - set(fslot)
                       | {hand[0] for hand in (rig or []) if hand})
+        if len(used) > MAX_PALETTE:
+            # Too many: the bones with the fewest vertices (cloth bits, straps) follow their parent instead
+            keep = {hand[0] for hand in (rig or []) if hand}
+            weight = {}
+            for mesh in m.meshes:
+                for b in mesh.bones:
+                    weight[b] = weight.get(b, 0) + 1
+            fold = {}
+            for b in sorted((b for b in used if b not in keep), key=lambda b: weight.get(b, 0)):
+                if len(used) - len(fold) <= MAX_PALETTE:
+                    break
+                p = sk.bones[b].parent
+                while p >= 0 and (p not in used or p in fold):
+                    p = sk.bones[p].parent
+                if p >= 0:
+                    fold[b] = p
+            if fold:
+                for mesh in m.meshes:
+                    mesh.bones = [fold.get(b, b) for b in mesh.bones]
+                used = [b for b in used if b not in fold]
+                log(f"  {label}: {len(fold)} small bones follow their parents (the game handles {MAX_PALETTE})")
         if len(used) > MAX_PALETTE:
             log(f"  skip {mdl}: {len(used)} skinned bones (the game handles {MAX_PALETTE})")
             continue

@@ -8,11 +8,12 @@ another protocol don't show up in Join Game or Online Servers.
 
 | Version | Date | Plays with | In short |
 |---|---|---|---|
-| [1.14.0](#1140) | 2026-10-17 | 1.12.0 – 1.14.0 | Spawn with weapons option and a Weapons spawnlist; smaller maps |
-| [1.13.2](#1132) | 2026-10-17 | 1.12.0 – 1.14.0 | New Game's map grid fits; too-big Workshop maps flagged |
-| [1.13.1](#1131) | 2026-10-17 | 1.12.0 – 1.14.0 | Gamemodes on the Workshop's Addons tab; short-named Lua files found again |
-| [1.13.0](#1130) | 2026-10-17 | 1.12.0 – 1.14.0 | Workshop maps |
-| [1.12.0](#1120) | 2026-10-17 | 1.12.0 – 1.14.0 | Lua gamemodes: Prop Hunt, Zombie Survival, Deathmatch; a bigger Lua API |
+| [1.14.1](#1141) | 2026-10-17 | 1.12.0 – 1.14.1 | Room for 64 player models; better simplified Workshop characters |
+| [1.14.0](#1140) | 2026-10-17 | 1.12.0 – 1.14.1 | Spawn with weapons option and a Weapons spawnlist; smaller maps |
+| [1.13.2](#1132) | 2026-10-17 | 1.12.0 – 1.14.1 | New Game's map grid fits; too-big Workshop maps flagged |
+| [1.13.1](#1131) | 2026-10-17 | 1.12.0 – 1.14.1 | Gamemodes on the Workshop's Addons tab; short-named Lua files found again |
+| [1.13.0](#1130) | 2026-10-17 | 1.12.0 – 1.14.1 | Workshop maps |
+| [1.12.0](#1120) | 2026-10-17 | 1.12.0 – 1.14.1 | Lua gamemodes: Prop Hunt, Zombie Survival, Deathmatch; a bigger Lua API |
 | [1.11.0](#1110) | 2026-10-16 | 1.11.0 | Quick chat: messages and gestures |
 | [1.10.1](#1101) | 2026-10-16 | 1.10.0 – 1.10.1 | Pause menu > Screenshot |
 | [1.10.0](#1100) | 2026-10-16 | 1.10.0 – 1.10.1 | Ammo boxes; bigger servers with passwords, rotation, autosave; the rename's done |
@@ -37,6 +38,18 @@ another protocol don't show up in Join Game or Online Servers.
 | [1.1.0](#110) | before 2026-10-11 | not recorded | Camera tool |
 | [1.0.1](#101) | before 2026-10-11 | not recorded | Ragdoll crash fixes |
 | [1.0.0](#100) | before 2026-10-11 | not recorded | Version label, new options, more ragdolls |
+
+## 1.14.1
+
+- **Fixed:** Options > Player model had room for 32 models, and there are 35 before any Workshop ones (with
+  TF2's mercenaries), so Workshop player models never showed up. It holds 64 now.
+- **Workshop characters** marked `decimate` in `tools/npcs.txt` are simplified by edge collapse instead of
+  vertex clustering, which tore detailed models apart at their texture seams (Jeff the Killer had holes in his
+  legs). Their spawn icons too.
+- The converter drops a mesh a model draws twice (some ports have the whole body in two bodyparts), and a
+  character with more than 64 skinned bones has its smallest ones follow their parents instead of being left
+  out.
+- Network protocol 15, as 1.12.0 to 1.14.0.
 
 ## 1.14.0
 

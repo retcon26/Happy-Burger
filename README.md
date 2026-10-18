@@ -1,6 +1,6 @@
 # Retcon's Mod
 
-A physics sandbox for the PSP, by Retcon. Current version: **1.14.0** (shown in the main menu's corner,
+A physics sandbox for the PSP, by Retcon. Current version: **1.14.1** (shown in the main menu's corner,
 set in `psp/src/version.h`).
 
 **Retcon's Mod is PSP Sandbox's new name.** From 1.10.0 everything uses it: the repositories are
@@ -642,9 +642,9 @@ The latest three. Every version, with dates, what's in each and which ones can p
 
 | Version | Changes |
 |---|---|
+| 1.14.1 | Room for 64 player models (Workshop ones past the 32nd were missing); Workshop characters simplified without tearing apart |
 | 1.14.0 | Options > Spawn with weapons (off: the toolbox, and a Weapons spawnlist for the rest); smaller maps, so gm_bigcity, tc_hydro and pl_goldrush fit a PSP |
 | 1.13.2 | Start New Game's second row of maps no longer runs into the buttons; the Workshop map converter says when a map is too big for a PSP |
-| 1.13.1 | Gamemodes on the Workshop's Addons tab (off ones aren't offered in Start New Game); Lua addons with short file names run on a PSP again |
 
 ## Roadmap
 

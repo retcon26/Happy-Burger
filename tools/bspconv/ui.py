@@ -164,7 +164,7 @@ def build_ui(gmod_root, props, maps, out_path, log=print, thumb_files=None):
             if game not in game_fs:
                 gfs = GameFS(gmod_root, game_dirs(game))
                 game_fs[game] = (gfs, MaterialLoader(gfs))
-            img = render_icon(*game_fs[game], mdl, skin=item[3] if len(item) > 3 else 0)
+            img = render_icon(*game_fs[game], mdl, skin=item[3] if len(item) > 3 else 0, decimate="qem")
         else:
             img = _load_image(fs, "materials/spawnicons/" + mdl[:-4] + ".png")
         if img is not None:

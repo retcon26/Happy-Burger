@@ -676,7 +676,7 @@ static void gm_npc_died(int npc, int type, vec3 pos);
 static unsigned int gm_carried(void);
 
 // Options > Player model: which NPC types are offered (settings.c shows their names)
-#define MAX_PLAYER_MODELS 32
+#define MAX_PLAYER_MODELS 64
 static int g_pm_types[MAX_PLAYER_MODELS];
 static int g_pm_count;
 

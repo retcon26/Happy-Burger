@@ -276,12 +276,24 @@ def load_model(fs, mdl_path, max_tris, skin=0, decimate=True, bodygroups=None, f
                 m.meshes.append(mesh)
                 m.tris += len(mesh.tris)
 
+    # A mesh drawn twice (some ports put the whole body in two bodyparts) only costs triangles and z-fights
+    seen = set()
+    unique = []
+    for mesh in m.meshes:
+        sig = (mesh.material, tuple(mesh.tris), tuple(v[5:8] for v in mesh.verts))
+        if sig not in seen:
+            seen.add(sig)
+            unique.append(mesh)
+    m.meshes = unique
+    m.tris = sum(len(mesh.tris) for mesh in m.meshes)
     if not m.meshes:
         return None
     pts = [v[5:8] for mesh in m.meshes for v in mesh.verts]
     m.mins = tuple(min(p[k] for p in pts) for k in range(3))
     m.maxs = tuple(max(p[k] for p in pts) for k in range(3))
-    if m.tris > max_tris * 1.5 and decimate:
+    if m.tris > max_tris * 1.5 and decimate == "qem":
+        _qem_decimate(m, max_tris)
+    elif m.tris > max_tris * 1.5 and decimate:
         _decimate(m, max_tris)
     _fix_winding(m)
     return m
@@ -330,6 +342,149 @@ def _decimate(m, target):
         cell *= 1.25
     for mesh, (verts, bones, tris, src) in zip(m.meshes, results):
         mesh.verts, mesh.bones, mesh.tris, mesh.src = verts, bones, tris, src
+    m.meshes = [mesh for mesh in m.meshes if mesh.tris]
+    m.tris = sum(len(mesh.tris) for mesh in m.meshes)
+
+
+def _qem_decimate(m, target):
+    """Quadric edge collapse (Garland & Heckbert) across all of the model's meshes, for characters with no low
+    LODs of their own (a 30,000-triangle Workshop player model down to the PSP's 900). Clustering tears such
+    models apart at their UV seams; this keeps each part's shape. Vertices are welded by position; each
+    triangle corner keeps its own UV, normal and bone, so only positions move (onto the edge's other end).
+    Open edges and the borders between materials are held by extra planes, and a collapse that would turn a
+    triangle over is refused."""
+    import heapq
+
+    import numpy as np
+
+    pos_of = {}
+    P = []
+    corner_pos = []  # per mesh: its vertices' welded position ids
+    for mesh in m.meshes:
+        ids = []
+        for v in mesh.verts:
+            key = (round(v[5], 3), round(v[6], 3), round(v[7], 3))
+            i = pos_of.get(key)
+            if i is None:
+                i = pos_of[key] = len(P)
+                P.append(v[5:8])
+            ids.append(i)
+        corner_pos.append(ids)
+    P = np.array(P, float)
+    tris = []  # [pa, pb, pc, mesh, (va, vb, vc)]
+    for mi, mesh in enumerate(m.meshes):
+        ids = corner_pos[mi]
+        for t in mesh.tris:
+            p = [ids[t[0]], ids[t[1]], ids[t[2]]]
+            if len(set(p)) == 3:
+                tris.append([p[0], p[1], p[2], mi, t])
+    if len(tris) <= target:
+        return
+    n = len(P)
+    Q = np.zeros((n, 4, 4))
+    vt = [set() for _ in range(n)]
+    edge_tris = {}
+    for ti, (a, b, c, mi, _t) in enumerate(tris):
+        nrm = np.cross(P[b] - P[a], P[c] - P[a])
+        area = np.linalg.norm(nrm)
+        if area > 1e-12:
+            pl = np.append(nrm / area, -np.dot(nrm / area, P[a]))
+            Q[a] += np.outer(pl, pl) * area
+            Q[b] += np.outer(pl, pl) * area
+            Q[c] += np.outer(pl, pl) * area
+        for x in (a, b, c):
+            vt[x].add(ti)
+        for e in ((a, b), (b, c), (c, a)):
+            edge_tris.setdefault((min(e), max(e)), []).append(ti)
+    # Open edges and material borders: a plane through the edge, upright to its triangle, weighted heavily
+    for (a, b), ts in edge_tris.items():
+        if len(ts) == 1 or len({tris[t][3] for t in ts}) > 1:
+            t = tris[ts[0]]
+            tn = np.cross(P[t[1]] - P[t[0]], P[t[2]] - P[t[0]])
+            d = P[b] - P[a]
+            side = np.cross(d, tn)
+            ln = np.linalg.norm(side)
+            if ln > 1e-12:
+                side /= ln
+                pl = np.append(side, -np.dot(side, P[a]))
+                w = np.outer(pl, pl) * float(np.dot(d, d)) * 20.0
+                Q[a] += w
+                Q[b] += w
+
+    def cost(u, v):  # u moves onto v
+        h = np.append(P[v], 1.0)
+        return float(h @ (Q[u] + Q[v]) @ h)
+
+    heap = []
+    for a, b in edge_tris:
+        heapq.heappush(heap, (cost(a, b), a, b))
+        heapq.heappush(heap, (cost(b, a), b, a))
+    alive_v = [True] * n
+    alive_t = [True] * len(tris)
+    live = len(tris)
+
+    def flips(u, v):
+        for ti in vt[u]:
+            t = tris[ti]
+            if v in t[:3]:
+                continue
+            p = [P[x] for x in t[:3]]
+            before = np.cross(p[1] - p[0], p[2] - p[0])
+            p = [P[v] if x == u else P[x] for x in t[:3]]
+            after = np.cross(p[1] - p[0], p[2] - p[0])
+            lb, la = np.linalg.norm(before), np.linalg.norm(after)
+            if la < 1e-9 or (lb > 1e-9 and np.dot(before, after) < 0.2 * lb * la):
+                return True
+        return False
+
+    while live > target and heap:
+        c, u, v = heapq.heappop(heap)
+        if not (alive_v[u] and alive_v[v]) or not any(v in tris[ti][:3] for ti in vt[u]):
+            continue
+        if abs(c - cost(u, v)) > 1e-6 * max(1.0, abs(c)):
+            continue  # stale: the quadrics changed since this was queued
+        if flips(u, v):
+            continue
+        for ti in list(vt[u]):
+            t = tris[ti]
+            if v in t[:3]:
+                alive_t[ti] = False
+                live -= 1
+                for x in t[:3]:
+                    vt[x].discard(ti)
+            else:
+                for k in range(3):
+                    if t[k] == u:
+                        t[k] = v
+                vt[v].add(ti)
+        vt[u].clear()
+        alive_v[u] = False
+        Q[v] += Q[u]
+        nbrs = {x for ti in vt[v] for x in tris[ti][:3]} - {v}
+        for x in nbrs:
+            heapq.heappush(heap, (cost(x, v), x, v))
+            heapq.heappush(heap, (cost(v, x), v, x))
+
+    # Back into meshes: a vertex per (corner's own vertex, where it now is)
+    for mi, mesh in enumerate(m.meshes):
+        out_of = {}
+        verts, bones, src, out = [], [], [], []
+        for ti, t in enumerate(tris):
+            if not alive_t[ti] or t[3] != mi:
+                continue
+            tri = []
+            for k in range(3):
+                key = (t[4][k], t[k])
+                idx = out_of.get(key)
+                if idx is None:
+                    idx = out_of[key] = len(verts)
+                    ov = mesh.verts[t[4][k]]
+                    verts.append(tuple(ov[:5]) + tuple(float(x) for x in P[t[k]]))
+                    bones.append(mesh.bones[t[4][k]] if t[4][k] < len(mesh.bones) else 0)
+                    src.append(mesh.src[t[4][k]] if t[4][k] < len(mesh.src) else -1)
+                tri.append(idx)
+            out.append(tuple(tri))
+        mesh.verts, mesh.bones, mesh.tris, mesh.src = verts, bones, out, src
     m.meshes = [mesh for mesh in m.meshes if mesh.tris]
     m.tris = sum(len(mesh.tris) for mesh in m.meshes)
 
