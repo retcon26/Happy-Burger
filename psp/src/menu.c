@@ -28,7 +28,8 @@
 #define WORKSHOP_LIST "data/maps/workshop.txt" // tools/bspconv.sh workshop writes it
 #define BG_ABGR 0xFF101828
 
-typedef enum { PAGE_MAIN, PAGE_NEWGAME, PAGE_OPTIONS, PAGE_MULTI, PAGE_JOIN, PAGE_PROFILE, PAGE_ACHIEVEMENTS, PAGE_WORKSHOP } Page;
+typedef enum { PAGE_MAIN, PAGE_NEWGAME, PAGE_OPTIONS, PAGE_MULTI, PAGE_JOIN, PAGE_PROFILE, PAGE_ACHIEVEMENTS, PAGE_WORKSHOP,
+               PAGE_DIFFICULTY } Page;
 #define MAX_HOSTS 32
 
 // Map browser categories, by name prefix like GMod's New Game screen
@@ -58,6 +59,17 @@ static const char *k_main_items[] = {"Start Shift", "Play Together", "Options"};
 // Start Shift and hosting go straight to the game: the burger joint, running Happy Burger
 #define SHIFT_MAP "burgerjoint"
 #define SHIFT_MODE "burger"
+// The shift's difficulty, picked before it starts (the gamemode's DIFFICULTY)
+static const struct {
+    const char *id, *label, *line1, *line2;
+} k_levels[] = {
+    {"tutorial", "Tutorial", "Learn the kitchen step by step:", "your first burger, then a soda."},
+    {"easy", "Easy", "Patient customers, small orders,", "and a grill that's slow to burn."},
+    {"medium", "Medium", "The full shift: toppings, fries,", "hot dogs, VIPs and mingebags."},
+    {"hard", "Hard", "Short tempers, big orders, a hot", "grill and higher quotas."},
+    {"extreme", "Extreme Burgers", "Everything at once from day one.", "Big tips, if you survive."},
+};
+#define NUM_LEVELS (int)(sizeof(k_levels) / sizeof(k_levels[0]))
 #define NUM_MAIN_ITEMS (int)(sizeof(k_main_items) / sizeof(k_main_items[0]))
 // Host and Join are ad-hoc (PSP to PSP); Wi-Fi goes through an access point to games on the same
 // network and to dedicated servers
@@ -86,7 +98,8 @@ static struct {
     char error[96];
     int snd_move, snd_select;
     // Multiplayer
-    int host;     // the map browser is picking a map to host
+    int host;     // the map browser (or the difficulty page) is picking for a game to host: 1 ad-hoc, 2 Wi-Fi
+    int level;    // the difficulty page's highlighted level
     int multi_sel;
     NetHost hosts[MAX_HOSTS];
     int num_hosts;
@@ -365,6 +378,16 @@ void menu_join_info(int *slot, unsigned char mac[6]) {
     memcpy(mac, M.join_mac, 6);
 }
 
+// The difficulty page, on the last one picked; host: 0 single player, 1 ad-hoc, 2 Wi-Fi
+static void open_levels(int host) {
+    M.page = PAGE_DIFFICULTY;
+    M.host = host;
+    M.level = 0;
+    for (int i = 0; i < NUM_LEVELS; i++) {
+        if (strcmp(k_levels[i].id, g_settings.difficulty) == 0) M.level = i;
+    }
+}
+
 MenuResult menu_update(const InputState *in, float dt, char *map_out, int map_out_len) {
     M.t += dt;
     if (M.page == PAGE_OPTIONS) {
@@ -388,6 +411,31 @@ MenuResult menu_update(const InputState *in, float dt, char *map_out, int map_ou
         if (achievements_update(in)) M.page = PAGE_MAIN;
         return MENU_STAY;
     }
+    if (M.page == PAGE_DIFFICULTY) {
+        if (in->pressed & PSP_CTRL_UP) {
+            M.level = (M.level + NUM_LEVELS - 1) % NUM_LEVELS;
+            click(M.snd_move, 0.4f);
+        }
+        if (in->pressed & PSP_CTRL_DOWN) {
+            M.level = (M.level + 1) % NUM_LEVELS;
+            click(M.snd_move, 0.4f);
+        }
+        if (in->pressed & PSP_CTRL_CIRCLE) {
+            M.page = M.host ? PAGE_MULTI : PAGE_MAIN;
+            click(M.snd_move, 0.4f);
+        } else if (in->pressed & PSP_CTRL_CROSS) {
+            click(M.snd_select, 0.6f);
+            snprintf(g_settings.difficulty, sizeof(g_settings.difficulty), "%s", k_levels[M.level].id);
+            settings_save();
+            snprintf(map_out, map_out_len, "%s", SHIFT_MAP);
+            game_set_gamemode(SHIFT_MODE);
+            game_set_difficulty(k_levels[M.level].id);
+            M.error[0] = 0;
+            if (M.host) net_set_mode(M.host == 2 ? NET_MODE_INET : NET_MODE_ADHOC, 1);
+            return M.host ? MENU_HOST_GAME : MENU_START_GAME;
+        }
+        return MENU_STAY;
+    }
     if (M.page == PAGE_MAIN) {
         int n = NUM_MAIN_ITEMS;
         if (in->pressed & PSP_CTRL_UP) {
@@ -401,10 +449,7 @@ MenuResult menu_update(const InputState *in, float dt, char *map_out, int map_ou
         if (in->pressed & PSP_CTRL_CROSS) {
             click(M.snd_select, 0.6f);
             if (M.sel == 0) {
-                snprintf(map_out, map_out_len, "%s", SHIFT_MAP);
-                game_set_gamemode(SHIFT_MODE);
-                M.error[0] = 0;
-                return MENU_START_GAME;
+                open_levels(0);
             } else if (M.sel == 1) {
                 M.page = PAGE_MULTI;
                 M.multi_sel = 0;
@@ -430,11 +475,8 @@ MenuResult menu_update(const InputState *in, float dt, char *map_out, int map_ou
             click(M.snd_select, 0.6f);
             M.error[0] = 0;
             if (M.multi_sel == MULTI_HOST || M.multi_sel == MULTI_HOST_WIFI) {
-                // A shift together: straight into the burger joint
-                snprintf(map_out, map_out_len, "%s", SHIFT_MAP);
-                game_set_gamemode(SHIFT_MODE);
-                net_set_mode(M.multi_sel == MULTI_HOST_WIFI ? NET_MODE_INET : NET_MODE_ADHOC, 1);
-                return MENU_HOST_GAME;
+                // A shift together: pick how hard, then into the burger joint
+                open_levels(M.multi_sel == MULTI_HOST_WIFI ? 2 : 1);
             } else if (M.multi_sel == MULTI_PROFILE) {
                 M.page = PAGE_PROFILE;
             } else {
@@ -805,6 +847,18 @@ static void draw_join(void) {
             M.online ? "Triangle: add   Square: remove   R: list   O: back" : "Up/Down: pick a game    O: back");
 }
 
+// The difficulty page: the levels down the left, what the highlighted one means beside them
+static void draw_levels(void) {
+    const char *labels[NUM_LEVELS];
+    for (int i = 0; i < NUM_LEVELS; i++) labels[i] = k_levels[i].label;
+    ui_text_shadow(FONT_BOLD, 24, 88, 0xFFA0A0A0, ALIGN_LEFT, M.host ? "HOST A SHIFT: HOW HARD?" : "HOW HARD?");
+    menu_draw_buttons(labels, NUM_LEVELS, M.level, 108, 24);
+    ui_rrect(250, 112, 214, 48, 6, 0xA0000000);
+    ui_text(FONT_SMALL, 260, 118, 0xFFFFFFFF, ALIGN_LEFT, k_levels[M.level].line1);
+    ui_text(FONT_SMALL, 260, 136, 0xFFFFFFFF, ALIGN_LEFT, k_levels[M.level].line2);
+    ui_text(FONT_SMALL, 24, 232, 0xFFC8C8C8, ALIGN_LEFT, "X: start      O: back");
+}
+
 void menu_render(float fps) {
     gfx_begin_frame(BG_ABGR);
     if (M.bg_loaded) {
@@ -836,7 +890,10 @@ void menu_render(float fps) {
 
     ui_begin();
     menu_draw_backdrop();
-    if (M.page == PAGE_MAIN) {
+    if (M.page == PAGE_DIFFICULTY) {
+        draw_logo();
+        draw_levels();
+    } else if (M.page == PAGE_MAIN) {
         draw_logo();
         menu_draw_buttons(k_main_items, NUM_MAIN_ITEMS, M.sel, 112, 26);
     } else if (M.page == PAGE_MULTI) {

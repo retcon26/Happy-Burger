@@ -29,6 +29,7 @@ typedef struct {
     int physgun_colour; // profile_colour index for your physics gun's beam (0: GMod's blue)
     char name[16];      // your name in games ("": the PSP's nickname)
     char gamemode[16];  // New Game's gamemode ("": Sandbox; Happy Burger by default)
+    char difficulty[16]; // Start Shift's last pick: "tutorial", "easy", "medium", "hard" or "extreme"
 } Settings;
 
 #define PROFILE_COLOURS 11

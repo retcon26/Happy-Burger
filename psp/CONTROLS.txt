@@ -1,7 +1,8 @@
 HAPPY BURGER - HOW TO PLAY  (v0.1.0)
 =========================================
 
-Start Shift on the title screen. The kitchen is behind the counter with its
+Start Shift on the title screen, then pick how hard: Tutorial (a guided
+first burger), Easy, Medium, Hard or Extreme Burgers. The kitchen is behind the counter with its
 three yellow trays; along the back wall: the fridge, the freezer, the grill,
 the buns, the topping bins, a cutting board, the fryer. Another board, the
 soda machine and the bin are at the sides.

@@ -52,6 +52,9 @@ int game_aim_body(void);
 // The gamemode the next game_start runs: a file in data/lua/gamemodes (without .lua) or one of the
 // game's own; "" or "sandbox" for none. game_gamemode is the running one ("" sandbox).
 void game_set_gamemode(const char *name);
+// What the next game's gamemode gets as DIFFICULTY ("medium" unless set)
+void game_set_difficulty(const char *name);
+const char *game_difficulty(void);
 const char *game_gamemode(void);
 // What it allows (GM.Sandbox, GM.AllowPickup, GM.TeamBased) and how soon X respawns the dead
 // (GM.RespawnTime; < 0: only when the gamemode says). script.c sets them once the gamemode has loaded.

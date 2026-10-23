@@ -27,11 +27,31 @@ top of the screen shows what they want and how much patience they have left.
   lettuce, T tomato. The bin takes mistakes, and when there's too much food out the oldest goes off.
 - **Pay** is the menu price ($1 more per topping) plus a tip for speed, scaled by your star rating. Happy customers raise it;
   walkouts, hits and (please don't) killing a customer lower it. At zero stars you're shut down.
-- **Days** get longer and busier, with bigger orders. Make the day's quota ($20 on day 1, $15 more each day)
-  or you're fired and start again. From day 4 **mingebags** come in: impatient, and when they're kept
+- **Days** get longer and busier, with bigger orders. Make the day's quota (on Medium, $20 on day 1 and $12
+  more each day) or you're fired and start again at day 1. From day 4 **mingebags** come in: impatient, and when they're kept
   waiting they go on a rampage. From day 5 **VIPs** (the G-Man, Dr. Breen) tip double but wait less.
 
-Play alone, or host and up to three friends join as staff, sharing the till.
+### Difficulty
+
+**Start Shift** asks how hard:
+
+- **Tutorial:** a guided first shift. It walks you through a cheeseburger one step at a time (fridge, grill,
+  buns, cheese, the board, the tray), then a soda, waiting for you to do each step. If the patty burns, it
+  tells you to bin it and start again. Then your first Easy shift starts.
+- **Easy:** patient customers, small orders, few toppings, a grill that's slow to burn; hot dogs from day
+  4, no mingebags until day 6.
+- **Medium:** the full shift: toppings, fries from day 2, hot dogs from day 3, mingebags from day 4, VIPs
+  from day 5.
+- **Hard:** shorter tempers, more toppings, higher quotas, a grill that burns sooner; everything arrives
+  early; walkouts cost more stars. Pay is 25% more.
+- **Extreme Burgers:** everything from day one, customers who run in and won't wait, a grill that burns in a
+  blink, and a quota to match. Pay is 50% more.
+
+The levels were tuned with a simulated, human-paced cook (one pair of hands, a few seconds to fetch and
+carry each thing). An average player lasts about 8 days on Easy, 5 on Medium, 3 to 4 on Hard and 1 on Extreme
+Burgers; a quick one about 3 on Extreme. Your last pick is remembered.
+
+Play alone, or host and up to three friends join as staff, sharing the till (hosting asks how hard too).
 
 ### Controls
 

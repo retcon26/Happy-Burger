@@ -7215,6 +7215,17 @@ static const char *const k_weapon_ids[WEAPON_COUNT] = {"hands",   "physgun", "gr
                                                        "crossbow", "rpg",    "grenade", "bugbait"};
 static int g_gm_spawning; // inside gm_spawn: a PlayerSpawn hook asking for another spawn is ignored
 
+// The difficulty the next game's gamemode is told (Lua's DIFFICULTY: Happy Burger's "tutorial", "easy"...)
+static char g_difficulty[16] = "medium";
+
+void game_set_difficulty(const char *name) {
+    snprintf(g_difficulty, sizeof(g_difficulty), "%s", name && name[0] ? name : "medium");
+}
+
+const char *game_difficulty(void) {
+    return g_difficulty;
+}
+
 void game_set_gamemode(const char *name) {
     snprintf(g_next_mode, sizeof(g_next_mode), "%s", name && strcmp(name, "sandbox") != 0 ? name : "");
 }

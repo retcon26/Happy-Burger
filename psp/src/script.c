@@ -804,6 +804,8 @@ int script_start(const char *map_name, const char *mode, int server, int client)
     lua_setglobal(L, "MAX_PLAYERS");
     lua_pushstring(L, mode && mode[0] ? mode : "sandbox");
     lua_setglobal(L, "GAMEMODE_NAME");
+    lua_pushstring(L, game_difficulty());
+    lua_setglobal(L, "DIFFICULTY");
     run_lua("init.lua");
 
     int found = 1;

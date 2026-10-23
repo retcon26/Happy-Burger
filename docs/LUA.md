@@ -142,6 +142,7 @@ On every PSP with a player (`CLIENT`):
 | `SERVER`, `CLIENT` | See [Server and client](#server-and-client) |
 | `MAP` | The map's name |
 | `GAMEMODE_NAME`, `engine.ActiveGamemode()` | The gamemode's file name (`"sandbox"` for none) |
+| `DIFFICULTY` | **Ours:** the difficulty picked before the game (Happy Burger's `"tutorial"`, `"easy"`, `"medium"`, `"hard"` or `"extreme"`; `"medium"` if none). Only the PSP that picked it knows it: share it with `SetGlobalString` for the others' HUD |
 | `GM`, `GAMEMODE` | The gamemode's table (nil in the sandbox) |
 | `MAX_PLAYERS` | Player slots: 8 |
 | `IsValid(x)` | x is a player, prop or NPC that still exists |

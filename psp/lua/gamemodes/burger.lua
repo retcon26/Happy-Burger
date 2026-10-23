@@ -51,19 +51,46 @@ local FOOD = {
     soda = {prop = "Soda", name = "Soda", meal = true},
 }
 
--- What's on the menu from which day, and how many toppings a burger can have
+-- How hard a shift is: the menu's pick, which the engine passes as DIFFICULTY. Medium's numbers are the
+-- base; the others scale them: patience, the time between customers (gap), the quota, pay, how much a
+-- walkout costs in stars (rep_loss), the grill's times, and the days fries, hot dogs, mingebags and VIPs
+-- start on. toppings and size add to how many toppings and items orders can have.
+local LEVELS = {
+    easy = {name = "Easy", patience = 1.7, gap = 1.5, quota = 0.6, pay = 1, rep = 3, rep_loss = 0.5,
+            patty = {9, 24, 32}, sausage = {6, 16, 22}, fries_day = 2, dogs_day = 4, minge_day = 6, vip_day = 7,
+            minge_chance = 0.1, vip_chance = 0.1, toppings = -1, size = -1},
+    medium = {name = "Medium", patience = 1, gap = 1, quota = 1, pay = 1, rep = 3, rep_loss = 1,
+              patty = {8, 16, 22}, sausage = {5, 11, 16}, fries_day = 2, dogs_day = 3, minge_day = 4, vip_day = 5,
+              minge_chance = 0.15, vip_chance = 0.1, toppings = 0, size = 0},
+    hard = {name = "Hard", patience = 0.8, gap = 0.85, quota = 1.25, pay = 1.25, rep = 3, rep_loss = 1.25,
+            patty = {7, 13, 17}, sausage = {5, 9, 13}, fries_day = 1, dogs_day = 2, minge_day = 2, vip_day = 3,
+            minge_chance = 0.2, vip_chance = 0.15, toppings = 1, size = 0},
+    -- Everything from day one, customers who run in and won't wait, a grill that burns in a blink; pay and a
+    -- quota to match
+    extreme = {name = "Extreme Burgers", patience = 0.8, gap = 0.75, quota = 2.0, pay = 1.5, rep = 3, rep_loss = 1.25,
+               patty = {6, 11, 14}, sausage = {4, 8, 11}, fries_day = 1, dogs_day = 1, minge_day = 1, vip_day = 1,
+               minge_chance = 0.25, vip_chance = 0.2, toppings = 3, size = 0, run = true},
+}
+-- The tutorial teaches one burger and a soda on Easy's kitchen, then carries on as an Easy shift
+LEVELS.tutorial = setmetatable({name = "Tutorial", tutorial = true}, {__index = LEVELS.easy})
+local level = LEVELS.medium
+
+-- What's on the menu from which day, and how many toppings and items an order can have
 local function menu(day)
     local m = {"B", "S"}
-    if day >= 2 then m[#m + 1] = "F" end
-    if day >= 3 then m[#m + 1] = "H" end
+    if day >= level.fries_day then m[#m + 1] = "F" end
+    if day >= level.dogs_day then m[#m + 1] = "H" end
     return m
 end
-local function max_toppings(day) return math.min(3, day) end
+local function max_toppings(day) return math.Clamp(day + level.toppings, 0, 3) end
+local function max_items(day) return math.Clamp(1 + math.ceil(day / 3) + level.size, 1, 4) end
 
+-- Medium's curve (the levels scale it): customers come a little quicker each day, wait a little less, and
+-- the quota climbs; a big order gets more patience
 local function day_length(day) return math.min(240, 120 + 15 * day) end
-local function spawn_gap(day) return math.max(10, 26 - 2.5 * day) end
-local function quota(day) return 20 + 15 * (day - 1) end
-local function patience(day, items) return math.max(45, 80 - 4 * day) + 14 * items end
+local function spawn_gap(day) return math.max(12, 28 - 2 * day) * level.gap end
+local function quota(day) return math.floor((20 + 12 * (day - 1)) * level.quota / 5 + 0.5) * 5 end
+local function patience(day, items) return (math.max(50, 85 - 3 * day) + 16 * items) * level.patience end
 
 local NAMES = {
     male = {"Larry", "Dmitri", "Kev", "Odell", "Pat", "Sal", "Vic", "Gus", "Mo", "Hank", "Raj", "Theo"},
@@ -79,7 +106,7 @@ local REGULARS = {
 local VIPS = {{"Food Critic", "The Food Critic", "male"}, {"Big Boss", "Mr. Moneybags", "male"}}
 
 local LINES = {
-    order = {"Can I get %s?", "%s, please.", "I'll have %s.", "Hi! %s.", "%s. And make it quick."},
+    order = {"Can I get %s?", "%s, please.", "I'll have %s.", "Hi, %s.", "%s. And make it quick."},
     happy = {"Thanks!", "Delicious.", "Best in town.", "Now that's a burger.", "Perfect."},
     angry = {"Forget it!", "I'm leaving!", "Worst service ever.", "I'll eat at the taco truck."},
     hit = {"Ow! Hey!", "What's your problem?!", "You threw that at me!"},
@@ -484,10 +511,10 @@ end
 
 local function new_order(day)
     local m = menu(day)
-    local size = math.random(1, math.min(4, 1 + math.ceil(day / 2)))
+    local size = math.random(1, max_items(day))
     local order = {}
     -- Nearly everyone wants something off the grill
-    local mains = day >= 3 and {"B", "B", "H"} or {"B"}
+    local mains = day >= level.dogs_day and {"B", "B", "H"} or {"B"}
     if math.random() < 0.85 then order[1] = {k = pick(mains)} end
     while #order < size do order[#order + 1] = {k = pick(m)} end
     for _, it in ipairs(order) do
@@ -508,30 +535,34 @@ local function weighted(list)
     return list[1]
 end
 
-local function spawn_customer(w)
+-- A customer at window w; fixed (the tutorial's): {order, patience, who} instead of random ones
+local function spawn_customer(w, fixed)
     local day = state.day
     local who, vip, minge = weighted(REGULARS), false, false
     local r = math.random()
-    if day >= 4 and r < 0.2 then
+    if fixed then
+        who = fixed.who or who
+    elseif day >= level.minge_day and r < level.minge_chance then
         who, minge = {"Mingebag", "Mingebag", "male"}, true
-    elseif day >= 5 and r < 0.3 then
+    elseif day >= level.vip_day and r < level.minge_chance + level.vip_chance then
         who, vip = pick(VIPS), true
     end
     local path = way_in(windows[w].stand)
     local n = npc.Spawn(who[1], path[1], wrap_yaw(180))
     if not n then return end
     table.remove(path, 1)
-    local order = new_order(day)
+    local order = fixed and fixed.order or new_order(day)
     local c = {
         n = n, name = who[2] or pick(NAMES[who[3]]), voice = who[3], order = order, got = {}, window = w,
         state = "walking", vip = vip, minge = minge, hp = n:Health(), spawned = CurTime(),
     }
-    c.pat_max = patience(day, #order) * ((vip or minge) and 0.6 or 1)
+    c.pat_max = fixed and fixed.patience or patience(day, #order) * ((vip or minge) and 0.6 or 1)
     slots[w] = c
-    walk(c, path, windows[w].yaw, false)
+    walk(c, path, windows[w].yaw, level.run)
 end
 
 local function rep(delta)
+    if delta < 0 then delta = delta * level.rep_loss end
     state.rep = math.Clamp(state.rep + delta, 0, 5)
 end
 
@@ -561,8 +592,8 @@ local function pay(c)
         if q == 2 then full = false end
     end
     local left = math.max(0, c.pat_end - CurTime()) / c.pat_max
-    local tip = base * 0.5 * left * (state.rep / 3) * (c.vip and 2 or 1)
-    local total = math.floor(base + tip + 0.5)
+    local tip = base * 0.5 * left * (state.rep / 3) * (c.vip and 2 or 1) * level.pay
+    local total = math.floor(base * level.pay + tip + 0.5)
     state.money = state.money + total
     state.today = state.today + total
     state.served = state.served + 1
@@ -651,13 +682,123 @@ local function start_day()
     for _, k in ipairs(menu(state.day)) do m[#m + 1] = MENU[k].name end
     PrintMessage(HUD_PRINTCENTER, "Day " .. state.day .. ": make $" .. quota(state.day))
     PrintMessage(HUD_PRINTTALK, "On the menu: " .. table.concat(m, ", "))
-    if state.day == 2 then PrintMessage(HUD_PRINTTALK, "New: Fries. R on the fryer, then wait for the carton.") end
-    if state.day == 3 then
+    local d = state.day
+    if d > 1 and d == level.fries_day then PrintMessage(HUD_PRINTTALK, "New: Fries. R on the fryer, then wait.") end
+    if d > 1 and d == level.dogs_day then
         PrintMessage(HUD_PRINTTALK, "New: Hot Dogs. Grill a sausage from the freezer, then put it and a bun on a board.")
     end
-    if state.day == 4 then PrintMessage(HUD_PRINTTALK, "Watch out: mingebags have found the place.") end
-    if state.day == 5 then PrintMessage(HUD_PRINTTALK, "VIPs from now on: double tips, no patience.") end
+    if d == level.minge_day then PrintMessage(HUD_PRINTTALK, "Watch out: mingebags have found the place.") end
+    if d == level.vip_day then PrintMessage(HUD_PRINTTALK, "VIPs from now on: double tips, no patience.") end
+    if d == 1 and level.run then PrintMessage(HUD_PRINTTALK, "EXTREME BURGERS: everything's on, double pay. Good luck.") end
     if site then set_decor() end
+end
+
+-- The tutorial ------------------------------------------------------------------------------------------
+-- One step at a time, each waiting for the player to do it: a cheeseburger for a customer who'll wait as
+-- long as it takes, then a soda. Then it's an Easy shift.
+
+local tut      -- {step, since, warn} while the tutorial's on
+local level_id -- the shift's level: DIFFICULTY, or "easy" once the tutorial's done
+
+local function count_food(kind, test)
+    local n = 0
+    for _, f in pairs(food) do
+        if f.kind == kind and f.e:IsValid() and (not test or test(f)) then n = n + 1 end
+    end
+    return n
+end
+
+local function on_a_board(f)
+    for _, b in ipairs(boards) do
+        if on_board(f.e:GetPos(), b) then return true end
+    end
+    return false
+end
+
+local function use_level(id)
+    level = LEVELS[id] or LEVELS.medium
+    FOOD.patty.cook, FOOD.sausage.cook = level.patty, level.sausage
+end
+
+local TUTORIAL_SHOPPER = {"Customer 3", "June", "female", 1}
+local TUTORIAL = {
+    {"Welcome to Happy Burger! Walk with the analog nub; look around with the face buttons.",
+     function() return CurTime() - tut.since > 8 end},
+    {"Turn round to the back wall. Look at the fridge with the red stripe and press R: a raw patty goes into "
+         .. "your hands.", function() return count_food("patty") > 0 end},
+    {"Put it on the grill: look at the grill's top and press R to put the patty down.",
+     function() return count_food("patty", function(f) return f.grilling end) > 0 end},
+    {"It's cooking! Meanwhile, take a bottom bun from the bun rack (R) and put it on the cutting board.",
+     function() return count_food("bun_bottom", on_a_board) > 0 end},
+    {"June wants cheese on hers. R on the yellow bin, then put the slice on the bun.",
+     function() return count_food("cheese", on_a_board) > 0 end},
+    {"When the patty's brown (look at it: it says cooked!), take it off the grill and put it on the board.",
+     function() return count_food("patty", function(f) return on_a_board(f) and doneness(f) >= 1 end) > 0 end},
+    {"Last, a top bun from the rack on top. The burger puts itself together.",
+     function() return count_food("burger") > 0 end},
+    {"Now carry the burger to the yellow tray in front of June and put it down.",
+     function() return state.served >= 1 end},
+    {"Lovely! One more: Theo wants a soda. R on the red soda machine by the side wall, then put it on his tray.",
+     function() return state.served >= 2 end},
+    {"That's the job! Overdone food pays half; raw, burnt or wrong food gets sent back. Your first Easy "
+         .. "shift starts now.", function() return CurTime() - tut.since > 10 end},
+}
+
+local function tut_step(k)
+    tut.step, tut.since, tut.warn = k, CurTime(), ""
+    if k >= 4 and not tut.june then -- June comes in as the burger's being made
+        tut.june = true
+        spawn_customer(2, {order = {{k = "B", top = "C"}}, patience = 1e6, who = TUTORIAL_SHOPPER})
+    end
+    if k >= 9 and not tut.theo then
+        tut.theo = true
+        spawn_customer(1, {order = {{k = "S"}}, patience = 1e6, who = {"Customer 7", "Theo", "male", 1}})
+    end
+end
+
+local function start_tutorial()
+    state.today, state.served, state.lost = 0, 0, 0
+    tut = {}
+    set_phase("tutorial", 0)
+    tut_step(1)
+end
+
+local function tick_tutorial()
+    -- Ahead of the instructions (a burger made, or served, already): on to where they are
+    if tut.step < 9 and state.served >= 1 then
+        tut_step(9)
+    elseif tut.step < 8 and count_food("burger") > 0 then
+        tut_step(8)
+    end
+    -- A burnt or binned patty before the burger's made: back to the fridge
+    if tut.step >= 3 and tut.step <= 6 then
+        local burnt = count_food("patty", function(f) return doneness(f) == 3 end)
+        if count_food("patty") - burnt == 0 then
+            tut_step(2)
+            tut.warn = burnt > 0 and "It burnt! Drop it in the bin (by the soda machine) and get a new patty."
+                or "Where did the patty go? Get a new one from the fridge."
+        end
+    end
+    if tut.step == 6 and count_food("patty", function(f) return on_a_board(f) and doneness(f) == 0 end) > 0 then
+        tut.warn = "That's still raw! Put it back on the grill until it's brown."
+    end
+    if tut.step == 8 and count_food("burger") == 0 and state.served == 0 then
+        tut_step(2)
+        tut.warn = "The burger's gone! Make another: patty on the grill first."
+    end
+    if TUTORIAL[tut.step][2]() then
+        if tut.step < #TUTORIAL then
+            sound.Play("ding")
+            tut_step(tut.step + 1)
+        else
+            -- Graduated: the Easy shift, day 1
+            tut = nil
+            level_id = "easy"
+            use_level(level_id)
+            state.money = 0
+            start_day()
+        end
+    end
 end
 
 local function new_game()
@@ -667,9 +808,16 @@ local function new_game()
         PrintMessage(HUD_PRINTCENTER, "No room for a burger stand on this map")
         return
     end
+    -- The level picked in the menu; once the tutorial's done (and after being fired from it), Easy
+    level_id = level_id or (LEVELS[DIFFICULTY] and DIFFICULTY or "medium")
+    use_level(level_id)
     build_kitchen()
-    state.day, state.money, state.rep = 1, 0, 3
+    state.day, state.money, state.rep = 1, 0, level.rep
     for _, p in ipairs(player.GetAll()) do p:Spawn() end
+    if level.tutorial then
+        start_tutorial()
+        return
+    end
     start_day()
     PrintMessage(HUD_PRINTTALK, "R takes from the fridge, buns and bins, and picks food up and puts it down. "
         .. "Grill a patty until it's brown; on a cutting board stack a bottom bun, the ticket's toppings, the patty "
@@ -799,13 +947,16 @@ local function tick_hints()
                 hint = food_name(f) .. "   (R: pick up / put down, L: throw)"
             elseif s then
                 if s.kind == "dogs" then
-                    hint = state.day >= 3 and "Freezer: R for a raw sausage" or "Hot dogs: from day 3"
+                    hint = state.day >= level.dogs_day and "Freezer: R for a raw sausage"
+                        or "Hot dogs: from day " .. level.dogs_day
                 elseif s.kind == "dogbuns" then
-                    hint = state.day >= 3 and "Hot dog buns: R for one" or "Hot dogs: from day 3"
+                    hint = state.day >= level.dogs_day and "Hot dog buns: R for one"
+                        or "Hot dogs: from day " .. level.dogs_day
                 elseif s.kind == "buns" then
                     hint = "Buns: R for a " .. ((next_bun[p] or "bun_bottom") == "bun_top" and "top" or "bottom") .. " bun"
                 elseif s.kind == "fryer" then
-                    hint = state.day < 2 and "Fryer: from day 2" or fryer.busy_until > 0 and "Frying..."
+                    hint = state.day < level.fries_day and "Fryer: from day " .. level.fries_day
+                        or fryer.busy_until > 0 and "Frying..."
                         or "Fryer: R to fry fries"
                 else
                     hint = STATION_HINTS[s.kind] or ""
@@ -827,6 +978,10 @@ local function publish()
     SetGlobalFloat("cb_rep", state.rep)
     SetGlobalInt("cb_served", state.served)
     SetGlobalInt("cb_lost", state.lost)
+    SetGlobalString("cb_level", level.name)
+    SetGlobalString("cb_tut", tut and TUTORIAL[tut.step][1] or "")
+    SetGlobalString("cb_tut_warn", tut and tut.warn or "")
+    SetGlobalInt("cb_tut_step", tut and tut.step or 0)
     for w = 1, WINDOWS do
         local c = slots[w]
         local s = ""
@@ -850,6 +1005,11 @@ local function tick()
     tick_customers(now)
     tick_food()
     tick_hints()
+    if state.phase == "tutorial" then
+        tick_tutorial()
+        publish()
+        return
+    end
     if state.rep <= 0 and state.phase ~= "fired" then
         PrintMessage(HUD_PRINTCENTER, "Zero stars. The health inspector shut you down!")
         set_phase("fired", FIRED_TIME)
@@ -909,12 +1069,12 @@ function GM:PlayerShouldTakeDamage(ply, attacker)
     return false -- mingebags' crowbars only annoy
 end
 
--- What each station hands out: {food kind, from which day, sound}. The bun rack gives a bottom bun, then
--- a top bun, then a bottom bun... (next_bun, per player)
+-- What each station hands out: {food kind, sound, the level's day it starts on (or always)}. The bun rack
+-- gives a bottom bun, then a top bun, then a bottom bun... (next_bun, per player)
 local GIVES = {
-    fridge = {"patty", 1, "fridge"}, dogs = {"sausage", 3, "fridge"}, buns = {"bun_bottom", 1, "ingredient"},
-    dogbuns = {"dog_bun", 3, "ingredient"}, cheese = {"cheese", 1, "ingredient"},
-    lettuce = {"lettuce", 1, "ingredient"}, tomato = {"tomato", 1, "ingredient"}, soda = {"soda", 1, "dispense"},
+    fridge = {"patty", "fridge"}, dogs = {"sausage", "fridge", "dogs_day"}, buns = {"bun_bottom", "ingredient"},
+    dogbuns = {"dog_bun", "ingredient", "dogs_day"}, cheese = {"cheese", "ingredient"},
+    lettuce = {"lettuce", "ingredient"}, tomato = {"tomato", "ingredient"}, soda = {"soda", "dispense"},
 }
 
 function GM:PlayerUse(ply, ent)
@@ -923,8 +1083,8 @@ function GM:PlayerUse(ply, ent)
     if not s then return end
     local give = GIVES[s.kind]
     if give then
-        if state.day < give[2] then
-            ply:PrintMessage(HUD_PRINTCENTER, "Hot dogs are on the menu from day " .. give[2])
+        if give[3] and state.day < level[give[3]] then
+            ply:PrintMessage(HUD_PRINTCENTER, "Hot dogs are on the menu from day " .. level[give[3]])
             return true
         end
         local kind = give[1]
@@ -938,11 +1098,11 @@ function GM:PlayerUse(ply, ent)
         local tr = util.TraceLine({start = eye, endpos = eye + aim * 60, filter = ply})
         local e = spawn_food(kind, eye + aim * math.Clamp(tr.Fraction * 60 - 10, 4, 20))
         if e then ply:PickUp(e) end
-        sound.Play(give[3], ent:GetPos())
+        sound.Play(give[2], ent:GetPos())
         return true
     elseif s.kind == "fryer" then
-        if state.day < 2 then
-            ply:PrintMessage(HUD_PRINTCENTER, "Fries are on the menu from day 2")
+        if state.day < level.fries_day then
+            ply:PrintMessage(HUD_PRINTCENTER, "Fries are on the menu from day " .. level.fries_day)
         elseif fryer.busy_until == 0 then
             fryer.busy_until = CurTime() + FRY_TIME
             sound.Play("fryer", ent:GetPos())
@@ -1024,6 +1184,33 @@ end
 
 local PHASES = {prep = "Opening in", open = "Open", closing = "Closing", summary = "Day over", fired = "FIRED"}
 
+-- Words into lines no wider than width (small font)
+local function wrap(text, width)
+    local lines, line = {}, ""
+    for word in text:gmatch("%S+") do
+        local try = line == "" and word or line .. " " .. word
+        if line ~= "" and draw.TextWidth(try) > width then
+            lines[#lines + 1] = line
+            line = word
+        else
+            line = try
+        end
+    end
+    if line ~= "" then lines[#lines + 1] = line end
+    return lines
+end
+
+-- The tutorial's instruction, under the tickets, and what went wrong (in orange) under that
+local function tutorial_panel(text, warn)
+    local lines = wrap(text, 330)
+    local warns = warn ~= "" and wrap(warn, 330) or {}
+    local h = 22 + (#lines + #warns) * 13
+    draw.RoundedBox(6, 65, 132, 350, h, Color(0, 0, 0, 190))
+    draw.Text(75, 136, "HOW TO", GOLD, TEXT_ALIGN_LEFT, "bold")
+    for i, l in ipairs(lines) do draw.Text(75, 140 + i * 13, l, WHITE) end
+    for i, l in ipairs(warns) do draw.Text(75, 140 + (#lines + i) * 13, l, Color(255, 160, 60)) end
+end
+
 function GM:HUDPaint()
     local me = LocalPlayer()
     if not me then return end
@@ -1031,14 +1218,24 @@ function GM:HUDPaint()
     local left = math.max(0, GetGlobalFloat("cb_end") - CurTime())
     -- The top bar
     draw.RoundedBox(4, 4, 2, 472, 19, Color(0, 0, 0, 160))
-    draw.Text(10, 5, "Day " .. GetGlobalInt("cb_day", 1), GOLD, TEXT_ALIGN_LEFT, "bold")
-    draw.Text(60, 5, (PHASES[phase] or phase) .. " " .. string.ToMinutesSeconds(left), WHITE)
     local today, q = GetGlobalInt("cb_today"), GetGlobalInt("cb_quota", 20)
-    draw.Text(240, 5, "Today $" .. today .. " / $" .. q, today >= q and Color(90, 220, 90) or WHITE, TEXT_ALIGN_CENTER)
+    if phase == "tutorial" then
+        draw.Text(10, 5, "Tutorial", GOLD, TEXT_ALIGN_LEFT, "bold")
+        draw.Text(240, 5, "Step " .. GetGlobalInt("cb_tut_step", 1) .. " of 10", WHITE, TEXT_ALIGN_CENTER)
+    else
+        local day = "Day " .. GetGlobalInt("cb_day", 1)
+        draw.Text(10, 5, day, GOLD, TEXT_ALIGN_LEFT, "bold")
+        local lx = 16 + draw.TextWidth(day, "bold")
+        draw.Text(lx, 5, GetGlobalString("cb_level", ""), DIM)
+        draw.Text(lx + draw.TextWidth(GetGlobalString("cb_level", "")) + 10, 5,
+                  (PHASES[phase] or phase) .. " " .. string.ToMinutesSeconds(left), WHITE)
+        draw.Text(300, 5, "Today $" .. today .. "/$" .. q, today >= q and Color(90, 220, 90) or WHITE, TEXT_ALIGN_CENTER)
+    end
     draw.Text(408, 5, "$" .. GetGlobalInt("cb_money"), GOLD, TEXT_ALIGN_RIGHT, "bold")
     stars(414, 7, GetGlobalFloat("cb_rep", 3))
     -- Order tickets, one per window, left to right as you see them
     for w = 1, WINDOWS do ticket(8 + (w - 1) * 158, w) end
+    if phase == "tutorial" then tutorial_panel(GetGlobalString("cb_tut", ""), GetGlobalString("cb_tut_warn", "")) end
     -- What you're looking at
     local hint = me:GetNWString("cb_hint", "")
     if hint ~= "" then
