@@ -29,7 +29,7 @@
 #include "ui.h"
 #include "version.h"
 
-#define REPO "retcon26/retcons-mod" // GitHub forwards the old name, psp-sandbox
+#define REPO "retcon26/happy-burger" // its own releases: Retcon's Mod's EBOOT would replace the game
 #define ASSET "EBOOT.PBP"
 #define LOG_PATH "data/update.log"
 #define JSON_MAX (64 * 1024) // the release's JSON; its assets come before the long notes
@@ -41,7 +41,7 @@
 #define C_DIM 0xFF707070
 #define C_GOOD 0xFF30A030
 #define C_BAD 0xFF3030C0
-#define C_BAR 0xFFE6A03D
+#define C_BAR 0xFF2AA8F0
 
 typedef enum {
     ST_IDLE,
@@ -187,7 +187,7 @@ static int tls_init(void) {
     mbedtls_ssl_config_init(&g_conf);
     int r = mbedtls_x509_crt_parse(&g_ca, (const unsigned char *)k_root_certs, sizeof(k_root_certs));
     if (r < 0) return fail("Couldn't read the built-in certificates (-0x%04X)", -r);
-    static const char pers[] = "RetconsMod update";
+    static const char pers[] = "HappyBurger update";
     r = mbedtls_ctr_drbg_seed(&g_drbg, gather_entropy, NULL, (const unsigned char *)pers, sizeof(pers));
     if (r) return fail("Couldn't start the random generator (-0x%04X)", -r);
     r = mbedtls_ssl_config_defaults(&g_conf, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM,
@@ -408,7 +408,7 @@ static int https_get(const char *start_url, const char *accept, Sink sink, int *
         }
         int api = strcmp(host, "api.github.com") == 0;
         int n = snprintf(g_req, sizeof(g_req),
-                         "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: RetconsMod/%s (PSP)\r\nAccept: %s\r\n%s"
+                         "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: HappyBurger/%s (PSP)\r\nAccept: %s\r\n%s"
                          "Connection: close\r\n\r\n",
                          path, host, GAME_VERSION, accept, api ? "X-GitHub-Api-Version: 2022-11-28\r\n" : "");
         if (n >= (int)sizeof(g_req) || !conn_write(c, g_req, n)) {
@@ -862,7 +862,7 @@ void update_page_open(void) {
     FILE *f = fopen(LOG_PATH, "w");
     if (f) {
         time_t now = time(NULL);
-        fprintf(f, "Retcon's Mod %s update check, %s", current_version(), ctime(&now));
+        fprintf(f, "Happy Burger %s update check, %s", current_version(), ctime(&now));
         fprintf(f, "EBOOT: %s\n", U.eboot);
         fclose(f);
     }
@@ -967,7 +967,7 @@ static const char *dots(void) {
 
 void update_page_draw(float x, float y, float w, float h) {
     ui_rrect(x, y, w, h, 4, 0xF0E8E8E8);
-    ui_gradient(x, y, w, 22, 0xFF8C6A3D, 0xFF6E5230);
+    ui_gradient(x, y, w, 22, 0xFF2A30C0, 0xFF1E2290);
     ui_text(FONT_BOLD, x + 8, y + 5, 0xFFFFFFFF, ALIGN_LEFT, "Updates");
     float tx = x + 12, tw = w - 24, ty = y + 30, bottom = y + h - 22;
     int lh = ui_line_height(FONT_SMALL);
@@ -1039,7 +1039,7 @@ void update_page_draw(float x, float y, float w, float h) {
         ui_text(FONT_BOLD, tx, ty, C_GOOD, ALIGN_LEFT, buf);
         ty += ui_line_height(FONT_BOLD) + 4;
         wrap(tx, ty, tw, bottom, C_TEXT,
-             "Quit and start Retcon's Mod again to play it. This version is kept as EBOOT.OLD in the game's "
+             "Quit and start Happy Burger again to play it. This version is kept as EBOOT.OLD in the game's "
              "folder: rename it back to EBOOT.PBP to go back.");
         hint = "X: quit    O: back";
         break;

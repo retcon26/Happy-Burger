@@ -307,7 +307,7 @@ void saves_frame(void) {
 
 void saves_draw(float x, float y, float w, float h) {
     ui_rrect(x, y, w, h, 4, 0xF0E8E8E8);
-    ui_gradient(x, y, w, 22, 0xFF8C6A3D, 0xFF6E5230);
+    ui_gradient(x, y, w, 22, 0xFF2A30C0, 0xFF1E2290);
     ui_text(FONT_BOLD, x + 8, y + 5, 0xFFFFFFFF, ALIGN_LEFT, "Saves");
     ui_textf(FONT_SMALL, x + w - 8, y + 6, 0xFFE0E0E0, ALIGN_RIGHT, "%d saved", g_num_saves);
     float top = y + 28;
@@ -317,7 +317,7 @@ void saves_draw(float x, float y, float w, float h) {
     for (int r = 0; r < rows && g_scroll + r < total; r++) {
         int row = g_scroll + r, sel = row == g_sel;
         float ry = top + r * ROW_H;
-        if (sel) ui_rrect(x + 6, ry - 1, w - 12, ROW_H - 1, 3, 0xFFE6A03D);
+        if (sel) ui_rrect(x + 6, ry - 1, w - 12, ROW_H - 1, 3, 0xFF2AA8F0);
         unsigned int tc = sel ? 0xFFFFFFFF : 0xFF303030, sub = sel ? 0xFFFFFFFF : 0xFF707070;
         if (row == 0) {
             ui_text(FONT_BOLD, x + 12, ry, tc, ALIGN_LEFT, "+  Save the current build");

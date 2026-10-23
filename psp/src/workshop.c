@@ -271,13 +271,13 @@ static const char *addon_label(const char *name, int *gamemode) {
 
 void workshop_draw(float x, float y, float w, float h) {
     ui_rrect(x, y, w, h, 4, 0xF0E8E8E8);
-    ui_gradient(x, y, w, 22, 0xFF8C6A3D, 0xFF6E5230);
+    ui_gradient(x, y, w, 22, 0xFF2A30C0, 0xFF1E2290);
     ui_text(FONT_BOLD, x + 8, y + 5, 0xFFFFFFFF, ALIGN_LEFT, "Workshop");
     // Tabs
     float tx = x + 100;
     for (int k = 0; k < WS_KINDS; k++) {
         float tw = ui_text_width(FONT_SMALL, k_tab_names[k]) + 16;
-        if (k == g_tab) ui_rrect(tx, y + 3, tw, 16, 3, 0xFFE6A03D);
+        if (k == g_tab) ui_rrect(tx, y + 3, tw, 16, 3, 0xFF2AA8F0);
         ui_text(FONT_SMALL, tx + 8, y + 5, k == g_tab ? 0xFFFFFFFF : 0xFFE0E0E0, ALIGN_LEFT, k_tab_names[k]);
         tx += tw + 4;
     }
@@ -300,13 +300,13 @@ void workshop_draw(float x, float y, float w, float h) {
         int row = g_rows[g_scroll + r];
         float ry = top + r * ROW_H;
         int sel = g_scroll + r == g_sel;
-        if (sel) ui_rrect(x + 6, ry - 1, w - 18, ROW_H - 1, 3, 0xFFE6A03D);
+        if (sel) ui_rrect(x + 6, ry - 1, w - 18, ROW_H - 1, 3, 0xFF2AA8F0);
         if (row < 0) {
             // A game: +/- box, its name, how many of its maps are on, and a box for them all
             int c = -1 - row, total, con = cat_on(c, &total), open = c == g_open;
             unsigned int tc = sel ? 0xFFFFFFFF : 0xFF303030;
             ui_rect(x + 12, ry + 2, 9, 9, sel ? 0xFFFFFFFF : 0xFF8A8A8A);
-            ui_rect(x + 13, ry + 3, 7, 7, sel ? 0xFFE6A03D : 0xFFF4F4F4);
+            ui_rect(x + 13, ry + 3, 7, 7, sel ? 0xFF2AA8F0 : 0xFFF4F4F4);
             ui_rect(x + 14, ry + 6, 5, 1, tc);
             if (!open) ui_rect(x + 16, ry + 4, 1, 5, tc);
             ui_text(FONT_BOLD, x + 28, ry, tc, ALIGN_LEFT, g_cat_names[c]);

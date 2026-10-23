@@ -672,6 +672,10 @@ function NPC:Health()
 end
 function NPC:SetHealth(hp) E.npc_set_health(self._i, hp) end
 function NPC:SetPos(v) E.npc_set_pos(self._i, v.x, v.y, v.z) end
+-- Ours: walks to pos (runs if run), then stands facing yaw; its own AI is off until ClearGoal
+function NPC:SetGoal(pos, yaw, run) E.npc_goal(self._i, pos.x, pos.y, pos.z, yaw or 0, run and true or false) end
+function NPC:ClearGoal() E.npc_clear_goal(self._i) end
+function NPC:AtGoal() return E.npc_at_goal(self._i) end
 function NPC:TakeDamage(amount, attacker) E.npc_damage(self._i, amount, attacker and attacker._slot or -1) end
 function NPC:Remove() E.npc_remove(self._i) end
 NPC.__tostring = function(self) return "NPC [" .. self._i .. "][" .. self:GetClass() .. "]" end
@@ -829,7 +833,8 @@ end
 
 function _gm_end()
     GAMEMODE = GM
-    local flags = (GM.Sandbox and 1 or 0) | (GM.AllowPickup and 2 or 0) | (GM.TeamBased and 4 or 0)
+    local flags = (GM.Sandbox and 1 or 0) | (GM.AllowPickup and 2 or 0) | (GM.TeamBased and 4 or 0) |
+                  (GM.ShowHealth == false and 8 or 0)
     return flags, tonumber(GM.RespawnTime) or -1
 end
 

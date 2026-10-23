@@ -93,6 +93,7 @@ Save it as `data/lua/gamemodes/lastman.lua`; Triangle on the New Game screen now
 | `GM.Sandbox` | `false` | `true` keeps the sandbox: spawn menu, tool gun, physics gun, noclip, God mode and the rest. `false` (a game) turns them off: Select shows the scoreboard instead, players carry only what you `Give` them (and their hands), and nobody can spawn or build. |
 | `GM.AllowPickup` | `false` | Use picks up light props (Zombie Survival's barricades). Otherwise Use goes to `PlayerUse`, then doors and buttons. |
 | `GM.TeamBased` | `false` | Name tags only show for your own team. |
+| `GM.ShowHealth` | `true` | **Ours:** `false` hides the health and suit boxes (a game where nobody gets hurt). |
 | `GM.RespawnTime` | `-1` | Seconds after dying when X respawns you. `-1`: only when the gamemode calls `ply:Spawn()`. |
 
 In a gamemode's game the Options God mode, Unlimited ammo, NPC thinking off and NPCs ignore players don't apply,
@@ -260,6 +261,11 @@ room (16 at a time, headcrabs and torsos included). `npc.GetAll()` (the living o
 Methods: `IsValid()`, `Alive()`, `GetClass()`, `GetPos()`, `SetPos(v)`, `Health()`, `SetHealth(hp)`,
 `TakeDamage(amount [, attacker])`, `Remove()`, `IsNPC()`, `EntIndex()`.
 
+**Ours (Happy Burger's engine):** `SetGoal(pos [, yaw [, run]])` walks it to `pos` (round walls along the map's
+node graph, running if `run`), then it stands there facing `yaw`. Its own AI is off meanwhile: it doesn't
+wander, flee or fight, though it can still be hurt. `AtGoal()` is true once it's there, and `ClearGoal()`
+hands it back to its AI. Retcon's Mod 1.14.1 and earlier don't have them: check `if n.SetGoal then`.
+
 ### The map
 
 | | |
@@ -297,6 +303,10 @@ Their source is in [psp/lua/gamemodes](../psp/lua/gamemodes): copy one into `dat
   3, poison zombies from 5, zombines from 7), and more weapons with each wave. Beat a wave and the dead come back,
   with ammo and supplies about; lose everyone at once and it starts again. Use picks up light props to block
   doors. Alone or together.
+- **Happy Burger** (`burger`): run a burger stand. The kitchen is built from props near a spawn point;
+  citizens walk up to the counter (`NPC:SetGoal`) and order. Grill patties and hot dogs, fry fries, grab sodas,
+  and put the food on their tray before their patience runs out. A day's quota or you're fired. Alone or
+  together.
 - **Deathmatch** (`deathmatch`): everyone against everyone; first to 15 kills, or the most after ten minutes. X
   respawns you after 3 seconds. Alone, Combine soldiers fill in. The shortest of the three: a good one to start
   from.

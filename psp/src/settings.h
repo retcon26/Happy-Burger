@@ -28,7 +28,7 @@ typedef struct {
     int player_colour;  // profile_colour index: tints your player model and name (0: none)
     int physgun_colour; // profile_colour index for your physics gun's beam (0: GMod's blue)
     char name[16];      // your name in games ("": the PSP's nickname)
-    char gamemode[16];  // New Game's gamemode ("": Sandbox)
+    char gamemode[16];  // New Game's gamemode ("": Sandbox; Happy Burger by default)
 } Settings;
 
 #define PROFILE_COLOURS 11

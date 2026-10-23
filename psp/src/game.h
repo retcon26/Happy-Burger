@@ -55,7 +55,7 @@ void game_set_gamemode(const char *name);
 const char *game_gamemode(void);
 // What it allows (GM.Sandbox, GM.AllowPickup, GM.TeamBased) and how soon X respawns the dead
 // (GM.RespawnTime; < 0: only when the gamemode says). script.c sets them once the gamemode has loaded.
-enum { GMF_SANDBOX = 1, GMF_PICKUP = 2, GMF_TEAM_TAGS = 4 };
+enum { GMF_SANDBOX = 1, GMF_PICKUP = 2, GMF_TEAM_TAGS = 4, GMF_NO_HEALTH = 8 };
 void game_gm_setup(int flags, float respawn_time);
 int game_is_server(void);    // this PSP runs the rules: single player or the host
 int game_is_dedicated(void); // ...with no player of its own

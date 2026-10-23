@@ -3905,7 +3905,7 @@ static void draw_quick_chat(void) {
         float x = cx + sinf(a) * QC_RADIUS, y = cy - cosf(a) * QC_RADIUS;
         const char *label = gestures ? (s < npc_gesture_count() ? npc_gesture_name(s) : "-") : k_quick_msgs[s];
         float w = ui_text_width(FONT_SMALL, label) + 12.0f;
-        if (s == g_qc.sel) ui_rrect(x - w * 0.5f, y - 9, w, 18, 4, 0xFFE6A03D);
+        if (s == g_qc.sel) ui_rrect(x - w * 0.5f, y - 9, w, 18, 4, 0xFF2AA8F0);
         ui_text(FONT_SMALL, x, y - 6, s == g_qc.sel ? 0xFFFFFFFF : 0xFFE0E0E0, ALIGN_CENTER, label);
     }
     ui_text(FONT_BOLD, cx, cy - 16, 0xFFFFFFFF, ALIGN_CENTER, gestures ? "Gestures" : "Messages");
@@ -8188,12 +8188,17 @@ void game_achievement(const char *id) {
 // --- Script access ---------------------------------------------------------------------------------
 
 // Map scripts only change the world on the host (or single player): clients get it in snapshots
+// A script's props (a gamemode's kitchen and its food) are the game's, not a player's: they don't count
+// towards anyone's prop limit or go on their Undo list, and they're put exactly where the script says
+#define SCRIPT_OWNER 101 // body_owner of props a script spawned: not a player slot
 int game_spawn_prop_by_name(const char *name, float x, float y, float z, float yaw) {
     if (is_client()) return -1;
     for (int k = 0; k < G.num_spawnable; k++) {
         int i = G.spawnable[k];
         if (strcasecmp(model_name(i), name) == 0) {
-            int b = spawn_prop(i, v3(x, y, z), v3(0, 0, 1), yaw_quat(yaw), 0xFFFFFFFF);
+            int b = new_body(i, v3(x, y, z), yaw_quat(yaw), 0xFFFFFFFF, NULL);
+            if (b < 0) return -1;
+            G.body_owner[b] = SCRIPT_OWNER;
             return b;
         }
     }
@@ -8918,8 +8923,8 @@ static void draw_world_viewmodel(int model, vec3 f, vec3 r, vec3 u, unsigned int
 #define C_TAB 0xFFFFFFFF
 #define C_TEXT 0xFF303030
 #define C_TEXT_DIM 0xFF808080
-#define C_BLUE 0xFFE6A03D
-#define C_BLUE_DIM 0xFFE0C8A8
+#define C_ACCENT 0xFF2AA8F0
+#define C_ACCENT_DIM 0xFFB0D8F0
 #define C_HL2 0xFF00DCFF // HL2/GMod HUD yellow
 
 // Spawn menu, laid out like GMod's Q menu: spawnlists on the left, tools on the right
@@ -8935,7 +8940,7 @@ static void draw_qmenu(int props) {
     // Spawnlists: Recent, your lists, NPCs, Ragdolls, then one header per game (opened one at a time)
     float cx = fx + 6, cy = fy + 28, cw = 96, ch = fh - 34;
     ui_rect(cx, cy, cw, ch, C_PANEL);
-    if (G.focus == 0) ui_outline(cx, cy, cw, ch, C_BLUE);
+    if (G.focus == 0) ui_outline(cx, cy, cw, ch, C_ACCENT);
     static int rows[MAX_PANEL_ROWS];
     int nr = panel_rows(rows);
     float rh = 15.0f;
@@ -8949,14 +8954,14 @@ static void draw_qmenu(int props) {
         int cursor = k == G.qrow;
         int header = r <= ROW_HEADER(0);
         int shown = !header && r == G.cat; // the list in the grid (dimmer when the cursor's elsewhere)
-        if (cursor || shown) ui_rect(cx + 2, ry - 1, cw - 4, rh - 1, cursor && G.focus == 0 ? C_BLUE : C_BLUE_DIM);
+        if (cursor || shown) ui_rect(cx + 2, ry - 1, cw - 4, rh - 1, cursor && G.focus == 0 ? C_ACCENT : C_ACCENT_DIM);
         unsigned int tc = cursor && G.focus == 0 ? 0xFFFFFFFF : C_TEXT;
         if (header) {
             // A game: a +/- box, its name in bold
             int g = g_game_order[-100 - r];
             int open = G.group_open == g;
             ui_rect(cx + 5, ry + 3, 9, 9, cursor && G.focus == 0 ? 0xFFFFFFFF : 0xFF8A8A8A);
-            ui_rect(cx + 6, ry + 4, 7, 7, cursor && G.focus == 0 ? C_BLUE : 0xFFF4F4F4);
+            ui_rect(cx + 6, ry + 4, 7, 7, cursor && G.focus == 0 ? C_ACCENT : 0xFFF4F4F4);
             ui_rect(cx + 7, ry + 7, 5, 1, cursor && G.focus == 0 ? 0xFFFFFFFF : C_TEXT);
             if (!open) ui_rect(cx + 9, ry + 5, 1, 5, cursor && G.focus == 0 ? 0xFFFFFFFF : C_TEXT);
             ui_text_clip(FONT_SMALL, cx + 17, ry + 1, cw - 20, tc, group_title(g));
@@ -8985,12 +8990,12 @@ static void draw_qmenu(int props) {
     float gw = fw - cw - 18;
     const float pitch = 47.0f, tile = 45.0f;
     ui_rect(gx, gy, gw, 164, C_PANEL);
-    if (G.focus == 1) ui_outline(gx, gy, gw, 164, C_BLUE);
+    if (G.focus == 1) ui_outline(gx, gy, gw, 164, C_ACCENT);
     for (int k = G.grid_scroll * GRID_COLS; k < n && k < (G.grid_scroll + GRID_ROWS) * GRID_COLS; k++) {
         int r = k / GRID_COLS - G.grid_scroll, c = k % GRID_COLS;
         float tx = gx + 5 + c * pitch, ty = gy + 7 + r * 52;
         int sel = k == G.grid_sel;
-        ui_rrect(tx - 1, ty - 1, tile + 2, tile + 2, 3, sel ? (G.focus == 1 ? C_BLUE : C_BLUE_DIM) : 0xFFC8C8C8);
+        ui_rrect(tx - 1, ty - 1, tile + 2, tile + 2, 3, sel ? (G.focus == 1 ? C_ACCENT : C_ACCENT_DIM) : 0xFFC8C8C8);
         ui_rect(tx + 1, ty + 1, tile - 2, tile - 2, 0xFFFFFFFF);
         int wep = items[k] >= GRID_WEAPON ? items[k] - GRID_WEAPON : -1;
         const char *iname = wep >= 0               ? k_weapon_names[wep]
@@ -9027,7 +9032,7 @@ static void draw_qmenu(int props) {
     if (n > 0 && G.grid_sel < n && items[G.grid_sel] >= GRID_WEAPON) {
         int w = items[G.grid_sel] - GRID_WEAPON;
         ui_text(FONT_BOLD, gx + 6, iy + 5, C_TEXT, ALIGN_LEFT, k_weapon_names[w]);
-        ui_text(FONT_SMALL, gx + 6, iy + 22, gm_carried() & (1u << w) ? C_TEXT_DIM : C_BLUE, ALIGN_LEFT,
+        ui_text(FONT_SMALL, gx + 6, iy + 22, gm_carried() & (1u << w) ? C_TEXT_DIM : C_ACCENT, ALIGN_LEFT,
                 gm_carried() & (1u << w) ? "You have it: X takes it out" : "X: pick it up");
     } else if (n > 0 && G.grid_sel < n && items[G.grid_sel] >= GRID_RAG) {
         ui_text(FONT_BOLD, gx + 6, iy + 5, C_TEXT, ALIGN_LEFT, npc_type_name(items[G.grid_sel] - GRID_RAG));
@@ -9041,7 +9046,7 @@ static void draw_qmenu(int props) {
         ui_text(FONT_BOLD, gx + 6, iy + 5, C_TEXT, ALIGN_LEFT, md->name);
         int kind = drivable_model(items[G.grid_sel]);
         if (kind != VEH_NONE) {
-            ui_text(FONT_SMALL, gx + 6, iy + 22, C_BLUE, ALIGN_LEFT, kind == VEH_SEAT ? "Seat: Use to sit in it" : "Drivable: Use to get in");
+            ui_text(FONT_SMALL, gx + 6, iy + 22, C_ACCENT, ALIGN_LEFT, kind == VEH_SEAT ? "Seat: Use to sit in it" : "Drivable: Use to get in");
         } else {
             ui_textf(FONT_SMALL, gx + 6, iy + 22, C_TEXT_DIM, ALIGN_LEFT, "%.0f kg   %.0f x %.0f x %.0f", md->mass,
                      md->maxs[0] - md->mins[0], md->maxs[1] - md->mins[1], md->maxs[2] - md->mins[2]);
@@ -9058,7 +9063,7 @@ static void draw_qmenu(int props) {
     ui_text(FONT_BOLD, tx + 31, ty + 8, C_TEXT, ALIGN_CENTER, "Tools");
     float lx = tx + 6, ly = ty + 28, lw = tw - 12;
     ui_rect(lx, ly, lw, 150, C_PANEL);
-    if (G.focus == 2) ui_outline(lx, ly, lw, 150, C_BLUE);
+    if (G.focus == 2) ui_outline(lx, ly, lw, 150, C_ACCENT);
     // The list is taller than the panel, so it scrolls to keep the selected tool in view
     const float list_h = 150.0f;
     {
@@ -9088,9 +9093,9 @@ static void draw_qmenu(int props) {
             Tool t = k_tool_groups[g].tools[k];
             int sel = row == G.tool_row;
             if (TOOL_ROW_VISIBLE(y - 1, 14)) {
-                if (sel) ui_rect(lx + 2, y - 1, lw - 4, 14, G.focus == 2 ? C_BLUE : C_BLUE_DIM);
+                if (sel) ui_rect(lx + 2, y - 1, lw - 4, 14, G.focus == 2 ? C_ACCENT : C_ACCENT_DIM);
                 ui_text(FONT_SMALL, lx + 14, y, sel ? 0xFFFFFFFF : C_TEXT, ALIGN_LEFT, k_tool_names[t]);
-                if (t == G.tool && G.weapon == WEAPON_TOOLGUN) ui_rect(lx + 6, y + 4, 4, 4, sel ? 0xFFFFFFFF : C_BLUE);
+                if (t == G.tool && G.weapon == WEAPON_TOOLGUN) ui_rect(lx + 6, y + 4, 4, 4, sel ? 0xFFFFFFFF : C_ACCENT);
             }
             y += 14;
         }
@@ -9111,11 +9116,11 @@ static void draw_qmenu(int props) {
     float sy = ly + 154;
     int csel = G.focus == 2 && G.tool_row == TOOL_COUNT;
     ui_rect(lx, sy, lw, 38, C_PANEL);
-    if (csel) ui_outline(lx, sy, lw, 38, C_BLUE);
+    if (csel) ui_outline(lx, sy, lw, 38, C_ACCENT);
     ui_text(FONT_SMALL, lx + 5, sy + 3, C_TEXT, ALIGN_LEFT, "Colour");
     for (int i = 0; i < PALETTE_SIZE; i++) {
         float px = lx + 5 + i * 16.5f;
-        if (i == G.colour_sel) ui_rect(px - 2, sy + 18, 17, 17, csel ? C_BLUE : 0xFF606060);
+        if (i == G.colour_sel) ui_rect(px - 2, sy + 18, 17, 17, csel ? C_ACCENT : 0xFF606060);
         ui_rect(px, sy + 20, 13, 13, k_palette[i]);
     }
     // Description of the highlighted tool
@@ -9129,7 +9134,7 @@ static void draw_qmenu(int props) {
 }
 
 static void draw_notifications(void) {
-    static const unsigned int kind_colour[] = {0xFFE6A03D, 0xFF50C0FF, 0xFF60C060, 0xFF4040E0, 0xFF40A0FF, 0xFF909090,
+    static const unsigned int kind_colour[] = {0xFF2AA8F0, 0xFF50C0FF, 0xFF60C060, 0xFF4040E0, 0xFF40A0FF, 0xFF909090,
                                                0xFF30B8F0};
     static const char *kind_glyph[] = {"i", "<", "!", "x", "*", ">", "+"};
     float y = is_gun(G.weapon) && k_ws[G.weapon].clip ? 190 : 226; // above the ammo box
@@ -9210,6 +9215,8 @@ static void draw_hud(float fps) {
     // Options > Show HUD off hides the boxes, hints and notes (the crosshair has its own option)
     if (!g_settings.show_hud) goto stats;
 
+    // GM.ShowHealth = false: a game where nobody gets hurt (Happy Burger) has no health or suit boxes
+    if (g_gm.on && (g_gm.flags & GMF_NO_HEALTH)) goto no_health;
     char hp[8];
     snprintf(hp, sizeof(hp), "%d", (int)ceilf(G.health));
     unsigned int hp_col = G.health > 25.0f ? C_HL2 : 0xFF2020FF;
@@ -9231,6 +9238,7 @@ static void draw_hud(float fps) {
         ui_text(FONT_TITLE, sx + sw - 10, 233, sc, ALIGN_RIGHT, sp);
     }
     if (god_mode()) ui_text_shadow(FONT_SMALL, 12, 214, C_HL2, ALIGN_LEFT, "God mode");
+no_health:
 
     // Tool gun info, top left like GMod's tool HUD (a camera view has its own label there)
     if (G.weapon == WEAPON_TOOLGUN && G.cam_view < 0) {

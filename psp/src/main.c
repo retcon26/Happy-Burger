@@ -23,7 +23,7 @@
 #include "ui.h"
 #include "update.h"
 
-PSP_MODULE_INFO("RetconsMod", PSP_MODULE_USER, 0, 1);
+PSP_MODULE_INFO("HappyBurger", PSP_MODULE_USER, 0, 1);
 PSP_MAIN_THREAD_ATTR(PSP_THREAD_ATTR_USER | PSP_THREAD_ATTR_VFPU);
 // Take all user memory except 1MB, which the kernel needs for thread stacks and file buffers.
 PSP_HEAP_SIZE_KB(-1024);
@@ -107,28 +107,41 @@ static void setup_callbacks(void) {
     }
 }
 
-// The blue loading screen, shown at boot and while a map (or the menu's background map) loads:
-// the map's thumbnail and name, or the title when name is NULL.
-#define LOADING_BLUE 0xFF8A3A12 // ABGR
+// The loading screen, at boot and while a map (or the menu's background map) loads: ketchup red, the logo,
+// a strip of checkered floor and a kitchen tip
+#define LOADING_RED 0xFF2830B8 // ABGR
+static const char *const k_tips[] = {
+    "Raw patties are pink. Grill them until they're brown, not black.",
+    "Build burgers on the cutting board: bottom bun, toppings, patty, top bun.",
+    "Read the ticket: a customer who wanted cheese wants cheese.",
+    "Burnt food goes in the bin, not on the tray.",
+    "VIPs tip double, but they hate waiting.",
+    "Please don't throw burgers at the customers.",
+};
+#define NUM_TIPS (int)(sizeof(k_tips) / sizeof(k_tips[0]))
 static void draw_loading(const char *name) {
-    gfx_begin_frame(LOADING_BLUE);
+    static int tip = -1;
+    if (tip < 0 || name) tip = (tip + 1) % NUM_TIPS; // a new tip for each map load
+    gfx_begin_frame(LOADING_RED);
     if (ui_ready()) {
         ui_begin();
-        ui_rect(0, 0, 480, 136, 0x30FFFFFF); // lighter top half, a cheap gradient
-        ui_rect(0, 236, 480, 36, 0x40000000);
-        if (name) {
-            if (ui_map_thumb(name, 240 - 64, 56, 128, 128)) ui_outline(240 - 65, 55, 130, 130, 0x80FFFFFF);
-            ui_text_shadow(FONT_LARGE, 240, 196, 0xFFFFFFFF, ALIGN_CENTER, name);
-        } else {
-            ui_text_shadow(FONT_TITLE, 240, 100, 0xFFFFFFFF, ALIGN_CENTER, "Retcon's Mod");
-            ui_text_shadow(FONT_SMALL, 240, 150, 0xFFE0E0E0, ALIGN_CENTER, "by Retcon");
+        ui_gradient(0, 0, 480, 232, 0xFF3848D8, 0xFF1C2290);
+        for (int x = 0; x < 480; x += 20) { // the restaurant's floor
+            for (int r = 0; r < 2; r++) ui_rect((float)x, 232.0f + r * 20, 20, 20, ((x / 20 + r) & 1) ? 0xFF282828 : 0xFFF0F0F0);
         }
-        ui_text_shadow(FONT_SMALL, 240, 246, 0xFFFFFFFF, ALIGN_CENTER, "Loading...");
+        int logo = ui_image_find("logo");
+        if (logo >= 0) {
+            int w, h;
+            ui_image_size(logo, &w, &h);
+            ui_image(logo, 240.0f - w / 2.0f, 62, (float)w, (float)h, 0xFFFFFFFF);
+        } else {
+            ui_text_shadow(FONT_TITLE, 240, 80, 0xFFFFFFFF, ALIGN_CENTER, "Happy Burger");
+        }
+        ui_text_shadow(FONT_BOLD, 240, 140, 0xFF60D8FF, ALIGN_CENTER, name ? "Opening up the restaurant..." : "Loading...");
+        ui_rrect(40, 176, 400, 34, 6, 0x60000000);
+        ui_text(FONT_BOLD, 52, 181, 0xFF60D8FF, ALIGN_LEFT, "TIP");
+        ui_text_clip(FONT_SMALL, 84, 184, 348, 0xFFFFFFFF, k_tips[tip]);
         ui_end();
-    } else if (name) {
-        hud_begin();
-        hud_print(2, 16, 0xFFFFFFFF, "Loading %s...", name);
-        hud_draw();
     }
     gfx_end_frame();
     gfx_present(1);
@@ -224,7 +237,7 @@ int main(int argc, char *argv[]) {
     mem_init();
     input_init();
     gfx_init();
-    draw_loading(NULL); // plain blue until ui.pak is in
+    draw_loading(NULL); // plain red until ui.pak is in
     hud_init();
     move_saves_across(argc > 0 ? argv[0] : NULL);
     settings_load();

@@ -13,7 +13,7 @@
 
 #define SETTINGS_PATH "data/settings.cfg"
 
-Settings g_settings = {1, 3, 0, 1, 0, 1, 1, 1, 4, 3, 2, 3, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, "", ""};
+Settings g_settings = {1, 3, 0, 1, 0, 1, 1, 1, 4, 3, 2, 3, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, "", "burger"};
 
 // Values with names show the name; other multi-step options show dots; 0/1 options a checkbox
 static const char *const k_dist_names[] = {"Near", "Medium", "Far", "Full"};
@@ -118,9 +118,9 @@ typedef struct {
     const char *text;
 } CreditLine;
 
-#define C_HEAD 0xFF6E5230
+#define C_HEAD 0xFF1E2290
 #define C_TEXT 0xFF303030
-#define C_NAME 0xFFE6A03D
+#define C_NAME 0xFF2AA8F0
 #define CREDITS_GAP 10.0f
 #define CREDITS_FADE 12.0f  // lines fade in and out over this many pixels at the edges
 #define CREDITS_SPEED 0.5f  // pixels per frame while rolling
@@ -131,9 +131,9 @@ static const CreditLine k_credits[] = {
     {FONT_LARGE, C_TEXT, "PS2GMOD"},
     {FONT_SMALL, C_TEXT, "A Garry's Mod-style sandbox for the PS2"},
 #else
-    {FONT_LARGE, C_TEXT, "Retcon's Mod"},
-    {FONT_SMALL, C_TEXT, "A physics sandbox for the PSP"},
-    {FONT_SMALL, C_TEXT, "(formerly PSP Sandbox)"},
+    {FONT_LARGE, C_TEXT, "Happy Burger"},
+    {FONT_SMALL, C_TEXT, "A burger stand sim for the PSP"},
+    {FONT_SMALL, C_TEXT, "on the Retcon's Mod engine"},
 #endif
     {-1, 0, NULL},
     {FONT_BOLD, C_HEAD, "Created by"},
@@ -216,7 +216,7 @@ static void credits_update(const InputState *in) {
 
 static void credits_draw(float x, float y, float w, float h) {
     ui_rrect(x, y, w, h, 4, 0xF0E8E8E8);
-    ui_gradient(x, y, w, 22, 0xFF8C6A3D, 0xFF6E5230);
+    ui_gradient(x, y, w, 22, 0xFF2A30C0, 0xFF1E2290);
     ui_text(FONT_BOLD, x + 8, y + 5, 0xFFFFFFFF, ALIGN_LEFT, "Credits");
     float top = y + 28, bottom = y + h - 24, view = bottom - top;
     float total = 0.0f;
@@ -370,13 +370,13 @@ void profile_frame(void) {
 
 void profile_draw(float x, float y, float w, float h) {
     ui_rrect(x, y, w, h, 4, 0xF0E8E8E8);
-    ui_gradient(x, y, w, 22, 0xFF8C6A3D, 0xFF6E5230);
+    ui_gradient(x, y, w, 22, 0xFF2A30C0, 0xFF1E2290);
     ui_text(FONT_BOLD, x + 8, y + 5, 0xFFFFFFFF, ALIGN_LEFT, "Profile");
     for (int i = 0; i < NUM_PROFILE; i++) {
         const Option *o = &k_profile[i];
         float ry = y + 30 + i * ROW_H;
         int selected = i == g_psel;
-        if (selected) ui_rrect(x + 6, ry - 2, w - 12, 20, 3, 0xFFE6A03D);
+        if (selected) ui_rrect(x + 6, ry - 2, w - 12, 20, 3, 0xFF2AA8F0);
         unsigned int tc = selected ? 0xFFFFFFFF : 0xFF303030;
         ui_text(FONT_SMALL, x + 14, ry + 2, tc, ALIGN_LEFT, o->label);
         const char *value;
@@ -472,7 +472,7 @@ void options_draw(float x, float y, float w, float h) {
     }
     // A light Derma-style window
     ui_rrect(x, y, w, h, 4, 0xF0E8E8E8);
-    ui_gradient(x, y, w, 22, 0xFF8C6A3D, 0xFF6E5230);
+    ui_gradient(x, y, w, 22, 0xFF2A30C0, 0xFF1E2290);
     ui_text(FONT_BOLD, x + 8, y + 5, 0xFFFFFFFF, ALIGN_LEFT, "Options");
     // More options than fit: the list scrolls to keep the selected one in view
     int rows = (int)((h - 50) / ROW_H);
@@ -483,7 +483,7 @@ void options_draw(float x, float y, float w, float h) {
         int i = g_scroll + r;
         float ry = y + 30 + r * ROW_H;
         int selected = i == g_sel;
-        if (selected) ui_rrect(x + 6, ry - 2, w - 18, 20, 3, 0xFFE6A03D);
+        if (selected) ui_rrect(x + 6, ry - 2, w - 18, 20, 3, 0xFF2AA8F0);
         unsigned int tc = selected ? 0xFFFFFFFF : 0xFF303030;
         ui_text(FONT_SMALL, x + 14, ry + 2, tc, ALIGN_LEFT, k_options[i].label);
         const Option *o = &k_options[i];
@@ -510,12 +510,12 @@ void options_draw(float x, float y, float w, float h) {
             float bx = x + w - 36, by = ry + 1;
             ui_rect(bx, by, 14, 14, selected ? 0xFFFFFFFF : 0xFF909090);
             ui_rect(bx + 1, by + 1, 12, 12, 0xFFFFFFFF);
-            if (*o->value) ui_rect(bx + 3, by + 3, 8, 8, 0xFFE6A03D);
+            if (*o->value) ui_rect(bx + 3, by + 3, 8, 8, 0xFF2AA8F0);
         } else {
             // Slider dots
             for (int k = o->min; k <= o->max; k++) {
                 float dx = x + w - 36 - (o->max - k) * 12;
-                ui_rrect(dx, ry + 4, 9, 9, 4.5f, k <= *o->value ? (selected ? 0xFFFFFFFF : 0xFFE6A03D) : 0xFFB0B0B0);
+                ui_rrect(dx, ry + 4, 9, 9, 4.5f, k <= *o->value ? (selected ? 0xFFFFFFFF : 0xFF2AA8F0) : 0xFFB0B0B0);
             }
         }
     }

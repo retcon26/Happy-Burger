@@ -23,3 +23,6 @@ __pycache__/
 tools/workshop_cache/
 # Your own Workshop characters (tools/npcs.txt says how)
 tools/npcs.local.txt
+
+# Python tools' virtualenv (tools/burgerkit)
+.venv/

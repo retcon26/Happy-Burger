@@ -548,6 +548,25 @@ static int e_npc_set_pos(lua_State *s) {
     return 0;
 }
 
+// (npc, x, y, z [, yaw [, run]])
+static int e_npc_goal(lua_State *s) {
+    if (game_is_server()) {
+        npc_set_goal((int)luaL_checkinteger(s, 1), vec_args(s, 2), (float)luaL_optnumber(s, 5, 0.0),
+                     lua_toboolean(s, 6));
+    }
+    return 0;
+}
+
+static int e_npc_clear_goal(lua_State *s) {
+    if (game_is_server()) npc_clear_goal((int)luaL_checkinteger(s, 1));
+    return 0;
+}
+
+static int e_npc_at_goal(lua_State *s) {
+    lua_pushboolean(s, npc_at_goal((int)luaL_checkinteger(s, 1)));
+    return 1;
+}
+
 static int e_npc_damage(lua_State *s) {
     game_npc_damage((int)luaL_checkinteger(s, 1), (float)luaL_checknumber(s, 2), (int)luaL_optinteger(s, 3, -1));
     return 0;
@@ -760,7 +779,8 @@ int script_start(const char *map_name, const char *mode, int server, int client)
         {"ent_model", e_ent_model}, {"ent_color", e_ent_color}, {"ent_freeze", e_ent_freeze},
         {"ent_frozen", e_ent_frozen}, {"ent_mass", e_ent_mass}, {"ent_lib", e_ent_lib}, {"ent_bounds", e_ent_bounds},
         {"aim_body", e_aim_body}, {"npc_spawn", e_npc_spawn}, {"npc_info", e_npc_info}, {"npc_serial", e_npc_serial},
-        {"npc_set_health", e_npc_set_health}, {"npc_set_pos", e_npc_set_pos}, {"npc_damage", e_npc_damage},
+        {"npc_set_health", e_npc_set_health}, {"npc_goal", e_npc_goal}, {"npc_clear_goal", e_npc_clear_goal},
+        {"npc_at_goal", e_npc_at_goal}, {"npc_set_pos", e_npc_set_pos}, {"npc_damage", e_npc_damage},
         {"npc_remove", e_npc_remove}, {"npc_max", e_npc_max}, {"npc_types", e_npc_types}, {"spawns", e_spawns},
         {"spawn", e_spawn}, {"nav_count", e_nav_count}, {"nav_node", e_nav_node}, {"trace", e_trace},
         {"cleanup", e_cleanup}, {"button", e_button}, {"achieve", e_achieve}, {"dedicated", e_dedicated},

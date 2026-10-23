@@ -212,7 +212,7 @@ int achievements_update(const InputState *in) {
 
 void achievements_draw(float x, float y, float w, float h) {
     ui_rrect(x, y, w, h, 4, 0xF0E8E8E8);
-    ui_gradient(x, y, w, 22, 0xFF8C6A3D, 0xFF6E5230);
+    ui_gradient(x, y, w, 22, 0xFF2A30C0, 0xFF1E2290);
     int got = 0;
     for (int a = 0; a < ACH_COUNT; a++) got += (A.unlocked >> a) & 1;
     ui_text(FONT_BOLD, x + 8, y + 5, 0xFFFFFFFF, ALIGN_LEFT, "Achievements");
@@ -226,7 +226,7 @@ void achievements_draw(float x, float y, float w, float h) {
         const AchDef *d = &k_ach[a];
         int done = (A.unlocked >> a) & 1, sel = a == A.sel;
         float ry = top + r * ROW_H;
-        if (sel) ui_rrect(x + 5, ry - 1, w - 16, ROW_H - 2, 3, 0xFFE6A03D);
+        if (sel) ui_rrect(x + 5, ry - 1, w - 16, ROW_H - 2, 3, 0xFF2AA8F0);
         // A medal: gold when unlocked, grey when not
         ui_rrect(x + 10, ry + 3, 22, 22, 11, done ? C_GOLD : 0xFFA8A8A8);
         ui_rrect(x + 14, ry + 7, 14, 14, 7, done ? 0xFF60D8FF : 0xFFC8C8C8);

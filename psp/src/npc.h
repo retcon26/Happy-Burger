@@ -51,6 +51,11 @@ int npc_serial(int i);
 int npc_info(int i, int *type, vec3 *pos, float *yaw, float *health);
 void npc_set_health(int i, float health);
 void npc_set_pos(int i, vec3 pos);
+// For scripts: walk to goal (running if run), then stand facing yaw, the NPC's own AI off until
+// npc_clear_goal. npc_at_goal: it's there (within a few units)
+void npc_set_goal(int i, vec3 goal, float yaw, int run);
+void npc_clear_goal(int i);
+int npc_at_goal(int i);
 void npc_set_death_handler(void (*fn)(int npc, int type, vec3 pos));
 
 // Players the NPCs care about (the local player, plus everyone else in multiplayer)

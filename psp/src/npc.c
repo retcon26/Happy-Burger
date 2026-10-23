@@ -21,6 +21,7 @@
 #define DEG2RAD (3.14159265f / 180.0f)
 #define MAX_PALETTE 64
 #define DRAW_DIST 2200.0f
+#define GOAL_REACHED 14.0f // a scripted walk (npc_set_goal) is there
 
 enum { SEQ_IDLE, SEQ_WALK, SEQ_RUN, SEQ_ATTACK, SEQ_DEATH, SEQ_COUNT };
 enum { ST_IDLE, ST_WANDER, ST_CHASE, ST_FLEE, ST_ATTACK, ST_DEAD, ST_SHOOT };
@@ -229,6 +230,10 @@ typedef struct {
     int gesture;
     float gesture_t;
     int serial; // new for each spawn (npc_serial), so scripts can tell a new NPC in a reused slot
+    // Scripts (npc_set_goal): walks to goal, then stands there facing goal_yaw; its own AI is off meanwhile
+    int scripted, goal_run;
+    vec3 goal;
+    float goal_yaw;
 } Npc;
 
 #define MAX_PUPPETS NET_MAX_PLAYERS // every player slot a server has (8 from 1.10.0)
@@ -518,6 +523,32 @@ void npc_set_pos(int i, vec3 pos) {
     g_npcs[i].mover.origin = pos;
     g_npcs[i].mover.velocity = v3(0, 0, 0);
     g_npcs[i].route_len = 0;
+}
+
+void npc_set_goal(int i, vec3 goal, float yaw, int run) {
+    if (!npc_active(i) || g_npcs[i].state == ST_DEAD) return;
+    Npc *n = &g_npcs[i];
+    if (!n->scripted || v3_len(v3_sub(goal, n->goal)) > 160.0f) n->route_len = 0; // a new route for somewhere new
+    n->scripted = 1;
+    n->goal = goal;
+    n->goal_yaw = yaw;
+    n->goal_run = run;
+    n->enemy_kind = 0;
+    n->burst_left = 0;
+}
+
+void npc_clear_goal(int i) {
+    if (!npc_active(i)) return;
+    g_npcs[i].scripted = 0;
+    g_npcs[i].route_len = 0;
+    g_npcs[i].state = ST_IDLE;
+    g_npcs[i].state_time = 0.0f;
+}
+
+int npc_at_goal(int i) {
+    if (!npc_active(i) || !g_npcs[i].scripted) return 0;
+    vec3 d = v3_sub(g_npcs[i].goal, g_npcs[i].mover.origin);
+    return d.x * d.x + d.y * d.y < GOAL_REACHED * GOAL_REACHED;
 }
 
 void npc_set_death_handler(void (*fn)(int npc, int type, vec3 pos)) {
@@ -1085,6 +1116,32 @@ void npcs_update(Map *m, float dt, const NpcTarget *targets, int num_targets, Ph
             player_move(&n->mover, m, &idle, pboxes, npb, dt);
             n->speed = sqrtf(n->mover.velocity.x * n->mover.velocity.x + n->mover.velocity.y * n->mover.velocity.y);
             advance_animation(n, SEQ_IDLE, dt);
+            continue;
+        }
+
+        // A script's walk (npc_set_goal): there along the map's nodes, then stand facing the way it says
+        if (n->scripted && n->state != ST_DEAD) {
+            MoveCmd walk = {0};
+            int seq = SEQ_IDLE;
+            vec3 d = v3_sub(n->goal, n->mover.origin);
+            float dist = sqrtf(d.x * d.x + d.y * d.y);
+            if (dist > GOAL_REACHED) {
+                seq = n->goal_run ? SEQ_RUN : SEQ_WALK;
+                float sp = move_speed(n, seq);
+                if (sp * dt > dist) sp = dist / dt; // no overshooting
+                n->yaw = turn_towards(n->yaw, nav_yaw(n, m, n->goal, dt), 360.0f * dt);
+                walk.forward = sp / 250.0f;
+                walk.walk_speed = sp;
+                n->state = ST_WANDER;
+            } else {
+                n->yaw = turn_towards(n->yaw, n->goal_yaw, 240.0f * dt);
+                n->state = ST_IDLE;
+            }
+            walk.yaw = n->yaw;
+            player_move(&n->mover, m, &walk, pboxes, npb, dt);
+            n->last_pos = n->mover.origin;
+            n->speed = sqrtf(n->mover.velocity.x * n->mover.velocity.x + n->mover.velocity.y * n->mover.velocity.y);
+            advance_animation(n, seq, dt);
             continue;
         }
 

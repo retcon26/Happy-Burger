@@ -26,7 +26,7 @@
 #define MAX_MAPS 400
 #define MAX_WORKSHOP_MAPS 64
 #define WORKSHOP_LIST "data/maps/workshop.txt" // tools/bspconv.sh workshop writes it
-#define BG_ABGR 0xFF201810
+#define BG_ABGR 0xFF101828
 
 typedef enum { PAGE_MAIN, PAGE_NEWGAME, PAGE_OPTIONS, PAGE_MULTI, PAGE_JOIN, PAGE_PROFILE, PAGE_ACHIEVEMENTS, PAGE_WORKSHOP } Page;
 #define MAX_HOSTS 32
@@ -54,7 +54,10 @@ static const struct {
 #define NUM_CATS (int)(sizeof(k_cats) / sizeof(k_cats[0]))
 #define GRID_COLS 3
 
-static const char *k_main_items[] = {"Start New Game", "Multiplayer", "Workshop", "Achievements", "Options"};
+static const char *k_main_items[] = {"Start Shift", "Play Together", "Free Play", "Options"};
+// Start Shift and hosting go straight to the game: the burger joint, running Happy Burger
+#define SHIFT_MAP "burgerjoint"
+#define SHIFT_MODE "burger"
 #define NUM_MAIN_ITEMS (int)(sizeof(k_main_items) / sizeof(k_main_items[0]))
 // Host and Join are ad-hoc (PSP to PSP); Wi-Fi goes through an access point to games on the same
 // network and to dedicated servers
@@ -398,17 +401,19 @@ MenuResult menu_update(const InputState *in, float dt, char *map_out, int map_ou
         if (in->pressed & PSP_CTRL_CROSS) {
             click(M.snd_select, 0.6f);
             if (M.sel == 0) {
-                M.page = PAGE_NEWGAME;
-                M.host = 0;
-                M.map_sel = 0;
-                M.scroll = 0;
+                snprintf(map_out, map_out_len, "%s", SHIFT_MAP);
+                game_set_gamemode(SHIFT_MODE);
+                M.error[0] = 0;
+                return MENU_START_GAME;
             } else if (M.sel == 1) {
                 M.page = PAGE_MULTI;
                 M.multi_sel = 0;
             } else if (M.sel == 2) {
-                menu_show_workshop();
-            } else if (M.sel == 3) {
-                M.page = PAGE_ACHIEVEMENTS;
+                // Free Play: any map, any gamemode (Triangle), the sandbox by default
+                M.page = PAGE_NEWGAME;
+                M.host = 0;
+                M.map_sel = 0;
+                M.scroll = 0;
             } else {
                 M.page = PAGE_OPTIONS;
             }
@@ -431,10 +436,11 @@ MenuResult menu_update(const InputState *in, float dt, char *map_out, int map_ou
             click(M.snd_select, 0.6f);
             M.error[0] = 0;
             if (M.multi_sel == MULTI_HOST || M.multi_sel == MULTI_HOST_WIFI) {
-                M.page = PAGE_NEWGAME;
-                M.host = M.multi_sel == MULTI_HOST_WIFI ? 2 : 1;
-                M.map_sel = 0;
-                M.scroll = 0;
+                // A shift together: straight into the burger joint
+                snprintf(map_out, map_out_len, "%s", SHIFT_MAP);
+                game_set_gamemode(SHIFT_MODE);
+                net_set_mode(M.multi_sel == MULTI_HOST_WIFI ? NET_MODE_INET : NET_MODE_ADHOC, 1);
+                return MENU_HOST_GAME;
             } else if (M.multi_sel == MULTI_PROFILE) {
                 M.page = PAGE_PROFILE;
             } else {
@@ -648,17 +654,15 @@ void menu_draw_buttons(const char *const *labels, int count, int selected, float
     }
 }
 
+// ui.pak's logo (tools/burgerkit/art.py), or the name as text without one
 static void draw_logo(void) {
     int logo = ui_image_find("logo");
     if (logo >= 0) {
         int w, h;
         ui_image_size(logo, &w, &h);
-        float s = 220.0f / (float)w;
-        if (h * s > 56.0f) s = 56.0f / (float)h;
-        ui_image(logo, 20, 18, w * s, h * s, 0xFFFFFFFF);
-        ui_text_shadow(FONT_BOLD, 22, 20 + h * s + 2, 0xFFFFFFFF, ALIGN_LEFT, "for PSP"); // the logo has the name
+        ui_image(logo, 16, 14, (float)w, (float)h, 0xFFFFFFFF);
     } else {
-        ui_text_shadow(FONT_TITLE, 20, 20, 0xFFFFFFFF, ALIGN_LEFT, "Retcon's Mod");
+        ui_text_shadow(FONT_TITLE, 20, 20, 0xFF30C8FF, ALIGN_LEFT, "Happy Burger");
     }
 }
 
@@ -666,7 +670,7 @@ static void draw_newgame(void) {
     float x = 40, y = 20, w = 400, h = 232;
     ui_rrect(x - 2, y - 2, w + 4, h + 4, 6, 0x60000000);
     ui_rrect(x, y, w, h, 5, 0xF5E8E8E8);
-    ui_gradient(x, y, w, 24, 0xFF8C6A3D, 0xFF6E5230);
+    ui_gradient(x, y, w, 24, 0xFF2A30C0, 0xFF1E2290);
     ui_text(FONT_BOLD, x + 10, y + 6, 0xFFFFFFFF, ALIGN_LEFT,
             M.host == 2 ? "Host Multiplayer Game (Wi-Fi)" : M.host ? "Host Multiplayer Game (Ad-hoc)" : "Start New Game");
 
@@ -676,7 +680,7 @@ static void draw_newgame(void) {
     for (int c = 0; c < NUM_CATS; c++) {
         int n = maps_in_cat(c, idx);
         int sel = c == M.cat;
-        if (sel) ui_rrect(cx, cy + c * 20 - 2, 108, 18, 3, 0xFFE6A03D);
+        if (sel) ui_rrect(cx, cy + c * 20 - 2, 108, 18, 3, 0xFF2AA8F0);
         unsigned int tc = sel ? 0xFFFFFFFF : (n ? 0xFF303030 : 0xFFA0A0A0);
         ui_text(FONT_SMALL, cx + 6, cy + c * 20 + 1, tc, ALIGN_LEFT, k_cats[c].name);
         ui_textf(FONT_SMALL, cx + 102, cy + c * 20 + 1, sel ? 0xFFFFFFFF : 0xFF808080, ALIGN_RIGHT, "%d", n);
@@ -691,7 +695,7 @@ static void draw_newgame(void) {
         int r = k / GRID_COLS - M.scroll, c = k % GRID_COLS;
         float tx = gx + c * (tile + gap), ty = gy + r * (tile + gap); // the name is on the tile: two rows fit above the buttons
         int sel = k == M.map_sel;
-        ui_rrect(tx - 2, ty - 2, tile + 4, tile + 4, 3, sel ? 0xFFE6A03D : 0xFFC8C8C8);
+        ui_rrect(tx - 2, ty - 2, tile + 4, tile + 4, 3, sel ? 0xFF2AA8F0 : 0xFFC8C8C8);
         if (!ui_map_thumb(M.maps[idx[k]], tx, ty, tile, tile)) {
             ui_gradient(tx, ty, tile, tile, 0xFF606060, 0xFF303030);
             ui_text(FONT_BOLD, tx + tile / 2, ty + tile / 2 - 6, 0xFFE0E0E0, ALIGN_CENTER, "?");
@@ -706,8 +710,8 @@ static void draw_newgame(void) {
         ui_rect(x + w - 8, gy + M.scroll * (174.0f - bar_h) / (rows - 2), 3, bar_h, 0xFF808080);
     }
 
-    // Start button, GMod blue, and the gamemode it starts with
-    ui_rrect(x + w - 112, y + h - 26, 104, 20, 3, 0xFFE6A03D);
+    // Start button, mustard, and the gamemode it starts with
+    ui_rrect(x + w - 112, y + h - 26, 104, 20, 3, 0xFF2AA8F0);
     ui_text(FONT_BOLD, x + w - 60, y + h - 22, 0xFFFFFFFF, ALIGN_CENTER, M.host ? "X  Host Game" : "X  Start Game");
     ui_text(FONT_SMALL, x + 10, y + h - 21, 0xFF606060, ALIGN_LEFT, "L/R: category    Triangle: gamemode    O: back");
     int gm = newgame_mode();
@@ -724,7 +728,7 @@ static void draw_join(void) {
     float x = 40, y = 20, w = 400, h = 232;
     ui_rrect(x - 2, y - 2, w + 4, h + 4, 6, 0x60000000);
     ui_rrect(x, y, w, h, 5, 0xF5E8E8E8);
-    ui_gradient(x, y, w, 24, 0xFF8C6A3D, 0xFF6E5230);
+    ui_gradient(x, y, w, 24, 0xFF2A30C0, 0xFF1E2290);
     ui_text(FONT_BOLD, x + 10, y + 6, 0xFFFFFFFF, ALIGN_LEFT, M.online ? "Online Servers (Wi-Fi)" : "Join Game (Ad-hoc)");
     ui_textf(FONT_SMALL, x + w - 10, y + 7, 0xFFE0E0E0, ALIGN_RIGHT, "You: %s", net_nickname());
 
@@ -760,14 +764,14 @@ static void draw_join(void) {
         if (row < 0) {
             // A saved server that hasn't answered
             int s = -1 - row;
-            ui_rrect(x + 8, ry, w - 16, 26, 3, sel ? 0xFFB09070 : 0xFFE0E0E0);
+            ui_rrect(x + 8, ry, w - 16, 26, 3, sel ? 0xFF7090C0 : 0xFFE0E0E0);
             ui_text_clip(FONT_BOLD, x + 40, ry + 6, 220, sel ? 0xFFFFFFFF : 0xFF808080, M.saved[s]);
             ui_text(FONT_SMALL, x + w - 16, ry + 7, sel ? 0xFFFFFFFF : 0xFF909090, ALIGN_RIGHT,
                     st != NET_READY ? "" : M.saved_ok[s] < 0 ? "address not found" : "no answer");
             continue;
         }
         const NetHost *hs = &M.hosts[row];
-        ui_rrect(x + 8, ry, w - 16, 26, 3, sel ? 0xFFE6A03D : 0xFFF8F8F8);
+        ui_rrect(x + 8, ry, w - 16, 26, 3, sel ? 0xFF2AA8F0 : 0xFFF8F8F8);
         ui_map_thumb(hs->map, x + 11, ry + 2, 22, 22);
         ui_text_clip(FONT_BOLD, x + 40, ry + 6, 132, tc, hs->host);
         char where[56];
@@ -801,7 +805,7 @@ static void draw_join(void) {
         ui_text_clip(FONT_SMALL, x + 12, y + h - 46, w - 24, 0xFF707070, line);
     }
     int can_join = nrows > 0 && rows[M.host_sel] >= 0;
-    ui_rrect(x + w - 112, y + h - 26, 104, 20, 3, can_join ? 0xFFE6A03D : 0xFFB0B0B0);
+    ui_rrect(x + w - 112, y + h - 26, 104, 20, 3, can_join ? 0xFF2AA8F0 : 0xFFB0B0B0);
     ui_text(FONT_BOLD, x + w - 60, y + h - 22, 0xFFFFFFFF, ALIGN_CENTER, "X  Join");
     ui_text(FONT_SMALL, x + 10, y + h - 21, 0xFF606060, ALIGN_LEFT,
             M.online ? "Triangle: add   Square: remove   R: list   O: back" : "Up/Down: pick a game    O: back");
@@ -813,11 +817,21 @@ void menu_render(float fps) {
         // Slow orbit around the map's spawn point
         const PmapSpawn *sp = &M.bg.spawns[0];
         float a = M.t * 0.08f;
-        M.cam.pos.x = sp->x + cosf(a) * 900.0f;
-        M.cam.pos.y = sp->y + sinf(a) * 900.0f;
-        M.cam.pos.z = sp->z + 260.0f;
-        M.cam.yaw = a * (180.0f / 3.14159265f) + 180.0f;
-        M.cam.pitch = -12.0f;
+        if (M.bg.num_spawns >= 4) {
+            // The burger joint's fourth spawn is the camera's: a slow look round the dining room from there
+            const PmapSpawn *c = &M.bg.spawns[3];
+            M.cam.pos.x = c->x;
+            M.cam.pos.y = c->y;
+            M.cam.pos.z = c->z;
+            M.cam.yaw = c->yaw + sinf(M.t * 0.15f) * 22.0f;
+            M.cam.pitch = -8.0f;
+        } else {
+            M.cam.pos.x = sp->x + cosf(a) * 900.0f;
+            M.cam.pos.y = sp->y + sinf(a) * 900.0f;
+            M.cam.pos.z = sp->z + 260.0f;
+            M.cam.yaw = a * (180.0f / 3.14159265f) + 180.0f;
+            M.cam.pitch = -12.0f;
+        }
         camera_apply(&M.cam);
         sky_draw(&M.cam);
         gfx_set_fog(M.bg.info->fog_start, M.bg.info->fog_end, M.bg.info->fog_abgr);

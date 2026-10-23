@@ -1,4 +1,4 @@
-# Builds release\PSP\GAME\RetconsMod\ (EBOOT.PBP + data\), laid out the way a PSP memory stick or PPSSPP
+# Builds release\PSP\GAME\HappyBurger\ (EBOOT.PBP + data\), laid out the way a PSP memory stick or PPSSPP
 # expects. Files are hard links to the build's own (no extra disk space); the PS2-only NPC pack and saves are left out.
 # Copy the release\PSP folder onto the memory stick / PPSSPP's folder, merging with any PSP folder there.
 #
@@ -8,9 +8,9 @@
 #   .\make_release.ps1 -Update  an update for an install you already have (update\): the game and only the data
 #                               that changed since the last release or update folder was made here, or since
 #                               -Since DATE. Copy it over the install the same way: it replaces just those files.
-#   -Folder NAME                the game's folder on the memory stick (RetconsMod; PSPSandbox for an install from
+#   -Folder NAME                the game's folder on the memory stick (HappyBurger; PSPSandbox for an install from
 #                               before 1.10.0, so an update lands on top of it)
-param([switch]$Dev, [switch]$Update, [datetime]$Since, [string]$Folder = "RetconsMod", [int]$MaxMB = 500)
+param([switch]$Dev, [switch]$Update, [datetime]$Since, [string]$Folder = "HappyBurger", [int]$MaxMB = 500)
 $ErrorActionPreference = "Stop"
 $psp = $PSScriptRoot
 $name = if ($Update) { "update" } elseif ($Dev) { "release_dev" } else { "release" }

@@ -12,7 +12,7 @@
 
 #include "gfx.h"
 
-#define PHOTO_DIR "PSP/PHOTO/RetconsMod"
+#define PHOTO_DIR "PSP/PHOTO/HappyBurger"
 #define OUT_CHUNK 16384 // compressed bytes per IDAT chunk
 
 #define STRIP_ROWS 16 // screen rows copied out at a time

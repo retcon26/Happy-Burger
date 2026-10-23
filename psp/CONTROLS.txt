@@ -1,3 +1,37 @@
+HAPPY BURGER - HOW TO PLAY  (v0.1.0)
+=========================================
+
+Start Shift on the title screen. The kitchen is behind the counter with its
+three yellow trays; along the back wall: the fridge, the freezer, the grill,
+the buns, the topping bins, a cutting board, the fryer. Another board, the
+soda machine and the bin are at the sides.
+
+Get ingredients              D-pad Right (Use) on the fridge (patties),
+                               bun rack, topping bins, freezer
+                               (sausages), soda machine
+Fry fries                    Use on the fryer, wait 5 seconds
+Carry food                   Hold D-pad Right on it (let go: drop)
+Pick up / drop (hands)       R
+Throw                        L (hands) or R while carrying
+See what's what              Look at it: the bottom of the screen says
+Staff list                   Hold Select
+
+Patties and sausages cook on the grill: pink (raw), brown (cooked!),
+dark (overdone, half pay), black (burnt).
+
+Build a burger on a cutting board: a bottom bun, the toppings on the
+ticket (C cheese, L lettuce, T tomato), the cooked patty, then a top bun.
+A hot dog is a cooked sausage and a hot dog bun on a board. Put each meal
+on the yellow tray in front of the customer who ordered it. Drop
+mistakes in the bin.
+
+Hit a customer with flying food and they storm off. Run out of stars and
+the health inspector closes you down. Make the day's $ quota to keep
+your job.
+
+
+The engine's own controls (Retcon's Mod's sandbox) follow.
+
 RETCON'S MOD (FORMERLY PSP SANDBOX) - CONTROLS  (v1.14.1)
 =========================================
 
