@@ -2470,6 +2470,10 @@ static void carry_update(const InputState *in, float dt) {
             launch_body(a.body, GRAVGUN_PUNT_SPEED); // too heavy to lift: shove it instead
             play(G.snd.punt, 0.8f);
             G.kick = 4.0f;
+        } else if (!gravgun && g_gm.on && (g_gm.flags & GMF_HANDS_USE) && !gm_sandbox()) {
+            // GM.HandsUse: what R can't pick up, it uses (Happy Burger: the fridge, the bun rack...)
+            Aim u = aim_trace(GM_USE_RANGE);
+            gm_use(u.body >= 0 && u.dist < GM_USE_RANGE ? u.body : -1);
         } else {
             play(G.snd.dryfire, 0.5f);
         }
@@ -6718,19 +6722,6 @@ static int world_step(float dt) {
     return 1;
 }
 
-// Achievements: playtime and who's in the game; anything newly unlocked pops up
-static void achievements_tick(float dt) {
-    int players = 1;
-    for (int s = 0; s < NET_MAX_PLAYERS && G.role != ROLE_OFFLINE; s++) players += s != G.my_slot && G.peers[s].active;
-    achieve_update(dt, players);
-    for (int a; (a = achieve_pop()) >= 0;) {
-        char msg[48];
-        snprintf(msg, sizeof(msg), "Achievement: %s", achieve_name(a));
-        notify(msg, NOTE_ACHIEVEMENT);
-        play(G.snd.spawn, 0.8f);
-    }
-}
-
 static float rand01(void) {
     return (float)(rand() & 0xFFFF) / 65535.0f;
 }
@@ -6841,7 +6832,6 @@ GameResult game_update(const InputState *in, float dt) {
     gm_local_update(dt); // what the gamemode decided: a respawn, weapons, a disguise...
     items_update(dt);
     phys_set_quality(g_settings.physics);
-    achievements_tick(dt);
     devices_update(dt);
     for (int i = 0; i < MAX_NOTES; i++) G.notes[i].time += dt;
     if (g_haunt.on && !G.paused) haunt_update(dt);
@@ -7965,6 +7955,21 @@ void game_pl_set_model(int s, int type) {
     if (is_client() || !gm_slot_ok(s)) return;
     g_gm.p[s].model = type >= 0 && type < npc_type_count() && type < NET_NO_MODEL ? type : -1;
     g_gm.dirty = 1;
+}
+
+// Straight into this player's hands (Happy Burger: what a station hands out), if they're holding nothing.
+// Only this PSP's own player: another player's carrying is done on their PSP, so 0 then and the prop
+// stays where the script put it.
+int game_pl_pickup(int s, int body) {
+    if (is_client() || s != G.my_slot || !body_valid(body) || G.held >= 0 || G.weapon != WEAPON_HANDS) return 0;
+    Body *b = &G.phys.bodies[body];
+    if (b->frozen || b->mass > HANDS_MAX_MASS) return 0;
+    G.held = body;
+    G.use_carry = 0;
+    G.grab_local = v3(0, 0, 0);
+    G.hold_rel = q_mul(q_conj(yaw_quat(G.yaw)), b->rot);
+    phys_wake(&G.phys, body);
+    return 1;
 }
 
 int game_pl_disguise(int s, int body) {

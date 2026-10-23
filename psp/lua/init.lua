@@ -411,6 +411,9 @@ function Player:Disguise(ent)
     return E.pl_disguise(self._slot, ent._i)
 end
 function Player:Undisguise() E.pl_undisguise(self._slot) end
+-- Ours: into their hands (the hands weapon, holding nothing). Only works for the player on the PSP
+-- running the rules (single player, or the host's own); false otherwise, and the prop stays put
+function Player:PickUp(ent) return IsValid(ent) and E.pl_pickup(self._slot, ent._i) or false end
 function Player:GetDisguise() return E.pl_disguise_name(self._slot) end
 function Player:IsDisguised() return E.pl_disguise_name(self._slot) ~= nil end
 
@@ -834,7 +837,7 @@ end
 function _gm_end()
     GAMEMODE = GM
     local flags = (GM.Sandbox and 1 or 0) | (GM.AllowPickup and 2 or 0) | (GM.TeamBased and 4 or 0) |
-                  (GM.ShowHealth == false and 8 or 0)
+                  (GM.ShowHealth == false and 8 or 0) | (GM.HandsUse and 16 or 0)
     return flags, tonumber(GM.RespawnTime) or -1
 end
 

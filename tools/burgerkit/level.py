@@ -15,7 +15,6 @@ from ..bspconv.pmap import PmapWriter
 from . import art
 
 MAP_NAME = "burgerjoint"
-BOXBEVELS = 0x80000000
 CONTENTS_SOLID = 1
 
 # The building's inside, and where things are (burger.lua's layout matches)
@@ -421,10 +420,20 @@ def build(out_path, log=print):
     boxes = [(mins, maxs) for mins, maxs, _t, _s in lv.solids]
     walls = [(0, IN_MIN[0]), (0, IN_MAX[0]), (1, IN_MIN[1]), (1, IN_MAX[1]), (2, IN_MAX[2])]
     planes, nodes, leafs = kd_tree(boxes, [-500.0, -1100.0, -64.0], [1500.0, 1100.0, 600.0], walls)
-    brush_data, side_data = bytearray(), bytearray()
-    for k, (mins, maxs) in enumerate(boxes):
-        brush_data += struct.pack("<3I", k * 6, BOXBEVELS, CONTENTS_SOLID)
-        side_data += struct.pack("<6f", *mins, *maxs)
+    # Each box a brush of six real planes (not the converter's compact box-bevel form, which the physics'
+    # point tests skip: props would fall through the floor)
+    brush_data, sides = bytearray(), []
+    for mins, maxs in boxes:
+        brush_data += struct.pack("<3I", len(sides), 6, CONTENTS_SOLID)
+        for axis in range(3):
+            n = [0.0, 0.0, 0.0]
+            n[axis] = 1.0
+            sides.append(len(planes))
+            planes.append((*n, maxs[axis]))
+            n[axis] = -1.0
+            sides.append(len(planes))
+            planes.append((*n, -mins[axis]))
+    side_data = struct.pack(f"<{len(sides)}I", *sides)
     leaf_data, leafbrush = bytearray(), []
     for ids, lo, hi in leafs:
         centre = tuple((lo[k] + hi[k]) / 2 for k in range(3))

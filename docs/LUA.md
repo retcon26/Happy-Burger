@@ -94,6 +94,7 @@ Save it as `data/lua/gamemodes/lastman.lua`; Triangle on the New Game screen now
 | `GM.AllowPickup` | `false` | Use picks up light props (Zombie Survival's barricades). Otherwise Use goes to `PlayerUse`, then doors and buttons. |
 | `GM.TeamBased` | `false` | Name tags only show for your own team. |
 | `GM.ShowHealth` | `true` | **Ours:** `false` hides the health and suit boxes (a game where nobody gets hurt). |
+| `GM.HandsUse` | `false` | **Ours:** `true` makes the hands' R use what it can't pick up (a frozen prop: Happy Burger's fridge, bun rack...), as Use does. |
 | `GM.RespawnTime` | `-1` | Seconds after dying when X respawns you. `-1`: only when the gamemode calls `ply:Spawn()`. |
 
 In a gamemode's game the Options God mode, Unlimited ammo, NPC thinking off and NPCs ignore players don't apply,
@@ -193,6 +194,7 @@ on a dedicated server). Players are the same object for as long as they stay, so
 | `Give(weapon)`, `StripWeapon(weapon)`, `StripWeapons()`, `HasWeapon(weapon)`, `GetWeapons()` | Hands always stay |
 | `SelectWeapon(weapon)`, `GetActiveWeapon()` | `GetActiveWeapon` gives the weapon's name, not an entity |
 | `GiveAmmo(amount, weapon)`, `RefillAmmo()` | `RefillAmmo` (ours): full clips and spare ammo for everything they carry |
+| `PickUp(ent)` | **Ours:** the prop into their hands, if they hold nothing. Only for the player on the PSP running the rules (single player, or the host's own); `false` otherwise. |
 | `Disguise(ent)`, `Undisguise()`, `GetDisguise()`, `IsDisguised()` | **Ours (Prop Hunt):** they look like that prop to everyone, are shot as it, move in a box its size, and see themselves from behind. `GetDisguise` gives its model name |
 | `ChatPrint(text)`, `PrintMessage(HUD_PRINTTALK or HUD_PRINTCENTER, text)` | To them only |
 | `EmitSound(name)` | Everyone hears it from where they are |

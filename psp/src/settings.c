@@ -13,7 +13,7 @@
 
 #define SETTINGS_PATH "data/settings.cfg"
 
-Settings g_settings = {1, 3, 0, 1, 0, 1, 1, 1, 4, 3, 2, 3, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, "", "burger"};
+Settings g_settings = {1, 3, 0, 0, 0, 1, 1, 1, 4, 3, 2, 3, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, "", "burger"};
 
 // Values with names show the name; other multi-step options show dots; 0/1 options a checkbox
 static const char *const k_dist_names[] = {"Near", "Medium", "Far", "Full"};
@@ -43,31 +43,22 @@ typedef struct {
 static const char *const k_model_names[1] = {NULL}; // marks Player model, whose names come from the game
 static const char *const k_updates_row[1] = {NULL}; // marks the Updates button (the Credits button has none)
 
+// Happy Burger's: the basics and the detail settings. Retcon's Mod's sandbox options (God mode, player
+// model, NPCs, ammo, the HEV suit, the debug overlay, updates...) are gone; their settings keep their defaults.
 static Option k_options[] = {
     {"sound", "Sound", &g_settings.sound, 0, 1, NULL},
     {"look_speed", "Look speed", &g_settings.look_speed, 1, 5, NULL},
     {"invert_y", "Invert look up/down", &g_settings.invert_y, 0, 1, NULL},
-    {"god_mode", "God mode (also games you host)", &g_settings.god_mode, 0, 1, NULL},
-    {"player_model", "Player model", &g_settings.player_model, 0, 255, k_model_names},
-    {"third_person", "Third-person view", &g_settings.third_person, 0, 1, NULL},
-    {"npc_think", "NPC thinking", &g_settings.npc_think, 0, 1, NULL},
-    {"npc_ignore_players", "NPCs ignore players", &g_settings.npc_ignore_players, 0, 1, NULL},
-    {"unlimited_ammo", "Unlimited ammo", &g_settings.unlimited_ammo, 0, 1, NULL},
-    {"hev_suit", "HEV suit", &g_settings.hev_suit, 0, 1, NULL},
-    {"spawn_weapons", "Spawn with weapons", &g_settings.spawn_weapons, 0, 1, NULL},
-    {"show_hud", "Show HUD", &g_settings.show_hud, 0, 1, NULL},
     {"crosshair", "Crosshair", &g_settings.crosshair, 0, 1, NULL},
     {"show_fps", "Show FPS", &g_settings.show_fps, 0, 1, NULL},
     {"target_fps", "Target FPS", &g_settings.target_fps, 0, 3, k_fps_names},
     {"draw_dist", "Draw distance", &g_settings.draw_dist, 1, 4, k_dist_names},
-    {"lod", "LOD distance", &g_settings.lod, 1, 5, NULL}, // slider dots
+    {"lod", "Detail distance", &g_settings.lod, 1, 5, NULL}, // slider dots
     {"physics", "Physics quality", &g_settings.physics, 1, 3, k_quality_names},
 #ifdef PS2
     {"vu1", "VU1 renderer (faster)", &g_settings.vu1, 0, 1, NULL},
 #endif
-    {"debug", "Debug overlay", &g_settings.debug, 0, 1, NULL},
-    {NULL, "Updates", NULL, 0, 0, k_updates_row}, // a button: the updates page (update.c)
-    {NULL, "Credits", NULL, 0, 0, NULL},          // a button: opens the credits
+    {NULL, "Credits", NULL, 0, 0, NULL}, // a button: opens the credits
 };
 #define NUM_OPTIONS (int)(sizeof(k_options) / sizeof(k_options[0]))
 #define ROW_H 22
@@ -139,47 +130,19 @@ static const CreditLine k_credits[] = {
     {FONT_BOLD, C_HEAD, "Created by"},
     {FONT_LARGE, C_NAME, "Retcon"},
     {-1, 0, NULL},
-    {FONT_BOLD, C_HEAD, "Source engine and Half-Life 2"},
-    {FONT_SMALL, C_TEXT, "Valve"},
+    {FONT_BOLD, C_HEAD, "Models, map, sounds and art"},
+    {FONT_SMALL, C_TEXT, "Made from scratch with burgerkit"},
     {-1, 0, NULL},
-    {FONT_BOLD, C_HEAD, "Maps, models, textures and sounds"},
-    {FONT_SMALL, C_NAME, "Valve"},
-    {FONT_SMALL, C_TEXT, "Half-Life"},
-    {FONT_SMALL, C_TEXT, "Half-Life 2"},
-    {FONT_SMALL, C_TEXT, "Half-Life 2: Episode One"},
-    {FONT_SMALL, C_TEXT, "Half-Life 2: Episode Two"},
-    {FONT_SMALL, C_TEXT, "Half-Life 2: Deathmatch"},
-    {FONT_SMALL, C_TEXT, "Half-Life: Source"},
-    {FONT_SMALL, C_TEXT, "Half-Life Deathmatch: Source"},
-    {FONT_SMALL, C_TEXT, "Counter-Strike: Source"},
-    {FONT_SMALL, C_TEXT, "Day of Defeat: Source"},
-    {FONT_SMALL, C_TEXT, "Team Fortress 2"},
-    {FONT_SMALL, C_TEXT, "Portal"},
-    {FONT_SMALL, C_TEXT, "Portal 2"},
-    {FONT_SMALL, C_TEXT, "Left 4 Dead"},
-    {FONT_SMALL, C_TEXT, "Left 4 Dead 2"},
-    {-1, 0, NULL},
-    {FONT_SMALL, C_NAME, "Facepunch Studios"},
-    {FONT_SMALL, C_TEXT, "Garry's Mod"},
-    {-1, 0, NULL},
-    {FONT_SMALL, C_NAME, "Crowbar Collective"},
-    {FONT_SMALL, C_TEXT, "Black Mesa"},
-    {-1, 0, NULL},
-    {FONT_SMALL, C_NAME, "Fistful of Frags team"},
-    {FONT_SMALL, C_TEXT, "Fistful of Frags"},
+    {FONT_BOLD, C_HEAD, "Engine"},
+    {FONT_SMALL, C_TEXT, "Retcon's Mod"},
     {-1, 0, NULL},
     {FONT_BOLD, C_HEAD, "Built with"},
-#ifdef PS2
-    {FONT_SMALL, C_TEXT, "PS2SDK and gsKit - the ps2dev team"},
-#else
     {FONT_SMALL, C_TEXT, "PSPSDK - the pspdev team"},
-#endif
-    {FONT_SMALL, C_TEXT, "Tahoma typeface - Matthew Carter"},
+    {FONT_SMALL, C_TEXT, "Lua - PUC-Rio"},
+    {FONT_SMALL, C_TEXT, "Aileron typeface - Sora Sagano"},
     {-1, 0, NULL},
-    {FONT_SMALL, C_TEXT, "A fan project, not affiliated with or"},
-    {FONT_SMALL, C_TEXT, "endorsed by Valve, Facepunch Studios,"},
-    {FONT_SMALL, C_TEXT, "Crowbar Collective or the Fistful of"},
-    {FONT_SMALL, C_TEXT, "Frags team. Their games are theirs."},
+    {FONT_SMALL, C_TEXT, "Inspired by Citizen Burger Disorder."},
+    {FONT_SMALL, C_TEXT, "Thanks for playing!"},
 };
 #define NUM_CREDITS (int)(sizeof(k_credits) / sizeof(k_credits[0]))
 
@@ -262,9 +225,7 @@ static const char *const k_colour_rows[1] = {NULL}; // marks a colour option
 
 static Option k_profile[] = {
     {NULL, "Name", NULL, 0, 0, NULL}, // a button: the on-screen keyboard
-    {"player_model", "Player model", &g_settings.player_model, 0, 255, k_model_names},
-    {"player_colour", "Player colour", &g_settings.player_colour, 0, PROFILE_COLOURS - 1, k_colour_rows},
-    {"physgun_colour", "Physics gun colour", &g_settings.physgun_colour, 0, PROFILE_COLOURS - 1, k_colour_rows},
+    {"player_colour", "Name tag colour", &g_settings.player_colour, 0, PROFILE_COLOURS - 1, k_colour_rows},
 };
 #define NUM_PROFILE (int)(sizeof(k_profile) / sizeof(k_profile[0]))
 static int g_psel;

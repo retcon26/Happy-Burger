@@ -6,258 +6,38 @@ three yellow trays; along the back wall: the fridge, the freezer, the grill,
 the buns, the topping bins, a cutting board, the fryer. Another board, the
 soda machine and the bin are at the sides.
 
-Get ingredients              D-pad Right (Use) on the fridge (patties),
-                               bun rack, topping bins, freezer
-                               (sausages), soda machine
-Fry fries                    Use on the fryer, wait 5 seconds
-Carry food                   Hold D-pad Right on it (let go: drop)
-Pick up / drop (hands)       R
-Throw                        L (hands) or R while carrying
-See what's what              Look at it: the bottom of the screen says
+CONTROLS                     PSP
+---------------------------  -------------------------
+Walk                         Analog nub
+Look                         Square / Circle (left / right),
+                               Triangle / Cross (up / down)
+Grab                         R: on the fridge, buns, bins,
+                               freezer, fryer or soda machine
+                               it takes one; on food it picks
+                               it up; holding food, it puts
+                               it down
+Throw                        L (while holding food)
+Jump                         L (hands empty)
+Crouch                       Tap D-pad Down
+Quick chat (co-op)           Hold D-pad Down
+Talk (co-op, with a mic)     Hold D-pad Up
 Staff list                   Hold Select
+Pause                        Start
 
+D-pad Right does what R does on stations, and holding it on food carries it.
+Look at anything and the bottom of the screen says what it is.
+
+COOKING
+-------
 Patties and sausages cook on the grill: pink (raw), brown (cooked!),
 dark (overdone, half pay), black (burnt).
 
 Build a burger on a cutting board: a bottom bun, the toppings on the
 ticket (C cheese, L lettuce, T tomato), the cooked patty, then a top bun.
-A hot dog is a cooked sausage and a hot dog bun on a board. Put each meal
-on the yellow tray in front of the customer who ordered it. Drop
-mistakes in the bin.
+A hot dog is a cooked sausage and a hot dog bun on a board. Fries come
+out of the fryer, sodas out of the machine. Put each meal on the yellow
+tray in front of the customer who ordered it. Drop mistakes in the bin.
 
 Hit a customer with flying food and they storm off. Run out of stars and
 the health inspector closes you down. Make the day's $ quota to keep
 your job.
-
-
-The engine's own controls (Retcon's Mod's sandbox) follow.
-
-RETCON'S MOD (FORMERLY PSP SANDBOX) - CONTROLS  (v1.14.1)
-=========================================
-
-ON FOOT                      PSP
----------------------------  -------------------------
-Move                         Analog nub
-Look                         Square / Circle (left /
-                             right), Triangle / Cross
-                             (up / down)
-Jump                         L
-Crouch (toggle)              Tap D-pad Down
-Quick chat (messages and     Hold D-pad Down
-  gestures; see below)
-Fire / use weapon            R
-Reload                       Hold D-pad Left
-Next weapon                  Tap D-pad Left
-Use (doors, buttons,         D-pad Right
-  thrusters, hoverballs)
-Carry a light prop           Hold D-pad Right
-  (let go to drop, R throws)
-Flashlight                   Hold D-pad Right
-Undo last prop/NPC/ragdoll   D-pad Up (multiplayer:
-                               a quick tap)
-Talk (multiplayer, with a    Hold D-pad Up
-  mic: the PSP-3000's
-  built-in one, or a headset)
-Spawn menu                   Tap Select
-Noclip (fly)                 Hold Select
-  - in noclip: Jump = up, hold D-pad Down = down
-Pause menu                   Start
-Respawn after dying          X or R
-
-
-WEAPONS (D-pad Left cycles through them)
-  Hands, Physics Gun, Gravity Gun, Tool Gun, Crowbar, Pistol, .357 Magnum, SMG, Shotgun,
-  AR2, Crossbow, RPG, Grenade, Bug Bait
-
-Physics Gun
-  Grab and hold              Hold R
-  Freeze in place            L (while holding)
-  Push away / pull closer    D-pad Up / Down
-  Rotate                     D-pad Left / Right
-  Rotate on every axis       Hold X and push the circle pad (left/right
-                               turns it, up/down tips it away or towards
-                               you). You stand still while you do.
-  Works on props and on ragdolls (grab any limb).
-
-Gravity Gun
-  Pick up / drop             R
-  Launch (punt)              L
-  Lifts up to 250 kg from a distance.
-
-Hands
-  Pick up / drop             R
-  Throw                      L
-  Close, light things only.
-
-AR2                          R fires (hold for automatic)
-Crossbow                     R fires a bolt: fast, drops a little, sticks in walls.
-                             Reloads after every shot.
-RPG                          R fires a rocket. It steers towards wherever you aim
-                             until it hits, so keep aiming at the target.
-Grenade                      R throws one. It bounces and goes off after 2.5 seconds.
-Bug Bait                     Tap R: throw it. Antlions swarm where it lands.
-                             Hold R: squeeze it. Antlions come to you and follow you.
-                             After you've used it, antlions are on your side for the
-                             rest of the map (headcrabs and antlion guards aren't).
-
-Tool Gun
-  Pick the tool in the spawn menu's Tools panel, then press R.
-  The top-left box shows what the tool does and what to press next.
-  Tools: Remover, Colour, Balloon, Duplicator, Weld, Rope, Ball Socket, Elastic,
-         No-Collide, Weight, Thruster, Hoverball, Explosive, Slider,
-         Inflator, Deflator (resize ragdoll body parts), Camera, Wheel,
-         Winch, Hydraulic, Lamp, Light, Button, Emitter (L: change effect),
-         Face Poser, Finger Poser (L: change expression / hand pose)
-  Use (D-pad Right) on a prop switches its thrusters, hoverballs, wheel
-  motors, winches, hydraulics, lamps, lights and emitters. Use on a button
-  switches the whole contraption it was linked to.
-
-Face Poser and Finger Poser (Tool Gun)
-  Pose the ragdoll you aim at R
-  Next expression / pose     L (the top-left box shows which)
-  Face Poser: Neutral, Smile, Grin, Angry, Sad, Surprised, Scared, Pain,
-    Shout, Eyes Shut. Neutral puts the ragdoll's own face back.
-  Finger Poser: Natural, Fist, Point, Thumbs Up, Peace, Rock On, Open, OK.
-    Aim at a hand to pose that hand, or at the body to pose both.
-
-Camera tool (Tool Gun)
-  Place a camera             R
-  Look through the next      L
-    camera (after the last
-    one, back to your eyes)
-  A camera faces the way you were looking when you placed it, and stays put.
-  Move or weld it like any prop (Physics Gun), e.g. onto a car.
-  Putting the tool away returns to your own view. L doesn't jump while the
-  Camera tool is out.
-
-
-ITEMS (spawn menu > Items)
-  Health Kit, Health Vial, Suit Battery: walk over one to take it (only when
-    it would help: health under 100, or suit power under 100 with the HEV suit on).
-  Ammo (Pistol, .357, SMG, Shotgun Shells, AR2, Crossbow Bolts, RPG Round,
-    Grenade): walk over it to take it, when that gun isn't full.
-  Health Charger, Suit Charger: tap Use (D-pad Right) on one to charge; it stops
-    when you're full, it's empty, you walk away or you tap Use again. They
-    fill up again slowly. Move them onto a wall with the Physics Gun.
-
-
-VEHICLES AND SEATS
-  Spawn the Jeep, Airboat or a seat from the spawn menu's Vehicles category.
-  Get in / out               Use (D-pad Right), aiming at it from close by
-  Drive                      Analog nub: up / down is throttle and brake (and reverse),
-                             left / right steers
-  Handbrake                  Hold L (the Jeep's back end slides out)
-  Seats: weld, rope or hinge one to your contraption, sit in it, and press R to switch
-  every thruster and hoverball on the contraption on and off.
-  Look around with the face buttons; Third-person view (Options) follows from behind.
-
-
-SPAWN MENU (tap Select)
-
-  L / R               Switch between Categories, Items and Tools panels
-  D-pad               Move around a panel (Right/Left also steps between panels)
-  X                   Spawn the item / pick the tool
-  Circle or Select    Close
-  Start               Close and pause
-  Spawnlists: Recent (what you last spawned), your lists, NPCs, Ragdolls, Workshop and
-  Weapons, then one header per game (+). On a game: X or Right opens its lists
-  (closing the open one), Left closes it again.
-  Weapons: X puts the weapon in your hands (with a full load of ammo if you didn't
-  have it). With Options > Spawn with weapons off, that's where your guns come from.
-  A wheel badge marks props you can drive or sit in.
-
-
-
-QUICK CHAT (hold D-pad Down)
-  A wheel of messages (Hello!, Thanks!, Yes, No, Follow me!, Wait here, Help!,
-  Look at this!) and gestures (Wave, Salute, Yes, No, Come here, Cheer, Laugh,
-  Dance). Push the circle pad towards one, L / R turns the page, let go of
-  Down to send. Messages go in everyone's chat; everyone sees your gestures
-  (and you do in the third-person view). Walking off stops a gesture.
-
-
-GAMEMODES (New Game: Triangle picks one)
-  Prop Hunt, Zombie Survival, Deathmatch, or your own (data/lua/gamemodes).
-  Scoreboard                Hold Select
-  Watching (when dead)      L / R: whose view
-  Respawn                   X, when the gamemode lets you (Deathmatch);
-                            otherwise the next round or wave brings you back
-  Prop Hunt, as a prop      Use (D-pad Right) on a prop: become it.
-                            Quick chat: taunt (a noise where you hide)
-  Zombie Survival           Use picks up light props: block the doors
-  No spawn menu, tool gun or noclip in a gamemode's game.
-
-
-PAUSE MENU (Start)
-  Resume Game, Options, Saves, Screenshot, Toggle Noclip, Freeze All Props,
-  Clean Up Props (also clears blood), Disconnect
-  Screenshot saves the screen (without this menu) as a PNG in PSP/PHOTO/
-  RetconsMod, where the XMB's Photo app finds it.
-  D-pad Up / Down to choose, X to select, Circle or Start to resume.
-
-
-PAUSE MENU > SAVES (single player and hosting)
-  Saves everything you've spawned (props, welds, ropes and the rest,
-  thrusters, hoverballs, balloons, lamps, lights, buttons and emitters) to
-  data/saves on the memory stick, and loads it back on any map.
-  "Save the current build": X names it with the on-screen keyboard.
-  On a save:  X        load it where you're looking, turned the way you face
-              Square   load it where it was built (on the map it was built on)
-              Triangle delete it (press twice)
-  One Undo takes a whole loaded build away.
-
-
-OPTIONS
-  D-pad Up / Down to choose, X or Right / Left to change, Circle to go back.
-  Includes: Sound, Look speed, Invert look, God mode, Player model,
-  Third-person view, NPC thinking, NPCs ignore players, Unlimited ammo,
-  HEV suit, Spawn with weapons, Show HUD, Crosshair, Show FPS, Target FPS,
-  Draw distance, LOD distance, Physics quality, Updates, Credits.
-  Spawn with weapons: on (default), every weapon. Off, just the Hands, Physics
-  Gun, Gravity Gun and Tool Gun; the spawn menu's Weapons list has the rest.
-  Target FPS: 25, 30, 60 (default) or 120. The screen shows 60 at most; 120
-  doesn't wait for it, so the picture can tear.
-  LOD distance: a slider, 0.5x to 2x, for how far props and NPCs are drawn
-  before they pop out (default 1x, the middle).
-  Updates (main menu only): checks GitHub over Wi-Fi and installs a newer
-  version of the game. X installs, then quit and start the game again. The
-  old version stays as EBOOT.OLD in the game's folder.
-
-
-MULTIPLAYER
-  Host Game / Join Game     ad-hoc, PSP to PSP
-  Host on Wi-Fi             host through your access point: PSPs on the
-                            same Wi-Fi find it in Online Servers
-  Online Servers            games on your Wi-Fi and dedicated servers
-                            (retcons-mod-server). Triangle adds a server's
-                            address (a name or 1.2.3.4, ":port" if it isn't
-                            18256), Square removes it, X joins. R sets the
-                            server list: every public server on it shows up.
-                            "locked" servers ask for their password.
-  Wi-Fi uses the first connection in System Settings > Network Settings.
-
-
-MULTIPLAYER > PROFILE
-  Name: X opens the on-screen keyboard (empty = the PSP's nickname).
-  Player model, Player colour (tints your model and name tag) and
-  Physics gun colour: X or Right / Left to change. Circle to go back.
-
-
-WORKSHOP (main menu)
-  Turns maps, Lua addons and custom (Workshop) characters on and off.
-  L / R: tab (Maps, Addons, Custom)   Up / Down: choose
-  Left / Right: a page at a time      X: on / off
-  Triangle: the whole tab on / off    Circle: back (saved)
-  Maps are listed by game: X opens a game, Triangle switches all its maps.
-
-
-ACHIEVEMENTS (main menu)
-  D-pad Up / Down to scroll, Circle to go back. Shows what you've unlocked,
-  progress on the counted ones, what you're playing on and your playtime.
-
-
-MAIN MENU
-  D-pad to choose, X to select, Circle to go back.
-
-
-  The version number is in the bottom-left corner.

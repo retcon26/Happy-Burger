@@ -308,6 +308,11 @@ static int e_pl_disguise(lua_State *s) {
     return 1;
 }
 
+static int e_pl_pickup(lua_State *s) {
+    lua_pushboolean(s, game_pl_pickup(slot_arg(s, 1), (int)luaL_checkinteger(s, 2)));
+    return 1;
+}
+
 static int e_pl_undisguise(lua_State *s) {
     game_pl_undisguise(slot_arg(s, 1));
     return 0;
@@ -770,7 +775,7 @@ int script_start(const char *map_name, const char *mode, int server, int client)
         {"pl_team", e_pl_team}, {"pl_set_team", e_pl_set_team}, {"pl_spawn", e_pl_spawn}, {"pl_set_pos", e_pl_set_pos},
         {"pl_kill", e_pl_kill}, {"pl_flag", e_pl_flag}, {"pl_set_flag", e_pl_set_flag}, {"pl_speed", e_pl_speed},
         {"pl_set_speed", e_pl_set_speed}, {"pl_model", e_pl_model}, {"pl_set_model", e_pl_set_model},
-        {"pl_disguise", e_pl_disguise}, {"pl_undisguise", e_pl_undisguise}, {"pl_disguise_name", e_pl_disguise_name},
+        {"pl_disguise", e_pl_disguise}, {"pl_pickup", e_pl_pickup}, {"pl_undisguise", e_pl_undisguise}, {"pl_disguise_name", e_pl_disguise_name},
         {"pl_weapon", e_pl_weapon}, {"pl_weapons", e_pl_weapons}, {"pl_set_weapons", e_pl_set_weapons},
         {"pl_select", e_pl_select}, {"pl_give_ammo", e_pl_give_ammo}, {"weapon_bit", e_weapon_bit},
         {"weapon_ids", e_weapon_ids}, {"message", e_message}, {"sound", e_sound}, {"ent_valid", e_ent_valid},

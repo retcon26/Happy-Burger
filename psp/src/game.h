@@ -55,7 +55,7 @@ void game_set_gamemode(const char *name);
 const char *game_gamemode(void);
 // What it allows (GM.Sandbox, GM.AllowPickup, GM.TeamBased) and how soon X respawns the dead
 // (GM.RespawnTime; < 0: only when the gamemode says). script.c sets them once the gamemode has loaded.
-enum { GMF_SANDBOX = 1, GMF_PICKUP = 2, GMF_TEAM_TAGS = 4, GMF_NO_HEALTH = 8 };
+enum { GMF_SANDBOX = 1, GMF_PICKUP = 2, GMF_TEAM_TAGS = 4, GMF_NO_HEALTH = 8, GMF_HANDS_USE = 16 };
 void game_gm_setup(int flags, float respawn_time);
 int game_is_server(void);    // this PSP runs the rules: single player or the host
 int game_is_dedicated(void); // ...with no player of its own
@@ -83,6 +83,7 @@ void game_pl_set_speed(int s, float k);
 int game_pl_model(int s);                            // forced player model (NPC type), -1: their own
 void game_pl_set_model(int s, int type);
 int game_pl_disguise(int s, int body);               // look like that prop (0 if it isn't one)
+int game_pl_pickup(int s, int body);                 // into their hands (this PSP's player only; 0 if not)
 void game_pl_undisguise(int s);
 const char *game_pl_disguise_name(int s);            // NULL when not disguised
 int game_pl_weapon(int s);                           // the weapon in hand (Weapon index)

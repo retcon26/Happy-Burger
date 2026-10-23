@@ -9,7 +9,8 @@
 -- (tools/burgerkit/level.py: the counter's line is x = 110 from the spawn, the door x = 640). On any other
 -- map it's built on an open bit of floor near a spawn point instead. Customers walk with NPC:SetGoal.
 GM.Name = "Happy Burger"
-GM.AllowPickup = true -- hold Use on food to carry it (R throws it)
+GM.AllowPickup = true -- D-pad Right on food carries it too
+GM.HandsUse = true    -- R on a station (the fridge, the bun rack...) takes from it; on food, picks it up
 GM.RespawnTime = 3
 GM.ShowHealth = false -- nobody gets hurt: no health or suit boxes
 
@@ -104,6 +105,7 @@ local boards = {}   -- the cutting boards' tops, where burgers and hot dogs are 
 local slots = {}    -- 1..WINDOWS: the customer at that window, or nil
 local leaving = {}  -- customers on their way out
 local fryer = {busy_until = 0}
+local next_bun = {} -- player -> "bun_top" when their next bun from the bun rack is a top one
 local grill_box     -- the grill's top centre
 local trash_pos
 local state = {phase = "prep", day = 1, ends = 0, next_customer = 0, money = 0, today = 0, rep = 3, served = 0, lost = 0}
@@ -649,7 +651,7 @@ local function start_day()
     for _, k in ipairs(menu(state.day)) do m[#m + 1] = MENU[k].name end
     PrintMessage(HUD_PRINTCENTER, "Day " .. state.day .. ": make $" .. quota(state.day))
     PrintMessage(HUD_PRINTTALK, "On the menu: " .. table.concat(m, ", "))
-    if state.day == 2 then PrintMessage(HUD_PRINTTALK, "New: Fries. Use the fryer and wait for the carton.") end
+    if state.day == 2 then PrintMessage(HUD_PRINTTALK, "New: Fries. R on the fryer, then wait for the carton.") end
     if state.day == 3 then
         PrintMessage(HUD_PRINTTALK, "New: Hot Dogs. Grill a sausage from the freezer, then put it and a bun on a board.")
     end
@@ -669,8 +671,9 @@ local function new_game()
     state.day, state.money, state.rep = 1, 0, 3
     for _, p in ipairs(player.GetAll()) do p:Spawn() end
     start_day()
-    PrintMessage(HUD_PRINTTALK, "Grill a patty from the fridge until it's brown. On a cutting board, stack a bottom "
-        .. "bun, the toppings on the ticket, the patty and a top bun. Put the burger on the customer's tray.")
+    PrintMessage(HUD_PRINTTALK, "R takes from the fridge, buns and bins, and picks food up and puts it down. "
+        .. "Grill a patty until it's brown; on a cutting board stack a bottom bun, the ticket's toppings, the patty "
+        .. "and a top bun; put the burger on the customer's tray. L throws.")
 end
 
 local function end_day()
@@ -771,13 +774,13 @@ local function tick_food()
 end
 
 local STATION_HINTS = {
-    fridge = "Fridge: Use for a raw patty",
-    buns = "Buns: Use for a bottom and a top bun",
-    cheese = "Cheese: Use for a slice",
-    lettuce = "Lettuce: Use for a leaf",
-    tomato = "Tomato: Use for a slice",
+    fridge = "Fridge: R for a raw patty",
+    buns = "Buns: R for a bun",
+    cheese = "Cheese: R for a slice",
+    lettuce = "Lettuce: R for a leaf",
+    tomato = "Tomato: R for a slice",
     board = "Cutting board: bottom bun, toppings, patty, top bun",
-    soda = "Soda machine: Use for a soda",
+    soda = "Soda machine: R for a soda",
     trash = "Bin: drop food here",
     grill = "Grill: cook patties and sausages on top",
     counter = "",
@@ -793,15 +796,17 @@ local function tick_hints()
             local f = food[e:EntIndex()]
             local s = stations[e:EntIndex()]
             if f then
-                hint = food_name(f) .. "   (hold Use: carry, R: throw)"
+                hint = food_name(f) .. "   (R: pick up / put down, L: throw)"
             elseif s then
                 if s.kind == "dogs" then
-                    hint = state.day >= 3 and "Freezer: Use for a raw sausage" or "Hot dogs: from day 3"
+                    hint = state.day >= 3 and "Freezer: R for a raw sausage" or "Hot dogs: from day 3"
                 elseif s.kind == "dogbuns" then
-                    hint = state.day >= 3 and "Hot dog buns: Use for one" or "Hot dogs: from day 3"
+                    hint = state.day >= 3 and "Hot dog buns: R for one" or "Hot dogs: from day 3"
+                elseif s.kind == "buns" then
+                    hint = "Buns: R for a " .. ((next_bun[p] or "bun_bottom") == "bun_top" and "top" or "bottom") .. " bun"
                 elseif s.kind == "fryer" then
                     hint = state.day < 2 and "Fryer: from day 2" or fryer.busy_until > 0 and "Frying..."
-                        or "Fryer: Use to fry fries"
+                        or "Fryer: R to fry fries"
                 else
                     hint = STATION_HINTS[s.kind] or ""
                 end
@@ -904,12 +909,12 @@ function GM:PlayerShouldTakeDamage(ply, attacker)
     return false -- mingebags' crowbars only annoy
 end
 
--- What Use on each station hands out: {food kinds, from which day, sound}
+-- What each station hands out: {food kind, from which day, sound}. The bun rack gives a bottom bun, then
+-- a top bun, then a bottom bun... (next_bun, per player)
 local GIVES = {
-    fridge = {{"patty"}, 1, "fridge"}, dogs = {{"sausage"}, 3, "fridge"},
-    buns = {{"bun_bottom", "bun_top"}, 1, "ingredient"}, dogbuns = {{"dog_bun"}, 3, "ingredient"},
-    cheese = {{"cheese"}, 1, "ingredient"}, lettuce = {{"lettuce"}, 1, "ingredient"},
-    tomato = {{"tomato"}, 1, "ingredient"}, soda = {{"soda"}, 1, "dispense"},
+    fridge = {"patty", 1, "fridge"}, dogs = {"sausage", 3, "fridge"}, buns = {"bun_bottom", 1, "ingredient"},
+    dogbuns = {"dog_bun", 3, "ingredient"}, cheese = {"cheese", 1, "ingredient"},
+    lettuce = {"lettuce", 1, "ingredient"}, tomato = {"tomato", 1, "ingredient"}, soda = {"soda", 1, "dispense"},
 }
 
 function GM:PlayerUse(ply, ent)
@@ -922,13 +927,17 @@ function GM:PlayerUse(ply, ent)
             ply:PrintMessage(HUD_PRINTCENTER, "Hot dogs are on the menu from day " .. give[2])
             return true
         end
-        -- In front of them, side by side when there are two (the buns)
-        local aim = ply:GetAimVector()
-        local side = Vector(-aim.y, aim.x, 0)
-        local front = ply:EyePos() + aim * 20 - Vector(0, 0, 14)
-        for k, kind in ipairs(give[1]) do
-            spawn_food(kind, front + side * ((k - (#give[1] + 1) / 2) * 12))
+        local kind = give[1]
+        if s.kind == "buns" then
+            kind = next_bun[ply] or "bun_bottom"
+            next_bun[ply] = kind == "bun_bottom" and "bun_top" or "bun_bottom"
         end
+        -- Straight into their hands; failing that (another player's PSP carries for them), in front of
+        -- them, short of the station (not inside it, where the physics would push it through the floor)
+        local eye, aim = ply:EyePos(), ply:GetAimVector()
+        local tr = util.TraceLine({start = eye, endpos = eye + aim * 60, filter = ply})
+        local e = spawn_food(kind, eye + aim * math.Clamp(tr.Fraction * 60 - 10, 4, 20))
+        if e then ply:PickUp(e) end
         sound.Play(give[3], ent:GetPos())
         return true
     elseif s.kind == "fryer" then

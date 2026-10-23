@@ -37,12 +37,13 @@ Play alone, or host and up to three friends join as staff, sharing the till.
 
 | Action | PSP |
 |---|---|
-| Get food (fridge, soda machine), start the fryer | D-pad Right (Use) |
-| Carry food | Hold D-pad Right on it; let go to drop it, R throws |
-| Pick up / drop with your hands | R |
-| Throw what's in your hands | L |
 | Walk / look | Analog stick / face buttons |
+| Grab: take from a station (fridge, buns, bins, fryer, soda machine), pick food up, put it down | R |
+| Throw what you're holding | L |
+| Jump (hands empty) | L |
+| Quick chat / talk (co-op) | Hold D-pad Down / Up |
 | Staff list | Hold Select |
+| Pause | Start |
 
 Look at anything in the kitchen and the bottom of the screen says what it is: a patty's doneness, or what a
 station does.
@@ -51,8 +52,8 @@ station does.
 
 The game has its own map, made for it: a kitchen behind a long counter, a dining room with booths, and the
 street outside, where customers come in through the front door. **Start Shift** on the title screen goes
-straight there; **Play Together** hosts a shift for up to three friends, and **Free Play** opens the sandbox
-and the other gamemodes on it.
+straight there, and **Play Together** hosts a shift for up to three friends or joins one. Options has the
+detail settings (draw distance, detail distance, physics quality, target FPS) and the basics.
 
 ## What's changed from the engine
 
@@ -65,7 +66,9 @@ and the other gamemodes on it.
   screen and credits. Options > Updates looks for releases of `retcon26/happy-burger`, not Retcon's Mod's (whose
   EBOOT would replace this game). Until that repository has a release, the check just fails harmlessly.
 
-The sandbox and the other gamemodes are all still there (Triangle on New Game picks one).
+- **Retcon's Mod's leftovers gone from the menus:** no Free Play (the sandbox), Workshop or Achievements;
+  Options keeps just the basics and the detail settings; R grabs from stations (`GM.HandsUse`). The engine's
+  sandbox and other gamemodes are still in the code, just not on the menus.
 
 ## Building
 

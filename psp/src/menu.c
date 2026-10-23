@@ -54,7 +54,7 @@ static const struct {
 #define NUM_CATS (int)(sizeof(k_cats) / sizeof(k_cats[0]))
 #define GRID_COLS 3
 
-static const char *k_main_items[] = {"Start Shift", "Play Together", "Free Play", "Options"};
+static const char *k_main_items[] = {"Start Shift", "Play Together", "Options"};
 // Start Shift and hosting go straight to the game: the burger joint, running Happy Burger
 #define SHIFT_MAP "burgerjoint"
 #define SHIFT_MODE "burger"
@@ -408,12 +408,6 @@ MenuResult menu_update(const InputState *in, float dt, char *map_out, int map_ou
             } else if (M.sel == 1) {
                 M.page = PAGE_MULTI;
                 M.multi_sel = 0;
-            } else if (M.sel == 2) {
-                // Free Play: any map, any gamemode (Triangle), the sandbox by default
-                M.page = PAGE_NEWGAME;
-                M.host = 0;
-                M.map_sel = 0;
-                M.scroll = 0;
             } else {
                 M.page = PAGE_OPTIONS;
             }
