@@ -29,7 +29,7 @@
 #include "ui.h"
 #include "version.h"
 
-#define REPO "retcon26/happy-burger" // its own releases: Retcon's Mod's EBOOT would replace the game
+#define REPO "retcon26/Happy-Burger" // its own releases: Retcon's Mod's EBOOT would replace the game
 #define ASSET "EBOOT.PBP"
 #define LOG_PATH "data/update.log"
 #define JSON_MAX (64 * 1024) // the release's JSON; its assets come before the long notes

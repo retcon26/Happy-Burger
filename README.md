@@ -83,7 +83,7 @@ detail settings (draw distance, detail distance, physics quality, target FPS) an
 - **The gamemode:** [psp/lua/gamemodes/burger.lua](psp/lua/gamemodes/burger.lua), built into the EBOOT, and New
   Game's default.
 - **Its own game:** the XMB title, `PSP/GAME/HappyBurger`, screenshots in `PSP/PHOTO/HappyBurger`, the title
-  screen and credits. Options > Updates looks for releases of `retcon26/happy-burger`, not Retcon's Mod's (whose
+  screen and credits. Options > Updates looks for releases of `retcon26/Happy-Burger`, not Retcon's Mod's (whose
   EBOOT would replace this game). Until that repository has a release, the check just fails harmlessly.
 
 - **Retcon's Mod's leftovers gone from the menus:** no Free Play (the sandbox), Workshop or Achievements;
